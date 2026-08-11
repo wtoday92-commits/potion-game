@@ -28,13 +28,19 @@ const LEVEL_DESC := {
 	4: "УР.4 — всё + механика (скоро)",
 }
 
-# Заглушки персонажей (этап 3 вынесет в ресурсы .tres).
+# Персонажи (этап 3 вынесет в ресурсы .tres). img — файл портрета в assets/npc/,
+# emoji — фолбэк, если текстура ещё не импортирована Godot.
 const NPCS := [
-	{"emoji": "🛰", "name": "Служебный дрон",  "flavor": "Смесь для смазки шлюза. Стандарт."},
-	{"emoji": "🐙", "name": "Тентаклоид",       "flavor": "Что-нибудь... со вкусом. Удиви."},
-	{"emoji": "👽", "name": "Гурман с Веги",     "flavor": "Три глаза — три придирки."},
-	{"emoji": "🤖", "name": "Логик-9",           "flavor": "Допуск — это не пожелание, а требование."},
-	{"emoji": "🎧", "name": "Диджей Пульсар",    "flavor": "Дай что-нибудь под бит."},
+	{"img": "drone",       "emoji": "🛰", "name": "Служебный дрон",      "flavor": "Смесь для смазки шлюза. Стандарт."},
+	{"img": "tentacloid",  "emoji": "🐙", "name": "Тентаклоид",           "flavor": "Что-нибудь... со вкусом. Удиви."},
+	{"img": "gurman",      "emoji": "👽", "name": "Гурман с Веги",        "flavor": "Три глаза — три придирки."},
+	{"img": "dj",          "emoji": "🎧", "name": "Диджей Пульсар",       "flavor": "Дай что-нибудь под бит."},
+	{"img": "janitor",     "emoji": "🪣", "name": "Уборщик Пятого Дока",  "flavor": "Ведро смеси. Только не пахучую."},
+	{"img": "bip",         "emoji": "📦", "name": "Стажёр Бип",           "flavor": "Э-это мой первый заказ... Любую?"},
+	{"img": "khrom",       "emoji": "🚚", "name": "Дальнобойщик Хром",    "flavor": "Залей чего-нибудь. Время — топливо."},
+	{"img": "fashionista", "emoji": "💅", "name": "Модница с Кассиопеи",  "flavor": "Мне — только по последней моде."},
+	{"img": "collector",   "emoji": "🔍", "name": "Коллекционер Гз",      "flavor": "Ищу одну, совершенно определённую."},
+	{"img": "kai",         "emoji": "🏎", "name": "Гонщица Кай",          "flavor": "Быстро. Очень быстро."},
 ]
 
 const MEMORIZE_S := 2.5
@@ -56,6 +62,7 @@ var phase_label: Label
 var phase_bar: ProgressBar
 var select_panel: Panel
 var npc_portrait: Label
+var npc_portrait_tex: TextureRect
 var npc_name: Label
 var npc_flavor: Label
 var result_panel: Panel
@@ -79,6 +86,17 @@ func _build_ui() -> void:
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
+
+	# космический фон (если импортирован) — приглушён, чтобы UI читался
+	var bgtex := load("res://assets/bg/space.png") as Texture2D
+	if bgtex:
+		var bt := TextureRect.new()
+		bt.texture = bgtex
+		bt.set_anchors_preset(Control.PRESET_FULL_RECT)
+		bt.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		bt.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bt.modulate = Color(1, 1, 1, 0.5)
+		add_child(bt)
 
 	# ---- UI раунда ----
 	round_ui = VBoxContainer.new()
@@ -158,7 +176,14 @@ func _build_ui() -> void:
 	title.add_theme_font_size_override("font_size", 22)
 	sv.add_child(title)
 
-	npc_portrait = Label.new()
+	npc_portrait_tex = TextureRect.new()
+	npc_portrait_tex.custom_minimum_size = Vector2(200, 200)
+	npc_portrait_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	npc_portrait_tex.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	npc_portrait_tex.visible = false
+	sv.add_child(npc_portrait_tex)
+
+	npc_portrait = Label.new()   # фолбэк-эмодзи, если текстура не импортирована
 	npc_portrait.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	npc_portrait.add_theme_font_size_override("font_size", 72)
 	sv.add_child(npc_portrait)
@@ -229,7 +254,16 @@ func _show_select() -> void:
 	round_ui.visible = false
 	select_panel.visible = true
 	npc = NPCS[randi() % NPCS.size()]
-	npc_portrait.text = npc["emoji"]
+	# реальный портрет, если импортирован; иначе — эмодзи-фолбэк
+	var tex := load("res://assets/npc/%s.png" % npc["img"]) as Texture2D
+	if tex:
+		npc_portrait_tex.texture = tex
+		npc_portrait_tex.visible = true
+		npc_portrait.visible = false
+	else:
+		npc_portrait_tex.visible = false
+		npc_portrait.visible = true
+		npc_portrait.text = npc["emoji"]
 	npc_name.text = npc["name"]
 	npc_flavor.text = "«%s»" % npc["flavor"]
 
