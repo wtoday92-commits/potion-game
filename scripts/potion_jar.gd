@@ -1,24 +1,54 @@
 extends Control
-## Банка-зелье через шейдер (jar.gdshader). Геометрию тела и позиции сгустков
-## считаем здесь и передаём в шейдер униформами; вся отрисовка — в шейдере.
+## Банка = нарисованная бутыль (bottle.png) + живая жидкость/сгустки ВНУТРИ неё
+## (liquid.gdshader, клип по маске интерьера). «Объём» масштабирует всю бутыль
+## (сосуд всегда почти полон). Текстуры грузим через load() — если Godot ещё не
+## импортировал их, банка просто пустая до импорта (без падения).
 
-var hue: float = 120.0     # спектр 0..360
-var vsize: float = 0.6     # объём/размер сосуда 0..1
-var count: int = 5         # число сгустков
-var bsize: float = 0.5     # размер сгустка 0..1
-var pot_seed: int = 1      # сид раскладки сгустков
+const LiquidShader := preload("res://shaders/liquid.gdshader")
 
-var glass: ColorRect
+# Границы интерьера стекла в UV (замерены по bottle_interior.png).
+const I_TOP := 0.150
+const I_BOT := 0.953
+const I_LEFT := 0.240
+const I_RIGHT := 0.746
+const FILL := 0.88     # сосуд почти полон
+
+var hue: float = 120.0
+var vsize: float = 0.6
+var count: int = 5
+var bsize: float = 0.5
+var pot_seed: int = 1
+
+var content: Control
+var liquid: ColorRect
+var bottle: TextureRect
 var mat: ShaderMaterial
 
 func _ready() -> void:
+	content = Control.new()
+	content.set_anchors_preset(Control.PRESET_FULL_RECT)
+	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(content)
+
+	liquid = ColorRect.new()
+	liquid.set_anchors_preset(Control.PRESET_FULL_RECT)
+	liquid.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	mat = ShaderMaterial.new()
-	mat.shader = preload("res://shaders/jar.gdshader")
-	glass = ColorRect.new()
-	glass.set_anchors_preset(Control.PRESET_FULL_RECT)
-	glass.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	glass.material = mat
-	add_child(glass)
+	mat.shader = LiquidShader
+	var mask_tex := load("res://assets/bottle/bottle_interior.png") as Texture2D
+	if mask_tex:
+		mat.set_shader_parameter("mask", mask_tex)
+	liquid.material = mat
+	content.add_child(liquid)
+
+	bottle = TextureRect.new()
+	bottle.texture = load("res://assets/bottle/bottle.png") as Texture2D
+	bottle.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bottle.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	bottle.stretch_mode = TextureRect.STRETCH_SCALE
+	bottle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content.add_child(bottle)
+
 	resized.connect(_apply)
 	_apply()
 
@@ -31,44 +61,41 @@ func set_potion(h: float, v: float, c: int, b: float, s: int) -> void:
 	_apply()
 
 func _apply() -> void:
-	if mat == null:
+	if mat == null or content == null or size.x <= 0.0 or size.y <= 0.0:
 		return
-	var w: float = size.x
-	var h: float = size.y
-	if w <= 0.0 or h <= 0.0:
-		return
+	# «Объём» масштабирует всю бутыль (вокруг центра)
+	var sc: float = lerpf(0.62, 1.0, vsize)
+	content.pivot_offset = size * 0.5
+	content.scale = Vector2(sc, sc)
 
-	var scale: float = lerpf(0.5, 0.95, vsize)
-	var bw_px: float = w * 0.7 * scale
-	var bh_px: float = (h - 30.0) * scale
-	var cx_px: float = w * 0.5
-	var top_px: float = h - bh_px - 8.0
+	var ar: float = size.x / size.y
+	mat.set_shader_parameter("liquid_col", Color.from_hsv(fposmod(hue, 360.0) / 360.0, 0.72, 0.95))
+	mat.set_shader_parameter("fill", FILL)
+	mat.set_shader_parameter("interior_top", I_TOP)
+	mat.set_shader_parameter("interior_bot", I_BOT)
+	mat.set_shader_parameter("interior_left", I_LEFT)
+	mat.set_shader_parameter("interior_right", I_RIGHT)
+	mat.set_shader_parameter("aspect", ar)
 
-	mat.set_shader_parameter("liquid_col", Color.from_hsv(fposmod(hue, 360.0) / 360.0, 0.7, 0.95))
-	mat.set_shader_parameter("body_min", Vector2((cx_px - bw_px * 0.5) / w, top_px / h))
-	mat.set_shader_parameter("body_size", Vector2(bw_px / w, bh_px / h))
-	mat.set_shader_parameter("fill", 0.9)
-	mat.set_shader_parameter("corner", 14.0 / h)
-	mat.set_shader_parameter("aspect", w / h)
-
-	# сгустки: детерминированная раскладка в зоне жидкости
-	var liq_top_px: float = top_px + bh_px * (1.0 - 0.9)
+	# сгустки в зоне жидкости (в UV)
+	var liq_top: float = I_BOT - (I_BOT - I_TOP) * FILL
+	var r_uv: float = lerpf(0.02, 0.055, bsize)
+	var mx: float = r_uv / max(0.0001, ar)   # x сжат аспектом
 	var rng := RandomNumberGenerator.new()
 	rng.seed = pot_seed
-	var r_px: float = lerpf(6.0, 18.0, bsize)
 	var arr := PackedVector4Array()
 	for i in count:
 		if i >= 12:
 			break
-		var minx: float = (cx_px - bw_px * 0.5) + r_px + 2.0
-		var maxx: float = (cx_px + bw_px * 0.5) - r_px - 2.0
-		var miny: float = liq_top_px + r_px + 2.0
-		var maxy: float = (top_px + bh_px) - r_px - 2.0
+		var minx: float = I_LEFT + mx
+		var maxx: float = I_RIGHT - mx
+		var miny: float = liq_top + r_uv
+		var maxy: float = I_BOT - r_uv
 		if maxx <= minx or maxy <= miny:
 			break
 		var bx: float = minx + rng.randf() * (maxx - minx)
 		var by: float = miny + rng.randf() * (maxy - miny)
-		arr.append(Vector4(bx / w, by / h, r_px / h, 0.0))
+		arr.append(Vector4(bx, by, r_uv, 0.0))
 	while arr.size() < 12:
 		arr.append(Vector4(0.0, 0.0, 0.0, 0.0))
 	mat.set_shader_parameter("blobs", arr)
