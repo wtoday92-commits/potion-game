@@ -40,17 +40,21 @@ const LEVEL_DESC := {
 # Персонажи (этап 3 вынесет в ресурсы .tres). img — файл портрета в assets/npc/,
 # emoji — фолбэк, если текстура ещё не импортирована Godot.
 const NPCS := [
-	{"img": "drone",       "emoji": "🛰", "name": "Служебный дрон",      "flavor": "Смесь для смазки шлюза. Стандарт."},
-	{"img": "tentacloid",  "emoji": "🐙", "name": "Тентаклоид",           "flavor": "Что-нибудь... со вкусом. Удиви."},
-	{"img": "gurman",      "emoji": "👽", "name": "Гурман с Веги",        "flavor": "Три глаза — три придирки."},
-	{"img": "dj",          "emoji": "🎧", "name": "Диджей Пульсар",       "flavor": "Дай что-нибудь под бит."},
-	{"img": "janitor",     "emoji": "🪣", "name": "Уборщик Пятого Дока",  "flavor": "Ведро смеси. Только не пахучую."},
-	{"img": "bip",         "emoji": "📦", "name": "Стажёр Бип",           "flavor": "Э-это мой первый заказ... Любую?"},
-	{"img": "khrom",       "emoji": "🚚", "name": "Дальнобойщик Хром",    "flavor": "Залей чего-нибудь. Время — топливо."},
-	{"img": "fashionista", "emoji": "💅", "name": "Модница с Кассиопеи",  "flavor": "Мне — только по последней моде."},
-	{"img": "collector",   "emoji": "🔍", "name": "Коллекционер Гз",      "flavor": "Ищу одну, совершенно определённую."},
-	{"img": "kai",         "emoji": "🏎", "name": "Гонщица Кай",          "flavor": "Быстро. Очень быстро."},
+	{"img": "drone",       "emoji": "🛰", "tier": 1, "name": "Служебный дрон",      "flavor": "Смесь для смазки шлюза. Стандарт."},
+	{"img": "bip",         "emoji": "📦", "tier": 1, "name": "Стажёр Бип",           "flavor": "Э-это мой первый заказ... Любую?"},
+	{"img": "janitor",     "emoji": "🪣", "tier": 1, "name": "Уборщик Пятого Дока",  "flavor": "Ведро смеси. Только не пахучую."},
+	{"img": "khrom",       "emoji": "🚚", "tier": 1, "name": "Дальнобойщик Хром",    "flavor": "Залей чего-нибудь. Время — топливо."},
+	{"img": "dj",          "emoji": "🎧", "tier": 2, "name": "Диджей Пульсар",       "flavor": "Дай что-нибудь под бит."},
+	{"img": "fashionista", "emoji": "💅", "tier": 2, "name": "Модница с Кассиопеи",  "flavor": "Мне — только по последней моде."},
+	{"img": "collector",   "emoji": "🔍", "tier": 2, "name": "Коллекционер Гз",      "flavor": "Ищу одну, совершенно определённую."},
+	{"img": "tentacloid",  "emoji": "🐙", "tier": 2, "name": "Тентаклоид",           "flavor": "Что-нибудь... со вкусом. Удиви."},
+	{"img": "gurman",      "emoji": "👽", "tier": 3, "name": "Гурман с Веги",        "flavor": "Три глаза — три придирки."},
+	{"img": "kai",         "emoji": "🏎", "tier": 4, "name": "Гонщица Кай",          "flavor": "Быстро. Очень быстро."},
 ]
+# Цвета тиров (как в веб-версии): 1 зелёный, 2 жёлтый, 3 оранжевый, 4 красный, 5 фиолетовый.
+const TIER_COLORS := {
+	1: Color("5dff8f"), 2: Color("ffe14d"), 3: Color("ff9e3d"), 4: Color("ff5d6a"), 5: Color("c07bff"),
+}
 
 const MEMORIZE_S := 2.5
 const CRAFT_S := 14.0
@@ -73,6 +77,8 @@ var select_panel: Control
 var npc_portrait: Label
 var npc_portrait_tex: TextureRect
 var frame_ring: TextureRect
+var tier_glow: Panel
+var tier_badge: Label
 var npc_name: Label
 var npc_flavor: Label
 var result_panel: Control
@@ -183,6 +189,15 @@ func _build_ui() -> void:
 	frame.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	sv.add_child(frame)
 
+	tier_glow = Panel.new()               # цветное свечение тира за рамкой (позади всего)
+	tier_glow.set_anchors_preset(Control.PRESET_FULL_RECT)
+	tier_glow.offset_left = -8.0
+	tier_glow.offset_top = -8.0
+	tier_glow.offset_right = 8.0
+	tier_glow.offset_bottom = 8.0
+	tier_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.add_child(tier_glow)
+
 	npc_portrait_tex = TextureRect.new()
 	npc_portrait_tex.set_anchors_preset(Control.PRESET_FULL_RECT)
 	npc_portrait_tex.offset_left = 43.0
@@ -215,6 +230,11 @@ func _build_ui() -> void:
 	npc_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	npc_name.add_theme_font_size_override("font_size", 26)
 	sv.add_child(npc_name)
+
+	tier_badge = Label.new()
+	tier_badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tier_badge.add_theme_font_size_override("font_size", 13)
+	sv.add_child(tier_badge)
 
 	npc_flavor = Label.new()
 	npc_flavor.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -307,6 +327,18 @@ func _show_select() -> void:
 		npc_portrait.text = npc["emoji"]
 	npc_name.text = npc["name"]
 	npc_flavor.text = "«%s»" % npc["flavor"]
+	# тир: цвет имени + бейдж + цветное свечение за рамкой
+	var tier: int = int(npc.get("tier", 1))
+	var tcol: Color = TIER_COLORS.get(tier, Color.WHITE)
+	npc_name.add_theme_color_override("font_color", tcol)
+	tier_badge.text = "★ ТИР %d" % tier
+	tier_badge.add_theme_color_override("font_color", tcol)
+	var gsb := StyleBoxFlat.new()
+	gsb.bg_color = Color(tcol.r, tcol.g, tcol.b, 0.10)
+	gsb.set_corner_radius_all(200)                 # большой радиус → круг
+	gsb.shadow_color = Color(tcol.r, tcol.g, tcol.b, 0.55)
+	gsb.shadow_size = 22
+	tier_glow.add_theme_stylebox_override("panel", gsb)
 
 # ---------- начало раунда ----------
 func _start_round(lvl: int) -> void:
