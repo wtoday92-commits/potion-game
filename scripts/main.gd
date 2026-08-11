@@ -5,6 +5,14 @@ extends Control
 
 const PotionJarScene := preload("res://scenes/potion_jar.tscn")
 const GameFrameScene := preload("res://scenes/game_frame.tscn")
+const WoodShader := preload("res://shaders/wood.gdshader")
+const PortraitEdge := preload("res://scripts/portrait_edge.gd")
+
+func _make_wood_material(planks_val: float) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = WoodShader
+	m.set_shader_parameter("planks", planks_val)
+	return m
 
 # Параметры зелья. count.min = 1 (нулевых сгустков не бывает).
 const PARAMS := {
@@ -61,12 +69,12 @@ var round_ui: VBoxContainer
 var jar: Control
 var phase_label: Label
 var phase_bar: ProgressBar
-var select_panel: Panel
+var select_panel: Control
 var npc_portrait: Label
 var npc_portrait_tex: TextureRect
 var npc_name: Label
 var npc_flavor: Label
-var result_panel: Panel
+var result_panel: Control
 var result_sticker: Label
 var result_detail: Label
 
@@ -82,22 +90,12 @@ func _ready() -> void:
 
 # ---------- построение интерфейса ----------
 func _build_ui() -> void:
+	# фон — потёртое дерево (бар); шейдер, без внешних текстур
 	var bg := ColorRect.new()
-	bg.color = Color(0.04, 0.05, 0.09)
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bg.material = _make_wood_material(8.0)
 	add_child(bg)
-
-	# космический фон (если импортирован) — приглушён, чтобы UI читался
-	var bgtex := load("res://assets/bg/space.png") as Texture2D
-	if bgtex:
-		var bt := TextureRect.new()
-		bt.texture = bgtex
-		bt.set_anchors_preset(Control.PRESET_FULL_RECT)
-		bt.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-		bt.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		bt.modulate = Color(1, 1, 1, 0.4)
-		add_child(bt)
 
 	# ---- UI раунда ----
 	round_ui = VBoxContainer.new()
@@ -168,7 +166,7 @@ func _build_ui() -> void:
 
 	# ---- экран выбора ----
 	select_panel = _make_center_panel()
-	var sv := select_panel.get_node("C/V") as VBoxContainer
+	var sv := select_panel.get_node("C/Card/V") as VBoxContainer
 	sv.add_theme_constant_override("separation", 12)
 
 	var title := Label.new()
@@ -177,24 +175,24 @@ func _build_ui() -> void:
 	title.add_theme_font_size_override("font_size", 22)
 	sv.add_child(title)
 
-	# портрет в аккуратной скруглённой рамке фиксированного размера
-	var frame := Panel.new()
-	frame.custom_minimum_size = Vector2(236, 236)
+	# портрет в ДЕРЕВЯННОЙ рамке: текстура дерева + гвозди, портрет утоплен внутрь
+	var frame := Control.new()
+	frame.custom_minimum_size = Vector2(240, 240)
 	frame.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	var fsb := StyleBoxFlat.new()
-	fsb.bg_color = Color(0.06, 0.08, 0.16, 0.92)
-	fsb.set_corner_radius_all(18)
-	fsb.set_border_width_all(3)
-	fsb.border_color = Color(0.35, 0.88, 1.0, 0.85)
-	frame.add_theme_stylebox_override("panel", fsb)
 	sv.add_child(frame)
+
+	var pwood := ColorRect.new()          # деревянная поверхность рамки
+	pwood.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pwood.material = _make_wood_material(2.4)
+	pwood.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.add_child(pwood)
 
 	npc_portrait_tex = TextureRect.new()
 	npc_portrait_tex.set_anchors_preset(Control.PRESET_FULL_RECT)
-	npc_portrait_tex.offset_left = 8.0
-	npc_portrait_tex.offset_top = 8.0
-	npc_portrait_tex.offset_right = -8.0
-	npc_portrait_tex.offset_bottom = -8.0
+	npc_portrait_tex.offset_left = 16.0
+	npc_portrait_tex.offset_top = 16.0
+	npc_portrait_tex.offset_right = -16.0
+	npc_portrait_tex.offset_bottom = -16.0
 	npc_portrait_tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE       # НЕ раздуваться до размера текстуры
 	npc_portrait_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	npc_portrait_tex.visible = false
@@ -206,6 +204,11 @@ func _build_ui() -> void:
 	npc_portrait.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	npc_portrait.add_theme_font_size_override("font_size", 72)
 	frame.add_child(npc_portrait)
+
+	var pedge := Control.new()            # тень проёма + гвозди (поверх всего)
+	pedge.set_script(PortraitEdge)
+	pedge.set_anchors_preset(Control.PRESET_FULL_RECT)
+	frame.add_child(pedge)
 
 	npc_name = Label.new()
 	npc_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -232,7 +235,7 @@ func _build_ui() -> void:
 
 	# ---- экран результата ----
 	result_panel = _make_center_panel()
-	var rv := result_panel.get_node("C/V") as VBoxContainer
+	var rv := result_panel.get_node("C/Card/V") as VBoxContainer
 	rv.add_theme_constant_override("separation", 14)
 
 	result_sticker = Label.new()
@@ -253,21 +256,35 @@ func _build_ui() -> void:
 	# металлическая рамка-обрамление — поверх всего (клики не перехватывает)
 	add_child(GameFrameScene.instantiate())
 
-# Панель на весь экран с центрированным VBox по пути "C/V".
-func _make_center_panel() -> Panel:
-	var panel := Panel.new()
-	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	panel.visible = false
-	add_child(panel)
+# Прозрачный слой на весь экран (дерево-фон просвечивает) с тёмной карточкой
+# по центру; контент — VBox по пути "C/Card/V".
+func _make_center_panel() -> Control:
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.visible = false
+	add_child(root)
 	var c := CenterContainer.new()
 	c.name = "C"
 	c.set_anchors_preset(Control.PRESET_FULL_RECT)
-	panel.add_child(c)
+	root.add_child(c)
+	var card := PanelContainer.new()
+	card.name = "Card"
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.05, 0.04, 0.07, 0.84)
+	sb.set_corner_radius_all(16)
+	sb.set_border_width_all(2)
+	sb.border_color = Color(0.35, 0.24, 0.13, 0.85)   # деревянно-коричневая кайма
+	sb.content_margin_left = 24.0
+	sb.content_margin_right = 24.0
+	sb.content_margin_top = 20.0
+	sb.content_margin_bottom = 20.0
+	card.add_theme_stylebox_override("panel", sb)
+	c.add_child(card)
 	var v := VBoxContainer.new()
 	v.name = "V"
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	c.add_child(v)
-	return panel
+	card.add_child(v)
+	return root
 
 # ---------- экран выбора ----------
 func _show_select() -> void:
