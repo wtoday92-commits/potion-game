@@ -1,7 +1,6 @@
 extends Control
-## Рисованная банка-зелье (этап 1). «Объём» масштабирует САМ сосуд (как в
-## оригинале), а не уровень жидкости — сосуд всегда почти полон. Скруглённое
-## тело + горлышко + крышка. Позже заменим на шейдер/красивый арт.
+## Банка-зелье через шейдер (jar.gdshader). Геометрию тела и позиции сгустков
+## считаем здесь и передаём в шейдер униформами; вся отрисовка — в шейдере.
 
 var hue: float = 120.0     # спектр 0..360
 var vsize: float = 0.6     # объём/размер сосуда 0..1
@@ -9,75 +8,68 @@ var count: int = 5         # число сгустков
 var bsize: float = 0.5     # размер сгустка 0..1
 var pot_seed: int = 1      # сид раскладки сгустков
 
+var glass: ColorRect
+var mat: ShaderMaterial
+
+func _ready() -> void:
+	mat = ShaderMaterial.new()
+	mat.shader = preload("res://shaders/jar.gdshader")
+	glass = ColorRect.new()
+	glass.set_anchors_preset(Control.PRESET_FULL_RECT)
+	glass.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	glass.material = mat
+	add_child(glass)
+	resized.connect(_apply)
+	_apply()
+
 func set_potion(h: float, v: float, c: int, b: float, s: int) -> void:
 	hue = h
 	vsize = clampf(v, 0.0, 1.0)
 	count = max(0, c)
 	bsize = clampf(b, 0.0, 1.0)
 	pot_seed = s
-	queue_redraw()
+	_apply()
 
-func _draw() -> void:
+func _apply() -> void:
+	if mat == null:
+		return
 	var w: float = size.x
 	var h: float = size.y
 	if w <= 0.0 or h <= 0.0:
 		return
 
-	# сосуд масштабируется по объёму (45%..100% доступной области); место сверху
-	# под горлышко/крышку.
-	var scale: float = lerpf(0.45, 1.0, vsize)
-	var bw: float = w * scale
-	var bh: float = (h - 34.0) * scale
-	var cx: float = w * 0.5
-	var body_top: float = h - bh - 6.0
-	var body := Rect2(cx - bw * 0.5, body_top, bw, bh)
+	var scale: float = lerpf(0.5, 0.95, vsize)
+	var bw_px: float = w * 0.7 * scale
+	var bh_px: float = (h - 30.0) * scale
+	var cx_px: float = w * 0.5
+	var top_px: float = h - bh_px - 8.0
 
-	var glass := Color(0.09, 0.11, 0.2, 0.55)
-	var col := Color.from_hsv(fposmod(hue, 360.0) / 360.0, 0.65, 0.92)
+	mat.set_shader_parameter("liquid_col", Color.from_hsv(fposmod(hue, 360.0) / 360.0, 0.7, 0.95))
+	mat.set_shader_parameter("body_min", Vector2((cx_px - bw_px * 0.5) / w, top_px / h))
+	mat.set_shader_parameter("body_size", Vector2(bw_px / w, bh_px / h))
+	mat.set_shader_parameter("fill", 0.9)
+	mat.set_shader_parameter("corner", 14.0 / h)
+	mat.set_shader_parameter("aspect", w / h)
 
-	# тело (скруглённое стекло)
-	_rrect(body, glass, 16.0)
-
-	# жидкость — сосуд почти полон (90%), низ скруглён
-	var liq_full := body.grow(-4.0)
-	var fill_frac := 0.90
-	var liq := Rect2(
-		liq_full.position.x,
-		liq_full.position.y + liq_full.size.y * (1.0 - fill_frac),
-		liq_full.size.x,
-		liq_full.size.y * fill_frac)
-	_rrect(liq, col, 12.0)
-
-	# сгустки (детерминированно по сиду)
+	# сгустки: детерминированная раскладка в зоне жидкости
+	var liq_top_px: float = top_px + bh_px * (1.0 - 0.9)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = pot_seed
-	var r: float = lerpf(4.0, 15.0, bsize)
+	var r_px: float = lerpf(6.0, 18.0, bsize)
+	var arr := PackedVector4Array()
 	for i in count:
-		if liq.size.x <= r * 2.0 or liq.size.y <= r * 2.0:
+		if i >= 12:
 			break
-		var bx: float = liq.position.x + r + rng.randf() * (liq.size.x - r * 2.0)
-		var by: float = liq.position.y + r + rng.randf() * (liq.size.y - r * 2.0)
-		draw_circle(Vector2(bx, by), r, col.lightened(0.35))
-		draw_arc(Vector2(bx, by), r, 0.0, TAU, 20, Color(0, 0, 0, 0.4), 1.5)
-
-	# горлышко + крышка
-	var neck_w: float = bw * 0.32
-	_rrect(Rect2(cx - neck_w * 0.5, body_top - 14.0, neck_w, 16.0), glass, 4.0)
-	_rrect(Rect2(cx - neck_w * 0.6, body_top - 22.0, neck_w * 1.2, 10.0), Color(0.2, 0.5, 0.7, 0.95), 4.0)
-
-	# контур тела
-	_rrect_outline(body, Color(0.35, 0.88, 1.0, 0.9), 16.0, 2.0)
-
-func _rrect(rect: Rect2, color: Color, radius: float) -> void:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = color
-	sb.set_corner_radius_all(int(radius))
-	draw_style_box(sb, rect)
-
-func _rrect_outline(rect: Rect2, color: Color, radius: float, width: float) -> void:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0, 0, 0, 0)
-	sb.border_color = color
-	sb.set_border_width_all(int(width))
-	sb.set_corner_radius_all(int(radius))
-	draw_style_box(sb, rect)
+		var minx: float = (cx_px - bw_px * 0.5) + r_px + 2.0
+		var maxx: float = (cx_px + bw_px * 0.5) - r_px - 2.0
+		var miny: float = liq_top_px + r_px + 2.0
+		var maxy: float = (top_px + bh_px) - r_px - 2.0
+		if maxx <= minx or maxy <= miny:
+			break
+		var bx: float = minx + rng.randf() * (maxx - minx)
+		var by: float = miny + rng.randf() * (maxy - miny)
+		arr.append(Vector4(bx / w, by / h, r_px / h, 0.0))
+	while arr.size() < 12:
+		arr.append(Vector4(0.0, 0.0, 0.0, 0.0))
+	mat.set_shader_parameter("blobs", arr)
+	mat.set_shader_parameter("blob_n", mini(count, 12))
