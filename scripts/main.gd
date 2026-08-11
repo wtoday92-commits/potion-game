@@ -90,11 +90,11 @@ func _ready() -> void:
 
 # ---------- построение интерфейса ----------
 func _build_ui() -> void:
-	# фон — потёртое дерево (бар); шейдер, без внешних текстур
+	# фон — временная нейтральная заливка (свой фон поставишь позже, генерацией)
 	var bg := ColorRect.new()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bg.material = _make_wood_material(8.0)
+	bg.color = Color(0.06, 0.06, 0.085)
 	add_child(bg)
 
 	# ---- UI раунда ----
