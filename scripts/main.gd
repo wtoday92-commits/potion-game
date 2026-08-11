@@ -4,6 +4,7 @@ extends Control
 ## (ЗАПОМНИ -> ВОССОЗДАЙ с таймерами -> РЕЙТИНГ).
 
 const PotionJarScene := preload("res://scenes/potion_jar.tscn")
+const GameFrameScene := preload("res://scenes/game_frame.tscn")
 
 # Параметры зелья. count.min = 1 (нулевых сгустков не бывает).
 const PARAMS := {
@@ -101,10 +102,10 @@ func _build_ui() -> void:
 	# ---- UI раунда ----
 	round_ui = VBoxContainer.new()
 	round_ui.set_anchors_preset(Control.PRESET_FULL_RECT)
-	round_ui.offset_left = 24.0
-	round_ui.offset_top = 24.0
-	round_ui.offset_right = -24.0
-	round_ui.offset_bottom = -24.0
+	round_ui.offset_left = 36.0
+	round_ui.offset_top = 36.0
+	round_ui.offset_right = -36.0
+	round_ui.offset_bottom = -36.0
 	round_ui.add_theme_constant_override("separation", 14)
 	add_child(round_ui)
 
@@ -248,6 +249,9 @@ func _build_ui() -> void:
 	again.custom_minimum_size = Vector2(0, 48)
 	again.pressed.connect(_show_select)
 	rv.add_child(again)
+
+	# металлическая рамка-обрамление — поверх всего (клики не перехватывает)
+	add_child(GameFrameScene.instantiate())
 
 # Панель на весь экран с центрированным VBox по пути "C/V".
 func _make_center_panel() -> Panel:
