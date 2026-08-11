@@ -1,12 +1,12 @@
 extends Control
 ## Ядро игрового цикла (этап 1):
-##   ЗАПОМНИ (показ цели) -> ВОССОЗДАЙ (ползунки) -> РЕЙТИНГ -> РЕЗУЛЬТАТ.
-## UI пока строится кодом (надёжно для первого запуска). Позже вынесем в сцены.
+##   ЗАПОМНИ (показ цели, таймер) -> ВОССОЗДАЙ (ползунки, таймер) -> РЕЙТИНГ.
+## Обе фазы с ВИДИМЫМ таймером (полоса + секунды); по нулю — авто-переход/финиш.
+## UI строится кодом (надёжно для первого запуска), позже вынесем в сцены.
 
 const PotionJarScene := preload("res://scenes/potion_jar.tscn")
 
-# Параметры зелья: границы/шаг/вес/подпись. Дот-доступ к словарям не используем —
-# только через ["ключ"], так надёжнее.
+# Параметры зелья (как в оригинале): цвет, объём СОСУДА, число сгустков, размер сгустка.
 const PARAMS := {
 	"color":  {"min": 0.0,  "max": 360.0, "step": 5.0, "weight": 1.0, "label": "Спектр",  "suffix": "°"},
 	"volume": {"min": 10.0, "max": 100.0, "step": 1.0, "weight": 1.0, "label": "Объём",   "suffix": "%"},
@@ -16,6 +16,7 @@ const PARAMS := {
 const ORDER: Array = ["color", "volume", "count", "bsize"]
 
 const MEMORIZE_S := 2.5
+const CRAFT_S := 14.0
 const GOOD := 0.80
 const PERFECT := 0.95
 
@@ -24,11 +25,14 @@ var sliders: Dictionary = {}
 var value_labels: Dictionary = {}
 var jar: Control
 var phase_label: Label
+var phase_bar: ProgressBar
 var result_panel: Panel
 var result_sticker: Label
 var result_detail: Label
 var seed_val: int = 0
 var phase: String = "idle"
+var phase_left: float = 0.0
+var phase_total: float = 1.0
 
 func _ready() -> void:
 	randomize()
@@ -49,13 +53,21 @@ func _build_ui() -> void:
 	root.offset_top = 24.0
 	root.offset_right = -24.0
 	root.offset_bottom = -24.0
-	root.add_theme_constant_override("separation", 16)
+	root.add_theme_constant_override("separation", 14)
 	add_child(root)
 
 	phase_label = Label.new()
 	phase_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	phase_label.add_theme_font_size_override("font_size", 28)
 	root.add_child(phase_label)
+
+	phase_bar = ProgressBar.new()
+	phase_bar.custom_minimum_size = Vector2(0, 14)
+	phase_bar.min_value = 0.0
+	phase_bar.max_value = 1.0
+	phase_bar.value = 1.0
+	phase_bar.show_percentage = false
+	root.add_child(phase_bar)
 
 	var jar_center := CenterContainer.new()
 	jar_center.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -83,7 +95,7 @@ func _build_ui() -> void:
 		s.min_value = p["min"]
 		s.max_value = p["max"]
 		s.step = p["step"]
-		s.custom_minimum_size = Vector2(44, 260)
+		s.custom_minimum_size = Vector2(44, 240)
 		s.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		s.value_changed.connect(_on_slider_changed.bind(key))
 		col.add_child(s)
@@ -130,25 +142,41 @@ func _build_ui() -> void:
 	again.pressed.connect(_new_round)
 	rv.add_child(again)
 
+# ---------- таймеры фаз ----------
+func _process(delta: float) -> void:
+	if phase == "memorize":
+		phase_left -= delta
+		phase_bar.value = clampf(phase_left / phase_total, 0.0, 1.0)
+		phase_label.text = "ЗАПОМНИ — %dс" % int(ceil(maxf(phase_left, 0.0)))
+		if phase_left <= 0.0:
+			_start_recreate()
+	elif phase == "recreate":
+		phase_left -= delta
+		phase_bar.value = clampf(phase_left / phase_total, 0.0, 1.0)
+		phase_label.text = "ВОССОЗДАЙ — %dс" % int(ceil(maxf(phase_left, 0.0)))
+		if phase_left <= 0.0:
+			_finish()
+
 # ---------- цикл раунда ----------
 func _new_round() -> void:
 	result_panel.visible = false
+	phase_bar.visible = true
 	seed_val = randi()
 	target = _random_values()
 	_apply_to_jar(target)
 	_set_sliders_interactable(false)
 	for key in ORDER:
-		value_labels[key].text = "?"    # в фазе показа числа скрыты — это игра на память
+		value_labels[key].text = "?"    # в фазе показа числа скрыты — игра на память
 	phase = "memorize"
-	phase_label.text = "ЗАПОМНИ ЗЕЛЬЕ…"
-	await get_tree().create_timer(MEMORIZE_S).timeout
-	if phase != "memorize":
-		return
-	_start_recreate()
+	phase_total = MEMORIZE_S
+	phase_left = MEMORIZE_S
+	phase_bar.value = 1.0
 
 func _start_recreate() -> void:
 	phase = "recreate"
-	phase_label.text = "ВОССОЗДАЙ ПО ПАМЯТИ"
+	phase_total = CRAFT_S
+	phase_left = CRAFT_S
+	phase_bar.value = 1.0
 	var start_vals: Dictionary = _random_values()
 	for key in ORDER:
 		sliders[key].set_value_no_signal(start_vals[key])
@@ -159,6 +187,10 @@ func _start_recreate() -> void:
 func _on_done() -> void:
 	if phase != "recreate":
 		return
+	_finish()
+
+func _finish() -> void:
+	phase_bar.visible = false
 	var comps: Dictionary = {}
 	var overall: float = 0.0
 	var wsum: float = 0.0
@@ -204,10 +236,10 @@ func _current_values() -> Dictionary:
 
 func _apply_to_jar(vals: Dictionary) -> void:
 	var vp: Dictionary = PARAMS["volume"]
-	var fill: float = (float(vals["volume"]) - float(vp["min"])) / (float(vp["max"]) - float(vp["min"]))
+	var vsize: float = (float(vals["volume"]) - float(vp["min"])) / (float(vp["max"]) - float(vp["min"]))
 	var bp: Dictionary = PARAMS["bsize"]
 	var bfrac: float = (float(vals["bsize"]) - float(bp["min"])) / (float(bp["max"]) - float(bp["min"]))
-	jar.set_potion(float(vals["color"]), fill, int(vals["count"]), bfrac, seed_val)
+	jar.set_potion(float(vals["color"]), vsize, int(vals["count"]), bfrac, seed_val)
 
 func _on_slider_changed(_value: float, key: String) -> void:
 	if phase != "recreate":
