@@ -95,7 +95,7 @@ func _build_ui() -> void:
 		bt.set_anchors_preset(Control.PRESET_FULL_RECT)
 		bt.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 		bt.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		bt.modulate = Color(1, 1, 1, 0.5)
+		bt.modulate = Color(1, 1, 1, 0.4)
 		add_child(bt)
 
 	# ---- UI раунда ----
@@ -176,17 +176,35 @@ func _build_ui() -> void:
 	title.add_theme_font_size_override("font_size", 22)
 	sv.add_child(title)
 
+	# портрет в аккуратной скруглённой рамке фиксированного размера
+	var frame := Panel.new()
+	frame.custom_minimum_size = Vector2(236, 236)
+	frame.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var fsb := StyleBoxFlat.new()
+	fsb.bg_color = Color(0.06, 0.08, 0.16, 0.92)
+	fsb.set_corner_radius_all(18)
+	fsb.set_border_width_all(3)
+	fsb.border_color = Color(0.35, 0.88, 1.0, 0.85)
+	frame.add_theme_stylebox_override("panel", fsb)
+	sv.add_child(frame)
+
 	npc_portrait_tex = TextureRect.new()
-	npc_portrait_tex.custom_minimum_size = Vector2(200, 200)
+	npc_portrait_tex.set_anchors_preset(Control.PRESET_FULL_RECT)
+	npc_portrait_tex.offset_left = 8.0
+	npc_portrait_tex.offset_top = 8.0
+	npc_portrait_tex.offset_right = -8.0
+	npc_portrait_tex.offset_bottom = -8.0
+	npc_portrait_tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE       # НЕ раздуваться до размера текстуры
 	npc_portrait_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	npc_portrait_tex.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	npc_portrait_tex.visible = false
-	sv.add_child(npc_portrait_tex)
+	frame.add_child(npc_portrait_tex)
 
 	npc_portrait = Label.new()   # фолбэк-эмодзи, если текстура не импортирована
+	npc_portrait.set_anchors_preset(Control.PRESET_FULL_RECT)
 	npc_portrait.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	npc_portrait.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	npc_portrait.add_theme_font_size_override("font_size", 72)
-	sv.add_child(npc_portrait)
+	frame.add_child(npc_portrait)
 
 	npc_name = Label.new()
 	npc_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
