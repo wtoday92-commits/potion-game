@@ -1,0 +1,13 @@
+# Godot 4 — кэш импорта и служебное (генерится редактором, в репо не нужно)
+.godot/
+
+# Сборки/экспорты
+/build/
+/builds/
+/export/
+*.tmp
+
+# Служебное ОС
+Thumbs.db
+Desktop.ini
+.DS_Store
