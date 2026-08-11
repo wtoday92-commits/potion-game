@@ -72,6 +72,7 @@ var phase_bar: ProgressBar
 var select_panel: Control
 var npc_portrait: Label
 var npc_portrait_tex: TextureRect
+var frame_ring: TextureRect
 var npc_name: Label
 var npc_flavor: Label
 var result_panel: Control
@@ -175,26 +176,21 @@ func _build_ui() -> void:
 	title.add_theme_font_size_override("font_size", 22)
 	sv.add_child(title)
 
-	# портрет в ДЕРЕВЯННОЙ рамке: текстура дерева + гвозди, портрет утоплен внутрь
+	# портрет в круглой металлической рамке (frame_round.png): кольцо поверх
+	# портрета само маскирует его в круг; поворот на случайный угол — для разнообразия
 	var frame := Control.new()
 	frame.custom_minimum_size = Vector2(240, 240)
 	frame.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	sv.add_child(frame)
 
-	var pwood := ColorRect.new()          # деревянная поверхность рамки
-	pwood.set_anchors_preset(Control.PRESET_FULL_RECT)
-	pwood.material = _make_wood_material(2.4)
-	pwood.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	frame.add_child(pwood)
-
 	npc_portrait_tex = TextureRect.new()
 	npc_portrait_tex.set_anchors_preset(Control.PRESET_FULL_RECT)
-	npc_portrait_tex.offset_left = 16.0
-	npc_portrait_tex.offset_top = 16.0
-	npc_portrait_tex.offset_right = -16.0
-	npc_portrait_tex.offset_bottom = -16.0
+	npc_portrait_tex.offset_left = 43.0
+	npc_portrait_tex.offset_top = 43.0
+	npc_portrait_tex.offset_right = -43.0
+	npc_portrait_tex.offset_bottom = -43.0
 	npc_portrait_tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE       # НЕ раздуваться до размера текстуры
-	npc_portrait_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	npc_portrait_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	npc_portrait_tex.visible = false
 	frame.add_child(npc_portrait_tex)
 
@@ -205,10 +201,15 @@ func _build_ui() -> void:
 	npc_portrait.add_theme_font_size_override("font_size", 72)
 	frame.add_child(npc_portrait)
 
-	var pedge := Control.new()            # тень проёма + гвозди (поверх всего)
-	pedge.set_script(PortraitEdge)
-	pedge.set_anchors_preset(Control.PRESET_FULL_RECT)
-	frame.add_child(pedge)
+	# кольцо-рамка поверх (маскирует портрет в круг), поворачивается каждый визит
+	frame_ring = TextureRect.new()
+	frame_ring.texture = load("res://assets/ui/frame_round.png")
+	frame_ring.set_anchors_preset(Control.PRESET_FULL_RECT)
+	frame_ring.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	frame_ring.stretch_mode = TextureRect.STRETCH_SCALE
+	frame_ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame_ring.pivot_offset = Vector2(120, 120)
+	frame.add_child(frame_ring)
 
 	npc_name = Label.new()
 	npc_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -293,6 +294,7 @@ func _show_select() -> void:
 	round_ui.visible = false
 	select_panel.visible = true
 	npc = NPCS[randi() % NPCS.size()]
+	frame_ring.rotation = randf() * TAU   # случайный поворот кольца — «другой» вид рамки
 	# реальный портрет, если импортирован; иначе — эмодзи-фолбэк
 	var tex := load("res://assets/npc/%s.png" % npc["img"]) as Texture2D
 	if tex:
