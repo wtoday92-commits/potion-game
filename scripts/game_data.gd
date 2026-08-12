@@ -17,6 +17,32 @@ func grade(overall: float, tier: int) -> String:
 	if overall >= swill_threshold(tier): return "swill"
 	return "bad"
 
+# Множители рейтинга по выбранной сложности УР (content.js).
+const REG_DIFF_REWARD_MULT := {1: 0.3, 2: 0.6, 3: 1.0, 4: 1.4}
+const SPEED_BONUS_MULT := {1: 0.0, 2: 0.35, 3: 0.65, 4: 0.5}
+
+# Дельта рейтинга за заказ (game.js finalizeResult). МОЖЕТ БЫТЬ ОТРИЦАТЕЛЬНОЙ:
+#  good/perfect → плюс (+ бонус за скорость), пойло → малый ±, брак → минус.
+# time_frac — доля потраченного времени (0 быстро .. 1 весь таймер).
+# Возвращает {delta, speed_pct}.
+func score_delta(overall: float, grade_str: String, tier: int, reward: int, reg_level: int, time_frac: float) -> Dictionary:
+	var eff: float = float(reward) * float(REG_DIFF_REWARD_MULT.get(reg_level, 1.0))
+	var third: float = 1.0 / 3.0
+	var time_factor: float = 1.0 if time_frac <= third else maxf(0.0, 1.0 - (time_frac - third) / (1.0 - third))
+	var delta: int = 0
+	var speed_pct: int = 0
+	if grade_str == "good" or grade_str == "perfect":
+		var speed_frac: float = float(SPEED_BONUS_MULT.get(reg_level, 0.5)) * overall * time_factor
+		delta = int(round(eff * overall * (1.0 + speed_frac)))
+		speed_pct = int(round(speed_frac * 100.0))
+	elif grade_str == "swill":
+		var band: float = maxf(0.0001, good_threshold(tier) - swill_threshold(tier))
+		var f: float = clampf((overall - swill_threshold(tier)) / band, 0.0, 1.0)
+		delta = int(round(eff * (f - 0.5) * 0.30))      # ±: у нижнего края полосы минус
+	else:  # bad
+		delta = -int(round(eff * (1.0 - overall)))
+	return {"delta": delta, "speed_pct": speed_pct}
+
 # ---------- Цвета тиров (как в веб: t1..t5) ----------
 const TIER_COLORS := {
 	1: Color("5dff8f"), 2: Color("ffe14d"), 3: Color("ff9e3d"),
@@ -28,6 +54,16 @@ const STAGE_TABLE := [[1, 1, 1], [2, 2, 3], [3, 4, 4], [4, 4, 4]]
 const REP_LEVELS := [27, 67, 120, 185, 265]      # уровень N достигнут при value >= REP_LEVELS[N-1]
 const REP_L4_UNLOCK_LEVEL := 1                    # с какого ур. репутации открыт УР.4 персонажа
 const LORE_PHRASE_CHANCE := 0.35
+
+# Гости, у которых уникальная механика работает С УР.1 (а не только на УР.4).
+# Остальные механики — только на УР.4. См. npc-mechanics в памяти / game.js.
+const MECH_FROM_L1 := ["drone", "janitor", "trucker_chrome", "collector_gz",
+	"fashionista", "tentacloid", "dj_pulsar", "logic9", "racer_kai", "apothecary_mo",
+	"perfumer", "swarm_navigator", "vex", "guild_inspector", "gourmet_vega",
+	"catlady", "engineer", "marketer"]
+
+func mech_active(id: String, level: int) -> bool:
+	return level == 4 or id in MECH_FROM_L1
 
 # ---------- Лента идеальных (perfect ribbon) ----------
 # За каждый ИДЕАЛ лента растёт на (reward / BASELINE_TIER_REWARD) * PROGRESS_DIFF_WEIGHT[УР].
@@ -48,6 +84,16 @@ func rep_level(value: float) -> int:
 		if value >= float(t): lvl += 1
 		else: break
 	return lvl
+
+# Прогресс репутации ВНУТРИ текущего уровня (для шкалы-заполнения):
+# {level, into, needed, maxed}.
+func rep_bar(value: float) -> Dictionary:
+	var lvl: int = rep_level(value)
+	var prev: float = float(REP_LEVELS[lvl - 1]) if lvl > 0 else 0.0
+	if lvl >= REP_LEVELS.size():
+		return {"level": lvl, "into": 1.0, "needed": 1.0, "maxed": true}
+	var nxt: float = float(REP_LEVELS[lvl])
+	return {"level": lvl, "into": value - prev, "needed": nxt - prev, "maxed": false}
 
 # ---------- Числовые характеристики по тиру (DIFFICULTIES в content.js) ----------
 # EXTRA_NPCS/SPECIAL_ORDERS наследуют числа по своему тиру; отдельные NPC
@@ -80,6 +126,35 @@ const STICKERS := {
 
 func sticker_path(name: String) -> String:
 	return "res://assets/ui/%s.png" % name
+
+# ---------- Общие ачивки (content.js GENERAL_ACHIEVEMENTS) ----------
+# id, img (assets/ach/N.png), name, desc, t=[пороги по возрастанию]. Значение
+# метрики считает main._ach_value(id) из профиля. manual — открываются вручную
+# (пока не реализовано): tiers = число ступеней-подсказок.
+const GENERAL_ACHIEVEMENTS := [
+	{"id": "total_score", "img": "1", "name": "Казна лавки", "desc": "Суммарный рейтинг за всю историю лавки.", "t": [1000, 5000, 20000, 50000, 100000, 200000, 350000, 600000, 1000000]},
+	{"id": "cycle_score", "img": "2", "name": "Рекордный цикл", "desc": "Лучший рейтинг за один цикл.", "t": [800, 1500, 2500, 4000, 6000, 8500, 12000]},
+	{"id": "progress", "img": "3", "name": "Мастер смесей", "desc": "Взвешенный прогресс: годные/идеальные смеси × сложность.", "t": [50, 150, 300, 600, 1000, 2500, 5000, 10000]},
+	{"id": "perfect_streak", "img": "4", "name": "Безупречность", "desc": "Лучшая серия идеалов подряд.", "t": [3, 5, 10, 15, 20, 30, 50]},
+	{"id": "goodplus_streak", "img": "5", "name": "Конвейер", "desc": "Лучшая серия без единого брака.", "t": [10, 25, 50, 100, 200, 400]},
+	{"id": "bad_streak", "img": "6", "name": "Чёрная полоса", "desc": "Серия браков подряд. Носи с гордостью.", "t": [3, 5, 10]},
+	{"id": "swill_total", "img": "12", "name": "Разливщик пойла", "desc": "Сколько «пойла» ты налил за всю историю.", "t": [10, 40, 120, 300, 700]},
+	{"id": "tips_total", "img": "13", "name": "Звонкая касса", "desc": "Всего чаевых за всю историю лавки.", "t": [100, 500, 2000, 6000, 15000, 40000]},
+	{"id": "cycles", "img": "8", "name": "Ветеран лавки", "desc": "Завершено полных циклов.", "t": [5, 20, 50, 100, 250]},
+	{"id": "orders", "img": "7", "name": "Поток заказов", "desc": "Всего выполнено заказов.", "t": [50, 200, 500, 1500, 4000, 10000]},
+	{"id": "speedrun", "img": "9", "name": "Молния на пределе", "desc": "Идеал тира 5 на макс. сложности в первую треть таймера.", "manual": true, "tiers": 1},
+	{"id": "leaderboard", "img": "10", "name": "Слава галактики", "desc": "Твоё место в глобальном рейтинге.", "manual": true, "tiers": 2},
+]
+
+func ach_icon_path(img: String) -> String:
+	return "res://assets/ach/%s.png" % img
+
+# Всего ступеней во всех общих ачивках (для «ОТКРЫТО X/N»).
+func ach_total_tiers() -> int:
+	var n := 0
+	for a in GENERAL_ACHIEVEMENTS:
+		n += int(a["tiers"]) if a.get("manual", false) else (a["t"] as Array).size()
+	return n
 
 # ---------- Ростер: 27 постоянных NPC (DIFFICULTIES + EXTRA_NPCS + SPECIAL_ORDERS) ----------
 # type: normal|shape|gradient|moving. special: trust|matrix|dual_size|no_timer.
@@ -231,15 +306,172 @@ const NPCS := [
 			"Мой фирменный коктейль дышит и мечется. Уследи-ка."]},
 ]
 
-# Индекс id -> запись (строится один раз).
+# ---------- Прогрессия (content.js PROGRESSION) ----------
+# Всё производное считается из накопленного xp (хранится в PotionProfile).
+# Уровень открывает: больше карточек в дне (pool_size), длиннее цикл (cycle_days),
+# новых NPC в пуле (npc_marks — доля at внутри шкалы уровня), механики.
+const PROG_START_CYCLE_DAYS := 5
+const PROG_START_POOL := 2
+const PROG_START_NPCS := ["drone", "janitor", "intern_beep", "trucker_chrome", "pete", "collector_gz", "guild_inspector"]
+const PROG_BEYOND_STEP := 5000    # рост требуемого xp за уровень сверх последнего
+const PROG_BEYOND_TIPS := 200     # чаевые за уровень сверх последнего
+# каждый уровень: xp (прирост до него), cycle_days/pool_size (переопределения),
+# mechanics (что открывает), npc_marks [[доля_шкалы, id]...].
+const PROG_LEVELS := [
+	{"xp": 1200,  "cycle_days": 6, "mechanics": ["collection"],
+		"npc_marks": [[0.25, "tentacloid"], [0.5, "marketer"], [0.72, "fashionista"], [0.9, "dj_pulsar"]]},
+	{"xp": 2400,  "mechanics": ["characters", "quests"],
+		"npc_marks": [[0.4, "gourmet_vega"], [0.85, "perfumer"]]},
+	{"xp": 4000,  "cycle_days": 7, "mechanics": ["skill_1", "modifiers"],
+		"npc_marks": [[0.3, "engineer"], [0.6, "apothecary_mo"]]},
+	{"xp": 6400,  "mechanics": ["tips", "shop", "shop_grade_1", "skill_2", "modifiers_new3"],
+		"npc_marks": [[0.4, "logic9"], [0.85, "swarm_navigator"]]},
+	{"xp": 9600,  "cycle_days": 8, "pool_size": 3, "mechanics": ["shop_grade_2"],
+		"npc_marks": [[0.4, "vex"], [0.62, "catlady"], [0.85, "racer_kai"]]},
+	{"xp": 14000, "mechanics": ["skill_3", "relations"],
+		"npc_marks": [[0.25, "last_of_ir"], [0.5, "archivist"], [0.72, "supernova_child"], [0.92, "the_waiter"]]},
+	{"xp": 19000, "cycle_days": 10, "mechanics": ["modifiers_multi"],
+		"npc_marks": [[0.35, "nebula_chef"], [0.65, "twofaced_priestess"], [0.9, "plasma_bartender"]]},
+	{"xp": 26000, "mechanics": ["skill_4", "shop_grade_3", "unique_items"], "npc_marks": []},
+	{"xp": 34000, "pool_size": 4, "mechanics": ["quests_pin"], "npc_marks": []},
+]
+
+# Индекс id -> запись + кумулятивный xp по уровням (строятся один раз).
 var _by_id: Dictionary = {}
+var _prog_cum: Array = []          # _prog_cum[i] = сумма xp уровней 0..i
+var NPC_ACH: Dictionary = {}       # id -> [{kind, t, icon, name, hint, focus?, stat?}]
 
 func _ready() -> void:
 	for n in NPCS:
 		_by_id[n["id"]] = n
+	var s := 0
+	for lv in PROG_LEVELS:
+		s += int(lv["xp"])
+		_prog_cum.append(s)
+	# NPC-ачивки (извлечены из content.js в JSON)
+	if FileAccess.file_exists("res://assets/data/npc_ach.json"):
+		var f := FileAccess.open("res://assets/data/npc_ach.json", FileAccess.READ)
+		if f:
+			var parsed: Variant = JSON.parse_string(f.get_as_text())
+			f.close()
+			if parsed is Dictionary:
+				NPC_ACH = parsed
+
+func npc_achievements(id: String) -> Array:
+	return NPC_ACH.get(id, [])
 
 func npc_by_id(id: String) -> Dictionary:
 	return _by_id.get(id, {})
 
 func portrait_path(npc: Dictionary) -> String:
 	return "res://assets/npc/%s.png" % npc.get("img", "")
+
+# Досье персонажей (NPC_LORE_DESC, RU) — короткое художественное описание.
+const DOSSIERS := {
+	"drone": "Служебный дрон снабжения. Летает между доками дольше, чем помнит его гарантийный талон. Кажется, у него начали появляться предпочтения.",
+	"tentacloid": "Эстет с планеты-океана. Считает красоту базовой потребностью, как кислород. Щупалец восемь, мнений — больше.",
+	"gourmet_vega": "Легендарный дегустатор с Веги. Его отзыв может закрыть ресторан на трёх планетах. Или открыть.",
+	"logic9": "Судовой вычислитель девятого поколения. Обслуживает реактор и не признаёт слова «примерно».",
+	"last_of_ir": "Последний представитель расы Ир. Хранит память своего народа в смесях — других носителей не осталось.",
+	"nebula_chef": "Шеф-повар ресторана, дрейфующего внутри туманности. Уверен, что геометрия — это специя.",
+	"twofaced_priestess": "Жрица культа двойного заката. Говорит от имени двух богов и различает их по оттенку.",
+	"plasma_bartender": "Держит бар, где напитки живые в буквальном смысле. Ритм для него — единица измерения всего.",
+	"janitor": "Уборщик Пятого Дока. Знает станцию лучше её строителей, потому что отмывал каждый её угол.",
+	"pete": "Пьяница Пит. Когда-то был кем-то важным на этой станции — теперь важен только уровень в его стакане. Уверяет, что так честнее.",
+	"intern_beep": "Стажёр без имени в накладных — все зовут его Бип. Очень старается. Очень.",
+	"trucker_chrome": "Дальнобойщик с тысячей парсеков за плечами. Дом для него — кабина, а вот кофе и смеси — только тут.",
+	"fashionista": "Икона стиля с Кассиопеи. Меняет панцири по сезону и считает лавку своим тайным бутиком.",
+	"collector_gz": "Коллекционер смесей с трёхсотлетним стажем. Никуда не торопится. Совсем.",
+	"dj_pulsar": "Диджей, сводящий сеты из излучения настоящих пульсаров. Ищет вайб во всём, включая жидкости.",
+	"marketer": "Маркетолог рекламного спутника, с которого давно все улетели. Он продолжает вещать акции в пустоту — и, кажется, не заметил, что аудитории нет.",
+	"perfumer": "Парфюмер Тысячи Лун. Утверждает, что запах — это память, разлитая по флаконам.",
+	"guild_inspector": "Инспектор Гильдии зельеваров. Живёт по регламенту и носит его с собой. Весь.",
+	"apothecary_mo": "Аптекарь с окраины сектора. За каждым его заказом — чей-то пациент.",
+	"engineer": "Инженер-юстировщик при флотском навигаторе. Живёт по приборам: если стрелка в зелёном — мир в порядке. Ни секунды лишней.",
+	"swarm_navigator": "Голос Роя — коллективного разума из миллионов особей. Говорит «МЫ» и не преувеличивает.",
+	"vex": "Хирург-механик. Оперирует корабли, как живых существ — потому что для него они живые.",
+	"racer_kai": "Пилот плазменных гонок. Всё в её жизни делится на «до финиша» и «после».",
+	"catlady": "Бабушка Мурра, хозяйка девяти (а может, и девяноста) космических котов. Куда идёт она — туда и лапы. Спорить бесполезно.",
+	"archivist": "Хранитель Архива на краю вселенной. Записывает всё. Вообще всё.",
+	"supernova_child": "Существо, родившееся из вспышки сверхновой. Вчера. Учится всему сразу.",
+	"the_waiter": "Никто не знает, чего он ждёт. Известно только, что уже очень давно.",
+}
+
+func dossier(id: String) -> String:
+	return DOSSIERS.get(id, "")
+
+# xp, нужный чтобы ДОСТИЧЬ уровня (1-based). Сверх последнего — линейный рост.
+func prog_level_increment(level: int) -> int:
+	var pm: int = PROG_LEVELS.size()
+	if level <= pm:
+		return int(PROG_LEVELS[level - 1]["xp"])
+	return int(PROG_LEVELS[pm - 1]["xp"]) + (level - pm) * PROG_BEYOND_STEP
+
+# Число завершённых шкал прогрессии (0..9 и выше — бесконечно).
+func prog_level(xp: int) -> int:
+	var lvl := 0
+	var s := 0
+	var l := 1
+	while l < 10000:
+		s += prog_level_increment(l)
+		if xp >= s:
+			lvl = l
+		else:
+			break
+		l += 1
+	return lvl
+
+func prog_cycle_days(xp: int) -> int:
+	var d := PROG_START_CYCLE_DAYS
+	var lvl: int = mini(prog_level(xp), PROG_LEVELS.size())
+	for i in lvl:
+		if PROG_LEVELS[i].has("cycle_days"):
+			d = int(PROG_LEVELS[i]["cycle_days"])
+	return d
+
+func prog_pool_size(xp: int) -> int:
+	var p := PROG_START_POOL
+	var lvl: int = mini(prog_level(xp), PROG_LEVELS.size())
+	for i in lvl:
+		if PROG_LEVELS[i].has("pool_size"):
+			p = int(PROG_LEVELS[i]["pool_size"])
+	return p
+
+func prog_mech_unlocked(name: String, xp: int) -> bool:
+	var lvl: int = mini(prog_level(xp), PROG_LEVELS.size())
+	for i in lvl:
+		if name in (PROG_LEVELS[i]["mechanics"] as Array):
+			return true
+	return false
+
+# На каком уровне (1-based) открывается механика; 0 — если нигде.
+func mech_unlock_level(name: String) -> int:
+	for i in PROG_LEVELS.size():
+		if name in (PROG_LEVELS[i]["mechanics"] as Array):
+			return i + 1
+	return 0
+
+# Множество открытых NPC id (стартовые + отпертые xp-марками внутри шкал).
+func prog_unlocked_npcs(xp: int) -> Dictionary:
+	var set: Dictionary = {}
+	for id in PROG_START_NPCS:
+		set[id] = true
+	for i in PROG_LEVELS.size():
+		var lv: Dictionary = PROG_LEVELS[i]
+		var bar_start: int = _prog_cum[i - 1] if i > 0 else 0
+		for m in (lv["npc_marks"] as Array):
+			if float(xp) >= float(bar_start) + float(m[0]) * float(lv["xp"]):
+				set[m[1]] = true
+	return set
+
+func is_npc_unlocked(id: String, xp: int) -> bool:
+	return prog_unlocked_npcs(xp).has(id)
+
+# Прогресс до следующего уровня: {level, into, needed} для полоски «Лавка ур.N».
+func prog_bar(xp: int) -> Dictionary:
+	var lvl: int = prog_level(xp)
+	var cum_prev := 0
+	for l in range(1, lvl + 1):
+		cum_prev += prog_level_increment(l)
+	var needed: int = prog_level_increment(lvl + 1)
+	return {"level": lvl, "into": xp - cum_prev, "needed": needed}
