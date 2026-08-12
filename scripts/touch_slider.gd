@@ -19,9 +19,13 @@ signal value_changed(value: float)
 @export var accent: Color = Color(0.90, 0.72, 0.42)   # латунь (салун-стиль)
 @export var hue_track: bool = false                   # дорожка = радужный спектр
 
-const TRACK_W := 18.0     # толщина дорожки
-const KNOB_R := 28.0      # радиус ручки (крупная под палец)
-const PAD := KNOB_R + 4.0 # вертикальный отступ, чтобы ручка не срезалась
+const TRACK_W := 26.0        # толщина ножки-стойки
+const TRACK_W_HUE := 40.0    # спектр-ножка толще — чтобы читалась радуга
+const KNOB_R := 30.0         # радиус сиденья (крупная тач-цель)
+const PAD := KNOB_R + 4.0    # вертикальный отступ, чтобы сиденье не срезалось
+
+func _pole_w() -> float:
+	return TRACK_W_HUE if hue_track else TRACK_W
 
 var _dragging: bool = false
 
@@ -94,12 +98,13 @@ func _draw() -> void:
 	# --- НОЖКА СТУЛА (стойка) ---
 	var metal := Color(0.34, 0.33, 0.38)
 	var metal_dark := Color(0.16, 0.15, 0.19)
+	var pole_w: float = _pole_w()
 	if hue_track:
-		_capsule_hue(cx, top, bot, TRACK_W)                       # спектр-стойка
+		_capsule_hue(cx, top, bot, pole_w)                        # спектр-стойка (толще)
 	else:
-		_capsule(cx, top, bot, TRACK_W, metal_dark)
-		_capsule(cx, top, bot, TRACK_W - 5.0, metal)              # тело
-		draw_line(Vector2(cx - 2.0, top + 4.0), Vector2(cx - 2.0, bot - 4.0), Color(1, 1, 1, 0.12), 2.0)  # блик
+		_capsule(cx, top, bot, pole_w, metal_dark)
+		_capsule(cx, top, bot, pole_w - 6.0, metal)               # тело
+		draw_line(Vector2(cx - 3.0, top + 4.0), Vector2(cx - 3.0, bot - 4.0), Color(1, 1, 1, 0.12), 2.0)  # блик
 
 	# перекладина-подножка ближе к низу
 	var foot_y: float = bot - usable * 0.16

@@ -50,6 +50,7 @@ func _empty_profile() -> Dictionary:
 			"total_orders": 0,
 			"stickers_lifetime": {"perfect": 0, "good": 0, "swill": 0, "bad": 0},
 			"stickers_seen": {"perfect": [], "good": [], "swill": [], "bad": []},
+			"weighted_progress": 0.0,
 		},
 		"streaks": {
 			"perfect_current": 0, "perfect_best": 0,
@@ -96,6 +97,30 @@ func _write() -> void:
 
 func reset() -> void:
 	data = _empty_profile()
+	save()
+
+# DEV: сразу много прогресса — опыт (все NPC/механики/пул/цикл открыты), чаевые
+# и максимальная репутация со всеми (открывает УР.4 у всех). Для тестов.
+func dev_boost() -> void:
+	data["progression"]["xp"] = maxi(int(data["progression"].get("xp", 0)), 40000)
+	data["tips"]["balance"] = int(data["tips"].get("balance", 0)) + 9999
+	data["tips"]["lifetime"] = int(data["tips"].get("lifetime", 0)) + 9999
+	for n in GameData.NPCS:
+		var id: String = n["id"]
+		ensure_npc(id)
+		data["npc_reputation"][id]["value"] = 300.0
+		data["npc_reputation"][id]["level"] = GameData.rep_level(300.0)
+		if not data["progression"]["met_npcs"].has(id):
+			data["progression"]["met_npcs"].append(id)
+	save()
+
+# Для синка с облаком (PotionAuth): выгрузка/загрузка всего профиля.
+func export_data() -> Dictionary:
+	return data.duplicate(true)
+
+func import_data(d: Dictionary) -> void:
+	data = _deep_merge(_empty_profile(), d)
+	data["version"] = SCHEMA_VERSION
 	save()
 
 # base — заготовка схемы, saved — с диска. Возвращает saved, наложенный на base.
@@ -150,10 +175,14 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 	var st: Dictionary = data["stats"]
 	st["total_orders"] += 1
 	st["stickers_lifetime"][grade] += 1
-	var points := 0
-	if is_good:
-		points = int(round(reward * overall))
-		st["total_score_earned"] += points
+	# дельта рейтинга (может быть отрицательной: пойло/брак отнимают)
+	var sd: Dictionary = GameData.score_delta(overall, grade, tier, reward, reg_level, time_frac)
+	var points: int = int(sd["delta"])
+	var speed_pct: int = int(sd["speed_pct"])
+	if points > 0:
+		st["total_score_earned"] += points     # lifetime — только заработанное
+	if is_good:                                 # взвешенный прогресс (ачивка «Мастер смесей»)
+		st["weighted_progress"] = float(st.get("weighted_progress", 0.0)) + GameData.ribbon_weight(reward, reg_level)
 
 	# --- серии ---
 	var sk: Dictionary = data["streaks"]
@@ -175,6 +204,8 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 	# --- статы по NPC ---
 	var ns: Dictionary = data["npc_stats"][npc_id]
 	ns["orders"] += 1
+	ns["picks_cycle"] = int(ns.get("picks_cycle", 0)) + 1
+	ns["picks_cycle_best"] = maxi(int(ns.get("picks_cycle_best", 0)), int(ns["picks_cycle"]))
 	if is_perfect: ns["perfects"] += 1
 	elif is_good: ns["goods"] += 1
 	elif is_bad: ns["bads"] += 1
@@ -186,6 +217,7 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 		if time_frac <= 1.0 / 3.0: ns["fast_perfects"] += 1
 		if hard: ns["hard_perfects"] += 1
 		if level4: ns["level4_perfects"] += 1
+		ns["weighted"] = float(ns.get("weighted", 0.0)) + GameData.ribbon_weight(reward, reg_level)
 		if focus != "" and ns["focus_perfects"].has(focus):
 			ns["focus_perfects"][focus] += 1
 
@@ -213,7 +245,7 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 
 	save()
 	return {
-		"points": points, "tip": tip,
+		"points": points, "speed_pct": speed_pct, "tip": tip,
 		"rep_before": rep_before, "rep_after": float(rep["value"]),
 		"level_before": lvl_before, "level_after": lvl_after,
 		"level_up": lvl_after > lvl_before,
@@ -225,11 +257,17 @@ func end_cycle(cycle_score: int) -> Dictionary:
 	var st: Dictionary = data["stats"]
 	var pr: Dictionary = data["progression"]
 	var xp_before := int(pr.get("xp", 0))
-	pr["xp"] = xp_before + cycle_score
+	pr["xp"] = maxi(0, xp_before + cycle_score)   # опыт не уходит ниже нуля
 	st["cycles_completed"] = int(st.get("cycles_completed", 0)) + 1
 	st["best_cycle_score"] = maxi(int(st.get("best_cycle_score", 0)), cycle_score)
 	save()
 	return {"xp_before": xp_before, "xp_after": int(pr["xp"]), "cycles": int(st["cycles_completed"])}
+
+# Сброс счётчика выборов гостя за цикл (вызывать в начале цикла).
+func reset_picks_cycle() -> void:
+	for id in data["npc_stats"].keys():
+		data["npc_stats"][id]["picks_cycle"] = 0
+	save()
 
 func mark_sticker_seen(cat: String, name: String) -> void:
 	var seen: Array = data["stats"]["stickers_seen"][cat]
