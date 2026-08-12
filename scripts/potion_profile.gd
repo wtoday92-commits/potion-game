@@ -1,0 +1,244 @@
+extends Node
+## Персистентный профиль игрока. Автозагрузка (singleton `PotionProfile`).
+## Сохраняется в user://profile.json. Портирован по структуре из profile.js
+## (браузерная версия): та же идея deep-merge при загрузке — старый профиль
+## сам дополняется недостающими полями новой схемы, лишнего не тащит.
+##
+## Фаза 1: перенесён персистентный костяк (статистика, серии, репутация,
+## статы по NPC, прогрессия, чаевые, виденные стикеры). Ачивки/лор/пассивки/
+## магазин/печати — поля заведены под будущие фазы, но логики пока нет.
+## Формулы начисления репутации/чаевых — ПРЕДВАРИТЕЛЬНЫЕ (tunable, см. ниже).
+
+const SCHEMA_VERSION := 1
+const SAVE_PATH := "user://profile.json"
+
+# --- tunable: начисление за один заказ по грейду ---
+const REP_GAIN := {"perfect": 12.0, "good": 7.0, "swill": 2.0, "bad": -5.0}
+const TIP_FACTOR := {"perfect": 1.0, "good": 0.6, "swill": 0.2, "bad": 0.0}
+
+var data: Dictionary = {}
+var _dirty: bool = false
+
+func _ready() -> void:
+	load_profile()
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_PREDELETE:
+		if _dirty:
+			_write()
+
+# ---------- схема пустого профиля ----------
+func _empty_npc_stats() -> Dictionary:
+	return {
+		"orders": 0, "perfects": 0, "goods": 0, "bads": 0,
+		"perfect_streak": 0, "perfect_streak_best": 0,
+		"no_bad_streak": 0, "no_bad_streak_best": 0,
+		"fast_perfects": 0, "hard_perfects": 0, "level4_perfects": 0,
+		"focus_perfects": {"bubbles": 0, "color": 0, "size": 0},
+		"weighted": 0.0, "picks_cycle": 0, "picks_cycle_best": 0,
+	}
+
+func _empty_profile() -> Dictionary:
+	return {
+		"version": SCHEMA_VERSION,
+		"created_at": _now(),
+		"last_seen_at": _now(),
+		"stats": {
+			"cycles_completed": 0,
+			"total_score_earned": 0,
+			"best_cycle_score": 0,
+			"total_orders": 0,
+			"stickers_lifetime": {"perfect": 0, "good": 0, "swill": 0, "bad": 0},
+			"stickers_seen": {"perfect": [], "good": [], "swill": [], "bad": []},
+		},
+		"streaks": {
+			"perfect_current": 0, "perfect_best": 0,
+			"goodplus_current": 0, "goodplus_best": 0,
+			"bad_current": 0, "bad_best": 0,
+		},
+		"perfect_ribbon": {"count": 0.0, "platinum_count": 0},   # лента идеальных (дробная)
+		"npc_reputation": {},   # id -> {value, level}
+		"npc_stats": {},        # id -> _empty_npc_stats()
+		"progression": {"xp": 0, "met_npcs": []},
+		"tips": {"balance": 0, "lifetime": 0},
+		# заведено под будущие фазы (логики пока нет):
+		"achievements": {"general": {}, "npc": {}},
+		"lore_phrases": {"unlocked_by_npc": {}},
+		"passives": {"unlocked_by_npc": {}, "active": []},
+	}
+
+# ---------- загрузка/сохранение ----------
+func load_profile() -> void:
+	var base := _empty_profile()
+	if FileAccess.file_exists(SAVE_PATH):
+		var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
+		if f:
+			var txt := f.get_as_text()
+			f.close()
+			var parsed: Variant = JSON.parse_string(txt)
+			if parsed is Dictionary:
+				base = _deep_merge(base, parsed)
+	base["last_seen_at"] = _now()
+	base["version"] = SCHEMA_VERSION
+	data = base
+
+func save() -> void:
+	# помечаем «грязным» и пишем сразу — профиль небольшой, дебаунс не нужен
+	_dirty = true
+	_write()
+
+func _write() -> void:
+	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify(data))
+		f.close()
+		_dirty = false
+
+func reset() -> void:
+	data = _empty_profile()
+	save()
+
+# base — заготовка схемы, saved — с диска. Возвращает saved, наложенный на base.
+func _deep_merge(base: Dictionary, saved: Dictionary) -> Dictionary:
+	var out := base.duplicate(true)
+	for k in saved.keys():
+		var sv: Variant = saved[k]
+		if base.has(k) and base[k] is Dictionary and sv is Dictionary:
+			out[k] = _deep_merge(base[k], sv)
+		else:
+			out[k] = sv        # включая динамические ключи (npc_reputation.drone и т.п.)
+	return out
+
+# ---------- репутация ----------
+func ensure_npc(npc_id: String) -> void:
+	if npc_id == "":
+		return
+	if not data["npc_reputation"].has(npc_id):
+		data["npc_reputation"][npc_id] = {"value": 0.0, "level": 0}
+	if not data["npc_stats"].has(npc_id):
+		data["npc_stats"][npc_id] = _empty_npc_stats()
+
+func get_rep(npc_id: String) -> float:
+	if data["npc_reputation"].has(npc_id):
+		return float(data["npc_reputation"][npc_id]["value"])
+	return 0.0
+
+func get_rep_level(npc_id: String) -> int:
+	return GameData.rep_level(get_rep(npc_id))
+
+func npc_stats(npc_id: String) -> Dictionary:
+	ensure_npc(npc_id)
+	return data["npc_stats"][npc_id]
+
+# ---------- запись результата раунда ----------
+# grade: "perfect"|"good"|"swill"|"bad". time_frac — доля потраченного времени
+# (0..1), для «быстрых» идеалов. reg_level — выбранная сложность УР.1-4 (влияет
+# на ленту и hard/level4). focus — "bubbles"|"color"|"size"|"" (фокус-заказ).
+# Возвращает сводку изменений (для анимаций экрана результата).
+func record_result(npc_id: String, tier: int, overall: float, grade: String,
+		reward: int, sticker_name: String = "",
+		time_frac: float = 1.0, reg_level: int = 1,
+		focus: String = "") -> Dictionary:
+	ensure_npc(npc_id)
+	var is_perfect := grade == "perfect"
+	var is_good := grade == "good" or is_perfect     # «годнота+»
+	var is_bad := grade == "bad"
+	var hard := reg_level >= 3
+	var level4 := reg_level == 4
+
+	# --- общая статистика ---
+	var st: Dictionary = data["stats"]
+	st["total_orders"] += 1
+	st["stickers_lifetime"][grade] += 1
+	var points := 0
+	if is_good:
+		points = int(round(reward * overall))
+		st["total_score_earned"] += points
+
+	# --- серии ---
+	var sk: Dictionary = data["streaks"]
+	sk["perfect_current"] = sk["perfect_current"] + 1 if is_perfect else 0
+	sk["perfect_best"] = maxi(sk["perfect_best"], sk["perfect_current"])
+	sk["goodplus_current"] = sk["goodplus_current"] + 1 if is_good else 0
+	sk["goodplus_best"] = maxi(sk["goodplus_best"], sk["goodplus_current"])
+	sk["bad_current"] = sk["bad_current"] + 1 if is_bad else 0
+	sk["bad_best"] = maxi(sk["bad_best"], sk["bad_current"])
+
+	# --- лента идеальных (вклад зависит от тира персонажа и сложности УР) ---
+	if is_perfect:
+		var rb: Dictionary = data["perfect_ribbon"]
+		rb["count"] = float(rb["count"]) + GameData.ribbon_weight(reward, reg_level)
+		while float(rb["count"]) >= GameData.RIBBON_FULL:
+			rb["platinum_count"] = int(rb["platinum_count"]) + 1
+			rb["count"] = float(rb["count"]) - GameData.RIBBON_FULL
+
+	# --- статы по NPC ---
+	var ns: Dictionary = data["npc_stats"][npc_id]
+	ns["orders"] += 1
+	if is_perfect: ns["perfects"] += 1
+	elif is_good: ns["goods"] += 1
+	elif is_bad: ns["bads"] += 1
+	ns["perfect_streak"] = ns["perfect_streak"] + 1 if is_perfect else 0
+	ns["perfect_streak_best"] = maxi(ns["perfect_streak_best"], ns["perfect_streak"])
+	ns["no_bad_streak"] = 0 if is_bad else ns["no_bad_streak"] + 1
+	ns["no_bad_streak_best"] = maxi(ns["no_bad_streak_best"], ns["no_bad_streak"])
+	if is_perfect:
+		if time_frac <= 1.0 / 3.0: ns["fast_perfects"] += 1
+		if hard: ns["hard_perfects"] += 1
+		if level4: ns["level4_perfects"] += 1
+		if focus != "" and ns["focus_perfects"].has(focus):
+			ns["focus_perfects"][focus] += 1
+
+	# --- репутация ---
+	var rep: Dictionary = data["npc_reputation"][npc_id]
+	var lvl_before := GameData.rep_level(float(rep["value"]))
+	var rep_before := float(rep["value"])
+	rep["value"] = maxf(0.0, rep_before + REP_GAIN.get(grade, 0.0))
+	var lvl_after := GameData.rep_level(float(rep["value"]))
+	rep["level"] = lvl_after
+
+	# --- чаевые ---
+	var tip := int(round(reward * float(TIP_FACTOR.get(grade, 0.0))))
+	if tip > 0:
+		data["tips"]["balance"] += tip
+		data["tips"]["lifetime"] += tip
+
+	# --- виденный стикер ---
+	if sticker_name != "":
+		mark_sticker_seen(grade, sticker_name)
+
+	# --- встреченные NPC ---
+	if not data["progression"]["met_npcs"].has(npc_id):
+		data["progression"]["met_npcs"].append(npc_id)
+
+	save()
+	return {
+		"points": points, "tip": tip,
+		"rep_before": rep_before, "rep_after": float(rep["value"]),
+		"level_before": lvl_before, "level_after": lvl_after,
+		"level_up": lvl_after > lvl_before,
+	}
+
+# Завершение цикла: рейтинг цикла идёт в опыт (прогрессия), счётчик циклов,
+# рекорд. Возвращает {xp_before, xp_after, cycles}.
+func end_cycle(cycle_score: int) -> Dictionary:
+	var st: Dictionary = data["stats"]
+	var pr: Dictionary = data["progression"]
+	var xp_before := int(pr.get("xp", 0))
+	pr["xp"] = xp_before + cycle_score
+	st["cycles_completed"] = int(st.get("cycles_completed", 0)) + 1
+	st["best_cycle_score"] = maxi(int(st.get("best_cycle_score", 0)), cycle_score)
+	save()
+	return {"xp_before": xp_before, "xp_after": int(pr["xp"]), "cycles": int(st["cycles_completed"])}
+
+func mark_sticker_seen(cat: String, name: String) -> void:
+	var seen: Array = data["stats"]["stickers_seen"][cat]
+	if not seen.has(name):
+		seen.append(name)
+		save()
+
+func has_met(npc_id: String) -> bool:
+	return data["progression"]["met_npcs"].has(npc_id)
+
+func _now() -> int:
+	return int(Time.get_unix_time_from_system())
