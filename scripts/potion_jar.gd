@@ -90,6 +90,11 @@ func set_potion(h: float, v: float, c: int, b: float, s: int, sat: float = 0.72,
 	vsize = clampf(v, 0.0, 1.0)
 	height_frac = height     # <0 → равномерный масштаб по vsize
 	count2 = max(0, c2)      # >0 → две половины со своими счётчиками
+	count = max(0, c)
+	bsize = clampf(b, 0.0, 1.0)
+	pot_seed = s
+	_t = float(pot_seed) * 0.7
+	_apply()
 
 # Бармен: включить/выключить физику полёта (пере-инициализирует позиции).
 func set_physics(on: bool) -> void:
@@ -99,11 +104,6 @@ func set_physics(on: bool) -> void:
 # Бармен: обновить скорость полёта без сброса позиций (читается каждый кадр).
 func set_physics_speed(frac: float) -> void:
 	_phys_speed = clampf(frac, 0.0, 1.0)
-	count = max(0, c)
-	bsize = clampf(b, 0.0, 1.0)
-	pot_seed = s
-	_t = float(pot_seed) * 0.7
-	_apply()
 
 func _process(delta: float) -> void:
 	if sway == null or mat == null:

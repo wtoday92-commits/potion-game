@@ -82,7 +82,7 @@ func _make_music_player() -> AudioStreamPlayer:
 	return p
 
 func _load_sfx() -> void:
-	for k in SFX_KEYS:
+	for k: String in SFX_KEYS:
 		var arr: Array = []
 		var main_path := SFX_DIR + k + ".mp3"
 		if ResourceLoader.exists(main_path):
