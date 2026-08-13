@@ -18,6 +18,7 @@ const I_RIGHT := 0.746
 const FILL := 0.78     # уровень жидкости (ниже горлышка — видно, как плещется)
 
 var hue: float = 120.0
+var saturation: float = 0.72   # насыщенность жидкости (накал); 0.72 — старый вид
 var vsize: float = 0.6
 var count: int = 5
 var bsize: float = 0.5
@@ -72,8 +73,9 @@ func _ready() -> void:
 	resized.connect(_apply)
 	_apply()
 
-func set_potion(h: float, v: float, c: int, b: float, s: int) -> void:
+func set_potion(h: float, v: float, c: int, b: float, s: int, sat: float = 0.72) -> void:
 	hue = h
+	saturation = clampf(sat, 0.0, 1.0)
 	vsize = clampf(v, 0.0, 1.0)
 	count = max(0, c)
 	bsize = clampf(b, 0.0, 1.0)
@@ -118,7 +120,7 @@ func _apply() -> void:
 	sway.pivot_offset = base
 
 	var ar: float = size.x / size.y
-	mat.set_shader_parameter("liquid_col", Color.from_hsv(fposmod(hue, 360.0) / 360.0, 0.72, 0.95))
+	mat.set_shader_parameter("liquid_col", Color.from_hsv(fposmod(hue, 360.0) / 360.0, saturation, 0.95))
 	mat.set_shader_parameter("fill", FILL)
 	mat.set_shader_parameter("interior_top", I_TOP)
 	mat.set_shader_parameter("interior_bot", I_BOT)

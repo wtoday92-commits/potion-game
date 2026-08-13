@@ -21,6 +21,7 @@ GameData="*res://scripts/game_data.gd"
 PotionProfile="*res://scripts/potion_profile.gd"
 PotionAuth="*res://scripts/potion_auth.gd"
 Juice="*res://scripts/juice.gd"
+Sfx="*res://scripts/sfx.gd"
 
 [display]
 
