@@ -19,11 +19,16 @@ const PARAMS := {
 	"color":  {"min": 0.0,  "max": 360.0, "step": 5.0,  "weight": 1.0, "label": "Спектр",  "suffix": "°"},
 	"sat":    {"min": 0.0,  "max": 100.0, "step": 10.0, "weight": 0.6, "label": "Накал",   "suffix": "%"},
 	"volume": {"min": 10.0, "max": 100.0, "step": 1.0,  "weight": 1.0, "label": "Объём",   "suffix": "%"},
+	"size2":  {"min": 10.0, "max": 100.0, "step": 2.0,  "weight": 0.6, "label": "Высота",  "suffix": "%"},
 	"count":  {"min": 1.0,  "max": 12.0,  "step": 1.0,  "weight": 0.8, "label": "Сгустки", "suffix": ""},
+	"countB": {"min": 1.0,  "max": 7.0,   "step": 1.0,  "weight": 0.8, "label": "Сгустки Б", "suffix": ""},
 	"bsize":  {"min": 10.0, "max": 100.0, "step": 2.0,  "weight": 0.6, "label": "Размер",  "suffix": "%"},
+	"speed":  {"min": 0.0,  "max": 100.0, "step": 10.0, "weight": 0.6, "label": "Скорость", "suffix": ""},
 }
-# Накал (sat) — сразу после цвета: колонка встаёт рядом с ним.
-const ORDER: Array = ["color", "sat", "volume", "count", "bsize"]
+# Накал (sat) — у спектра; Высота (size2) — у объёма; Сгустки Б (countB) — у сгустков;
+# Скорость (speed) — в конце. size2/countB/speed активны только у своих гостей
+# (Сверхнова / Двуликая / Бармен).
+const ORDER: Array = ["color", "sat", "volume", "size2", "count", "countB", "bsize", "speed"]
 
 # Какие ползунки активны (доступны и учитываются) на каждом уровне сложности.
 # Накал — только на УР.4 (доп. регулятор рядом с цветом).
@@ -116,6 +121,7 @@ var cycle_score: int = 0
 var perfect_streak_max: int = 0
 var good_streak_max: int = 0
 var last_grade: String = ""
+var ir_pending: String = ""     # «Последний из Ир»: бафф/дебафф СЛЕДУЮЩЕМУ заказу ("buff"/"debuff")
 
 var day_panel: Control
 var day_header: Label
@@ -2091,6 +2097,7 @@ func _start_round(lvl: int) -> void:
 	bulb_bar.visible = true
 	_serving = false
 	jar_stage.reset_jar()          # вернуть банку на стол после прошлого отъезда
+	jar.modulate = Color.WHITE     # сбросить «выцветание» от дебаффа Ир
 	_set_topbar(true)
 	_scene_state("game")
 	Juice.fade_in(round_ui)
@@ -2166,25 +2173,56 @@ func _start_recreate() -> void:
 	_update_value_labels(_current_values())
 	if mech:
 		mech.craft_start(self)
+	if ir_pending != "":           # эффект Ир с прошлого заказа — применяем к этому
+		_apply_ir(ir_pending)
+		ir_pending = ""
+
+# «Последний из Ир»: бафф/дебафф на текущий заказ (случайный из пары), с тостом.
+func _apply_ir(kind: String) -> void:
+	if kind == "buff":
+		if randf() < 0.5:
+			phase_total += 4.0; phase_left += 4.0
+			_toast("🌅 Рука Ир: +4 секунды", Color("6dff8f"))
+		else:
+			var ks: Array = active.duplicate(); ks.shuffle()
+			for i in mini(2, ks.size()):
+				var k: String = ks[i]
+				sliders[k].set_value_no_signal(float(target[k]))
+				_on_slider_changed(float(target[k]), k)
+			_toast("🌅 Рука Ир: 2 регулятора выставлены", Color("6dff8f"))
+	else:
+		if randf() < 0.5:
+			phase_total = maxf(4.0, phase_total - 2.0); phase_left = maxf(2.0, phase_left - 2.0)
+			_toast("🌫 Украденные секунды: −2с", Color("ff9a6a"))
+		else:
+			jar.modulate = Color(0.55, 0.55, 0.6)   # выцветший мир
+			_toast("🌫 Выцветший мир", Color("ff9a6a"))
 
 # ---------- таймеры фаз ----------
 func _process(delta: float) -> void:
+	var no_timer: bool = mech != null and mech.no_timer(self)   # Тот-Кто-Ждёт: без таймеров
 	if phase == "memorize":
-		phase_left -= delta
-		# лампы ЗАПОЛНЯЮТСЯ по мере запоминания
-		bulb_bar.set_fraction(1.0 - clampf(phase_left / phase_total, 0.0, 1.0))
-		phase_label.text = "ЗАПОМНИ — %dс" % int(ceil(maxf(phase_left, 0.0)))
-		if phase_left <= 0.0:
-			_start_recreate()
+		if no_timer:
+			phase_label.text = "ЗАПОМНИ — не спеши, жми ▸"
+		else:
+			phase_left -= delta
+			# лампы ЗАПОЛНЯЮТСЯ по мере запоминания
+			bulb_bar.set_fraction(1.0 - clampf(phase_left / phase_total, 0.0, 1.0))
+			phase_label.text = "ЗАПОМНИ — %dс" % int(ceil(maxf(phase_left, 0.0)))
+			if phase_left <= 0.0:
+				_start_recreate()
 	elif phase == "recreate":
-		phase_left -= delta
-		# лампы ГАСНУТ по мере игры
-		bulb_bar.set_fraction(clampf(phase_left / phase_total, 0.0, 1.0))
-		phase_label.text = "ВОССОЗДАЙ — %dс" % int(ceil(maxf(phase_left, 0.0)))
 		if mech:
 			mech.process(self, delta)      # покадровый хук механики (таймеры/анимация)
-		if phase_left <= 0.0:
-			_finish()
+		if no_timer:
+			phase_label.text = "ВОССОЗДАЙ — жми «Готово»"
+		else:
+			phase_left -= delta
+			# лампы ГАСНУТ по мере игры
+			bulb_bar.set_fraction(clampf(phase_left / phase_total, 0.0, 1.0))
+			phase_label.text = "ВОССОЗДАЙ — %dс" % int(ceil(maxf(phase_left, 0.0)))
+			if phase_left <= 0.0:
+				_finish()
 
 # Насколько верно выставлен один ползунок (0..1) — та же формула, что в _do_finish.
 # Нужно механикам (Хранитель Архива, Модница) для правила «выставлен верно».
@@ -2261,8 +2299,10 @@ func _do_finish() -> void:
 			overall = ov
 	# множитель рейтинга от механики — берём ДО stop() (таймеры/полоски ещё живы)
 	var rating_mult: float = 1.0
+	var no_points: bool = false
 	if mech:
 		rating_mult = mech.score_bonus(self)
+		no_points = mech.blocks_points(self, overall)
 		mech.stop(self)
 
 	# грейд по порогам тира + запись результата в профиль
@@ -2274,7 +2314,14 @@ func _do_finish() -> void:
 	var time_frac: float = clampf(1.0 - phase_left / maxf(0.001, phase_total), 0.0, 1.0)
 	var outcome: Dictionary = PotionProfile.record_result(
 		npc["id"], tier, overall, grade, reward, sticker_name,
-		time_frac, level, "", rating_mult)
+		time_frac, level, "", rating_mult, no_points)
+
+	# «Последний из Ир» (УР.3+): идеал → бафф след. заказу, брак/пойло → дебафф
+	if String(npc.get("id", "")) == "last_of_ir" and level >= 3:
+		if grade == "perfect":
+			ir_pending = "buff"
+		elif grade != "good":
+			ir_pending = "debuff"
 
 	# для перехода дня/цикла
 	last_grade = grade
@@ -2441,7 +2488,16 @@ func _apply_to_jar(vals: Dictionary) -> void:
 		var sp: Dictionary = PARAMS["sat"]
 		var f: float = (float(vals["sat"]) - float(sp["min"])) / (float(sp["max"]) - float(sp["min"]))
 		sat_actual = 0.30 + f * 0.70
-	jar.set_potion(float(vals["color"]), vsize, int(vals["count"]), bfrac, seed_val, sat_actual)
+	# отдельная высота — только у Сверхновой (size2 активен); иначе равномерный масштаб
+	var hfrac: float = -1.0
+	if "size2" in active and vals.has("size2"):
+		var hp: Dictionary = PARAMS["size2"]
+		hfrac = (float(vals["size2"]) - float(hp["min"])) / (float(hp["max"]) - float(hp["min"]))
+	# 2-й счётчик — только у Двуликой (countB активен); иначе 0 = обычная банка
+	var c2: int = 0
+	if "countB" in active and vals.has("countB"):
+		c2 = int(vals["countB"])
+	jar.set_potion(float(vals["color"]), vsize, int(vals["count"]), bfrac, seed_val, sat_actual, hfrac, c2)
 
 func _on_slider_changed(_value: float, key: String) -> void:
 	if phase != "recreate":

@@ -14,6 +14,8 @@ func craft_start(_g) -> void: pass      # начало фазы «ВОССОЗД
 func process(_g, _delta: float) -> void: pass  # каждый кадр фазы «ВОССОЗДАЙ» (таймеры/анимация)
 func on_done(_g) -> bool: return true   # нажата «ГОТОВО»; false = НЕ финишировать (Гурман)
 func skip_memorize(_g) -> bool: return false   # true = без фазы показа (Инспектор — цель в тексте)
+func no_timer(_g) -> bool: return false        # true = без таймеров фаз (Тот-Кто-Ждёт)
+func blocks_points(_g, _overall: float) -> bool: return false  # true = рейтинг не начислять (Тот-Кто-Ждёт при <99%)
 func stop(_g) -> void: pass             # конец раунда (уборка)
 
 # --- влияние на скоринг/результат ---
@@ -69,6 +71,11 @@ static func make(id: String) -> NpcMech:
 		"guild_inspector": return InspectorMech.new()
 		"engineer": return EngineerMech.new()
 		"collector_gz": return CollectorMech.new()
+		"vex": return VexMech.new()
+		"supernova_child": return SupernovaMech.new()
+		"the_waiter": return WaiterMech.new()
+		"twofaced_priestess": return TwofacedMech.new()
+		"plasma_bartender": return PlasmaMech.new()
 		_: return null
 
 # ============================================================
@@ -1302,3 +1309,178 @@ class CollectorMech extends NpcMech:
 
 	func result_note(_g) -> String:
 		return "🔍 Коллекционер: %s" % ("верная банка!" if chosen_correct else "не та банка")
+
+# ============================================================
+# Хирург-механик Векс: сгустки расставляются по узлам сетки внутри банки. На показе
+# — целевая раскладка; на игре сгустки рассыпаны, тащишь каждый на узел. Оценка =
+# 0.6·(обычные параметры) + 0.4·(доля верных позиций). Порт LEVEL4_FX.vex.
+# ============================================================
+class VexMech extends NpcMech:
+	var g_ref
+	var board: VexBoard = null
+	var blobs: Array = []
+	var target_nodes: Array = []
+	var final_pos: float = 0.0
+
+	func setup(g) -> void:
+		g.active.erase("count")          # счёт задаётся раскладкой, не ползунком
+
+	func memorize_start(g) -> void:
+		g_ref = g
+		board = VexBoard.new()
+		g.jar_stage.add_child(board)
+		board.build(g.jar_stage.size)
+		var k: int = clampi(int(g.target["count"]), 1, 6)
+		g.target["count"] = k
+		g.sliders["count"].set_value_no_signal(float(k))
+		g._apply_to_jar(g.target)        # банка показывает k сгустков (согласовано)
+		# целевые узлы (случайные k из 9) — их и надо запомнить
+		var idx: Array = range(board.nodes.size())
+		idx.shuffle()
+		target_nodes = idx.slice(0, k)
+		for ti in target_nodes:
+			var b := DragPart.new()
+			board.add_child(b)
+			b.set_symbol("⚫")
+			b.mouse_filter = Control.MOUSE_FILTER_IGNORE   # на показе не таскаем
+			b.position = board.nodes[ti] - b.size * 0.5
+			b.dropped.connect(_on_drop)
+			blobs.append(b)
+
+	func craft_start(g) -> void:
+		g.sliders["count"].set_value_no_signal(float(target_nodes.size()))
+		# рассыпаем сгустки (сверху, не на узлах) и разрешаем таскать
+		for b in blobs:
+			b.mouse_filter = Control.MOUSE_FILTER_STOP
+			b.position = Vector2(randf_range(0.10, 0.90) * board.size.x, randf_range(0.08, 0.30) * board.size.y) - b.size * 0.5
+
+	func _on_drop(part) -> void:
+		var i: int = board.nearest_index(part.center())
+		if i >= 0:
+			part.position = board.nodes[i] - part.size * 0.5   # «примагничивание» к узлу
+			Sfx.play("blobSnap")
+
+	func _position_score() -> float:
+		if target_nodes.is_empty():
+			return 1.0
+		var covered: Dictionary = {}
+		for b in blobs:
+			var i: int = board.nearest_index(b.center())
+			if i in target_nodes:
+				covered[i] = true
+		return float(covered.size()) / float(target_nodes.size())
+
+	func override_overall(g) -> float:
+		final_pos = _position_score()     # кэшируем до stop() (board освободится)
+		return 0.6 * g._current_overall() + 0.4 * final_pos
+
+	func stop(_g) -> void:
+		if board != null and is_instance_valid(board):
+			board.queue_free()
+		board = null
+		blobs.clear()
+
+	func result_note(_g) -> String:
+		return "🔧 Векс: сгустки — по узлам (%d%% позиций)" % int(round(final_pos * 100.0))
+
+# ============================================================
+# Дитя Сверхновой (dual_size): габарит распадается на ширину («Объём») и высоту
+# («Высота», size2) — два независимых регулятора. Банка масштабируется по осям
+# раздельно. Порт special:'dual_size'. Эксклюзивный поворот (rotation, УР.4) — TODO.
+# ============================================================
+class SupernovaMech extends NpcMech:
+	func setup(g) -> void:
+		if not ("size2" in g.active):
+			g.active.append("size2")     # высота — часть заказа на всех уровнях
+
+	func result_note(_g) -> String:
+		return "💫 Дитя Сверхновой: ширина и высота раздельно"
+
+# ============================================================
+# Тот-Кто-Ждёт (no_timer): таймеров нет — «ЗАПОМНИ» и «ВОССОЗДАЙ» переключаются
+# вручную (стрелка ▸ / «ГОТОВО»). Рейтинг начисляется ТОЛЬКО при точности >99%,
+# иначе — только стикер. Порт special:'no_timer'. Форма-часы (shape) — TODO.
+# ============================================================
+class WaiterMech extends NpcMech:
+	var g_ref
+	var go_btn: Button = null
+
+	func no_timer(_g) -> bool:
+		return true
+
+	func memorize_start(g) -> void:
+		g_ref = g
+		g.bulb_bar.visible = false             # таймера нет — лампы не нужны
+		go_btn = NpcMech.make_arrow_btn(g, _to_craft)   # ▸ — перейти к воссозданию вручную
+
+	func _to_craft() -> void:
+		if go_btn != null and is_instance_valid(go_btn):
+			go_btn.queue_free()
+		go_btn = null
+		g_ref._start_recreate()
+
+	func craft_start(g) -> void:
+		if go_btn != null and is_instance_valid(go_btn):
+			go_btn.queue_free()
+		go_btn = null
+		g.bulb_bar.visible = false
+
+	func blocks_points(_g, overall: float) -> bool:
+		return overall <= 0.99                 # рейтинг только за идеал
+
+	func stop(g) -> void:
+		if go_btn != null and is_instance_valid(go_btn):
+			go_btn.queue_free()
+		go_btn = null
+		g.bulb_bar.visible = true
+
+	func result_note(_g) -> String:
+		return "⏳ Тот-Кто-Ждёт: рейтинг только при идеале (>99%)"
+
+# ============================================================
+# Двуликая жрица (gradient + dual count): банка делится на 2 половины, у каждой
+# свой счётчик сгустков (право = «Сгустки», лево = «Сгустки Б», макс. 7).
+# Порт special:'gradient' + LEVEL4_FX.twofaced. Градиент (2-й цвет) — TODO.
+# ============================================================
+class TwofacedMech extends NpcMech:
+	func setup(g) -> void:
+		if not ("countB" in g.active):
+			g.active.append("countB")
+		g.sliders["count"].max_value = 7.0   # обе половины ограничены семью
+
+	func result_note(_g) -> String:
+		return "🧿 Двуликая: два счётчика (лево/право)"
+
+# ============================================================
+# Бармен плазма-бара (moving + speed): сгустки летают внутри банки, скорость полёта
+# — эксклюзивный ползунок «Скорость», читается в реальном времени. Порт
+# special:'moving' + LEVEL4_FX.plasma_bartender.
+# ============================================================
+class PlasmaMech extends NpcMech:
+	var g_ref
+
+	func setup(g) -> void:
+		if not ("speed" in g.active):
+			g.active.append("speed")
+
+	func _speed_frac(g, key_source: Dictionary) -> float:
+		var sp: Dictionary = g.PARAMS["speed"]
+		return (float(key_source["speed"]) - float(sp["min"])) / (float(sp["max"]) - float(sp["min"]))
+
+	func memorize_start(g) -> void:
+		g_ref = g
+		g.jar.set_physics(true)
+		g.jar.set_physics_speed(_speed_frac(g, g.target))   # на показе — целевая скорость
+
+	func craft_start(g) -> void:
+		g_ref = g
+		g.jar.set_physics(true)
+
+	func process(g, _delta: float) -> void:
+		g.jar.set_physics_speed(_speed_frac(g, g._current_values()))   # игрок крутит скорость вживую
+
+	func stop(g) -> void:
+		g.jar.set_physics(false)
+
+	func result_note(_g) -> String:
+		return "🍸 Бармен: сгустки летают — лови скорость"

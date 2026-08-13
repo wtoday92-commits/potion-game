@@ -61,10 +61,14 @@
 отдельно), `countB` (2-й счётчик), `rotation` (поворот), `speed` (скорость полёта).
 
 ## 🎭 Механики NPC — осталось (полный разбор в NPC_MECHANICS.md)
-Готово 18/23 (tentacloid, trucker_chrome, fashionista, archivist, catlady, logic9-база,
-racer_kai, apothecary_mo, janitor, marketer, dj_pulsar, drone, perfumer, gourmet_vega-база,
-swarm_navigator, guild_inspector-база, engineer-база, collector_gz). Осталось: **vex** (обычные)
-+ особые типы (6 фиолетовых) + бонус-мини-игры logic9/gourmet/inspector/engineer-УР4. Каркасные хуки:
+Готово 19/23 — ВСЕ «обычные» механики (tentacloid, trucker_chrome, fashionista, archivist,
+catlady, logic9-база, racer_kai, apothecary_mo, janitor, marketer, dj_pulsar, drone, perfumer,
+gourmet_vega-база, swarm_navigator, guild_inspector-база, engineer-база, collector_gz, vex).
+Готово 24: + plasma_bartender (physics полёта сгустков + параметр `speed`). Осталось всего
+**1 механика** — nebula_chef (`shape`: угадывание формы банки; нужны несколько силуэтов бутыли,
+сейчас один PNG → требует арта/процедурного контура). Довески по готовым: градиент Двуликой,
+форма-часы Тот-Кто-Ждёт, меню доверия Ир (УР.1/2), бонус-мини-игры УР4, поворот Сверхновой.
+(intern_beep, pete — механики нет.) Каркасные хуки:
 - **`score_bonus()`** — ГОТОВО. repBonus — TODO.
 - **`skip_memorize()`** — ГОТОВО (Инспектор/Инженер).
 - **`override_overall()`** — ГОТОВО (Коллекционер — верно/неверно).
