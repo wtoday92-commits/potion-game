@@ -62,6 +62,7 @@ func _empty_profile() -> Dictionary:
 		"npc_stats": {},        # id -> _empty_npc_stats()
 		"progression": {"xp": 0, "met_npcs": []},
 		"tips": {"balance": 0, "lifetime": 0},
+		"settings": {"music_vol": 0.6, "sfx_vol": 0.9},   # громкость (0..1)
 		# заведено под будущие фазы (логики пока нет):
 		"achievements": {"general": {}, "npc": {}},
 		"lore_phrases": {"unlocked_by_npc": {}},
@@ -163,7 +164,7 @@ func npc_stats(npc_id: String) -> Dictionary:
 func record_result(npc_id: String, tier: int, overall: float, grade: String,
 		reward: int, sticker_name: String = "",
 		time_frac: float = 1.0, reg_level: int = 1,
-		focus: String = "") -> Dictionary:
+		focus: String = "", rating_mult: float = 1.0) -> Dictionary:
 	ensure_npc(npc_id)
 	var is_perfect := grade == "perfect"
 	var is_good := grade == "good" or is_perfect     # «годнота+»
@@ -178,6 +179,9 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 	# дельта рейтинга (может быть отрицательной: пойло/брак отнимают)
 	var sd: Dictionary = GameData.score_delta(overall, grade, tier, reward, reg_level, time_frac)
 	var points: int = int(sd["delta"])
+	# множитель рейтинга от механики гостя (racer_kai/apothecary_mo/janitor) — только на плюс
+	if points > 0 and rating_mult != 1.0:
+		points = int(round(points * rating_mult))
 	var speed_pct: int = int(sd["speed_pct"])
 	if points > 0:
 		st["total_score_earned"] += points     # lifetime — только заработанное

@@ -16,19 +16,22 @@ func _make_wood_material(planks_val: float) -> ShaderMaterial:
 
 # Параметры зелья. count.min = 1 (нулевых сгустков не бывает).
 const PARAMS := {
-	"color":  {"min": 0.0,  "max": 360.0, "step": 5.0, "weight": 1.0, "label": "Спектр",  "suffix": "°"},
-	"volume": {"min": 10.0, "max": 100.0, "step": 1.0, "weight": 1.0, "label": "Объём",   "suffix": "%"},
-	"count":  {"min": 1.0,  "max": 12.0,  "step": 1.0, "weight": 0.8, "label": "Сгустки", "suffix": ""},
-	"bsize":  {"min": 10.0, "max": 100.0, "step": 2.0, "weight": 0.6, "label": "Размер",  "suffix": "%"},
+	"color":  {"min": 0.0,  "max": 360.0, "step": 5.0,  "weight": 1.0, "label": "Спектр",  "suffix": "°"},
+	"sat":    {"min": 0.0,  "max": 100.0, "step": 10.0, "weight": 0.6, "label": "Накал",   "suffix": "%"},
+	"volume": {"min": 10.0, "max": 100.0, "step": 1.0,  "weight": 1.0, "label": "Объём",   "suffix": "%"},
+	"count":  {"min": 1.0,  "max": 12.0,  "step": 1.0,  "weight": 0.8, "label": "Сгустки", "suffix": ""},
+	"bsize":  {"min": 10.0, "max": 100.0, "step": 2.0,  "weight": 0.6, "label": "Размер",  "suffix": "%"},
 }
-const ORDER: Array = ["color", "volume", "count", "bsize"]
+# Накал (sat) — сразу после цвета: колонка встаёт рядом с ним.
+const ORDER: Array = ["color", "sat", "volume", "count", "bsize"]
 
 # Какие ползунки активны (доступны и учитываются) на каждом уровне сложности.
+# Накал — только на УР.4 (доп. регулятор рядом с цветом).
 const ACTIVE := {
 	1: ["color", "volume"],
 	2: ["color", "volume", "count"],
 	3: ["color", "volume", "count", "bsize"],
-	4: ["color", "volume", "count", "bsize"],
+	4: ["color", "sat", "volume", "count", "bsize"],
 }
 const LEVEL_DESC := {
 	1: "УР.1 — цвет + объём",
@@ -640,6 +643,53 @@ func _build_start() -> void:
 	profile_btn.custom_minimum_size = Vector2(440, 52)
 	profile_btn.pressed.connect(_show_account)
 	sv.add_child(profile_btn)
+
+	# --- громкость: музыка / звуки ---
+	var vol_spacer := Control.new()
+	vol_spacer.custom_minimum_size = Vector2(0, 6)
+	sv.add_child(vol_spacer)
+	_audio_row(sv, "🎵 Музыка", true)
+	_audio_row(sv, "🔊 Звуки", false)
+
+# Ряд «ярлык + горизонтальный слайдер громкости». is_music → музыка, иначе SFX.
+func _audio_row(sv: VBoxContainer, label_text: String, is_music: bool) -> void:
+	var row := HBoxContainer.new()
+	row.custom_minimum_size = Vector2(440, 44)
+	row.add_theme_constant_override("separation", 12)
+	var lbl := Label.new()
+	lbl.text = label_text
+	lbl.custom_minimum_size = Vector2(120, 0)
+	lbl.add_theme_font_size_override("font_size", 18)
+	row.add_child(lbl)
+	var sl := HSlider.new()
+	sl.min_value = 0.0
+	sl.max_value = 100.0
+	sl.step = 1.0
+	sl.value = (Sfx.music_volume if is_music else Sfx.sfx_volume) * 100.0
+	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	sl.custom_minimum_size = Vector2(280, 40)
+	if is_music:
+		sl.value_changed.connect(_on_music_vol)
+		sl.drag_ended.connect(_on_vol_drag_end)
+	else:
+		sl.value_changed.connect(_on_sfx_vol)
+		sl.drag_ended.connect(_on_sfx_drag_end)
+	row.add_child(sl)
+	sv.add_child(row)
+
+func _on_music_vol(v: float) -> void:
+	Sfx.set_music_volume(v / 100.0)
+
+func _on_sfx_vol(v: float) -> void:
+	Sfx.set_sfx_volume(v / 100.0)
+
+func _on_vol_drag_end(_value_changed: bool) -> void:
+	PotionProfile.save()             # сохраняем настройку по концу перетаскивания
+
+func _on_sfx_drag_end(_value_changed: bool) -> void:
+	PotionProfile.save()
+	Sfx.play("tick")                 # превью громкости эффектов
 
 # Чип HUD: «эмодзи + значение», значение обновляется в _refresh_hud().
 func _hud_chip(row: HBoxContainer, icon: String) -> Label:
@@ -1626,6 +1676,7 @@ func _xp() -> int:
 	return int(PotionProfile.data.get("progression", {}).get("xp", 0))
 
 func _start_cycle() -> void:
+	Sfx.enter_game()                 # цикл начался — игровой плейлист
 	stage = 0
 	day_num = 1
 	cycle_score = 0
@@ -1858,6 +1909,7 @@ func _card_avatar(npc_e: Dictionary, sz: float) -> Control:
 	return box
 
 func _choose_npc(npc_e: Dictionary) -> void:
+	Sfx.play("cardPick")
 	npc = npc_e
 	_show_select()
 
@@ -1890,6 +1942,7 @@ func _after_order() -> void:
 		_new_day()
 
 func _show_cycle_end() -> void:
+	Sfx.play("weekEnd")              # итог цикла
 	cycle_active = false
 	# прогрессия: уровень и открытые NPC ДО начисления опыта
 	var xp_before: int = _xp()
@@ -1939,6 +1992,7 @@ func _show_cycle_end() -> void:
 
 # ---------- стартовый экран ----------
 func _show_start() -> void:
+	Sfx.enter_menu()                 # главное меню — трек меню
 	phase = "start"
 	result_panel.visible = false
 	round_ui.visible = false
@@ -2057,6 +2111,11 @@ func _start_round(lvl: int) -> void:
 
 	seed_val = randi()
 	target = _random_values()
+	# Инспектор: фазы показа нет — цель описана в «Допусках», сразу к воссозданию
+	if mech and mech.skip_memorize(self):
+		Sfx.play("orderShow")
+		_start_recreate()
+		return
 	_apply_to_jar(target)          # цель показываем целиком
 	for key in ORDER:
 		value_labels[key].text = "?"
@@ -2064,6 +2123,7 @@ func _start_round(lvl: int) -> void:
 	phase_total = MEMORIZE_S
 	phase_left = MEMORIZE_S
 	bulb_bar.set_fraction(0.0)      # лампы гаснут в начале, будут заполняться
+	Sfx.play("orderShow")           # заказ появился
 	if mech:
 		mech.memorize_start(self)
 
@@ -2121,12 +2181,35 @@ func _process(delta: float) -> void:
 		# лампы ГАСНУТ по мере игры
 		bulb_bar.set_fraction(clampf(phase_left / phase_total, 0.0, 1.0))
 		phase_label.text = "ВОССОЗДАЙ — %dс" % int(ceil(maxf(phase_left, 0.0)))
+		if mech:
+			mech.process(self, delta)      # покадровый хук механики (таймеры/анимация)
 		if phase_left <= 0.0:
 			_finish()
+
+# Насколько верно выставлен один ползунок (0..1) — та же формула, что в _do_finish.
+# Нужно механикам (Хранитель Архива, Модница) для правила «выставлен верно».
+func _key_score(key: String) -> float:
+	var s: TouchSlider = sliders[key]
+	var span: float = maxf(0.0001, s.max_value - s.min_value)
+	var diff: float = abs(s.value - float(target[key])) / span
+	return pow(clampf(1.0 - diff, 0.0, 1.0), 1.6)
+
+# Текущий общий результат (0..1) по активным параметрам — для промежуточных
+# замеров механик (чекпоинты Гонщицы и т.п.). Веса как в _do_finish, без мех-веса.
+func _current_overall() -> float:
+	var o: float = 0.0
+	var w: float = 0.0
+	for key in active:
+		var ww: float = float(PARAMS[key]["weight"])
+		o += _key_score(key) * ww
+		w += ww
+	return o / maxf(w, 0.001)
 
 # ---------- завершение ----------
 func _on_done() -> void:
 	if phase != "recreate":
+		return
+	if mech and not mech.on_done(self):   # механика может отменить финиш (Гурман — переигровка)
 		return
 	_finish()
 
@@ -2142,6 +2225,7 @@ func _finish() -> void:
 
 # Мультяшный отъезд: короткий замах влево, затем разгон вправо с наклоном.
 func _serve_jar() -> void:
+	Sfx.play("brew")                 # «сварено» — банка уезжает гостю
 	var x0: float = jar.position.x
 	jar.pivot_offset = Vector2(jar.size.x * 0.5, jar.size.y * 0.92)   # наклон от основания
 	var t := jar.create_tween()
@@ -2170,7 +2254,15 @@ func _do_finish() -> void:
 		overall += sc * w
 		wsum += w
 	overall = overall / maxf(wsum, 0.001)
+	# механика может заменить общий результат (Коллекционер — верно/неверно)
 	if mech:
+		var ov: float = mech.override_overall(self)
+		if ov >= 0.0:
+			overall = ov
+	# множитель рейтинга от механики — берём ДО stop() (таймеры/полоски ещё живы)
+	var rating_mult: float = 1.0
+	if mech:
+		rating_mult = mech.score_bonus(self)
 		mech.stop(self)
 
 	# грейд по порогам тира + запись результата в профиль
@@ -2182,7 +2274,7 @@ func _do_finish() -> void:
 	var time_frac: float = clampf(1.0 - phase_left / maxf(0.001, phase_total), 0.0, 1.0)
 	var outcome: Dictionary = PotionProfile.record_result(
 		npc["id"], tier, overall, grade, reward, sticker_name,
-		time_frac, level)
+		time_frac, level, "", rating_mult)
 
 	# для перехода дня/цикла
 	last_grade = grade
@@ -2207,6 +2299,10 @@ func _show_result(overall: float, comps: Dictionary, grade: String, outcome: Dic
 	phase = "result"
 	round_ui.visible = false
 	var gcol: Color = GRADE_COLOR.get(grade, Color.WHITE)
+	# звук по грейду: идеал/годно — позитив, пойло/брак — неудача
+	Sfx.play("perfect" if grade == "perfect" else "good" if grade == "good" else "bad")
+	if bool(outcome.get("level_up", false)):
+		Sfx.play("achieve")
 
 	# стикер-картинка + грейд крупно (цветом) с процентом
 	var stex := load(GameData.sticker_path(sticker_name)) as Texture2D
@@ -2337,13 +2433,22 @@ func _apply_to_jar(vals: Dictionary) -> void:
 	var vsize: float = (float(vals["volume"]) - float(vp["min"])) / (float(vp["max"]) - float(vp["min"]))
 	var bp: Dictionary = PARAMS["bsize"]
 	var bfrac: float = (float(vals["bsize"]) - float(bp["min"])) / (float(bp["max"]) - float(bp["min"]))
-	jar.set_potion(float(vals["color"]), vsize, int(vals["count"]), bfrac, seed_val)
+	# накал — только когда активен (УР.4); иначе прежняя константа 0.72.
+	# ВАЖНО: пол насыщенности 30% (как satFromIdx=30+idx*70/9 в оригинале) —
+	# иначе при нуле жидкость серая и целевой СПЕКТР невозможно считать на «ЗАПОМНИ».
+	var sat_actual: float = 0.72
+	if "sat" in active and vals.has("sat"):
+		var sp: Dictionary = PARAMS["sat"]
+		var f: float = (float(vals["sat"]) - float(sp["min"])) / (float(sp["max"]) - float(sp["min"]))
+		sat_actual = 0.30 + f * 0.70
+	jar.set_potion(float(vals["color"]), vsize, int(vals["count"]), bfrac, seed_val, sat_actual)
 
 func _on_slider_changed(_value: float, key: String) -> void:
 	if phase != "recreate":
 		return
 	_apply_to_jar(_current_values())
 	value_labels[key].text = _fmt(key, sliders[key].value)
+	Sfx.play("tick")
 
 func _update_value_labels(vals: Dictionary) -> void:
 	for key in ORDER:
