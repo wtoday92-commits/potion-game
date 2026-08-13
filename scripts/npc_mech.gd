@@ -503,7 +503,7 @@ class RacerMech extends NpcMech:
 		label.modulate.a = 1.0
 
 	func _shake(g) -> void:
-		var jar = g.jar
+		var jar: Control = g.jar
 		var t := jar.create_tween()
 		t.tween_property(jar, "rotation", deg_to_rad(4.0), 0.04)
 		t.tween_property(jar, "rotation", deg_to_rad(-4.0), 0.05)
