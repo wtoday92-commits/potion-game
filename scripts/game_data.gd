@@ -60,7 +60,10 @@ const LORE_PHRASE_CHANCE := 0.35
 const MECH_FROM_L1 := ["drone", "janitor", "trucker_chrome", "collector_gz",
 	"fashionista", "tentacloid", "dj_pulsar", "logic9", "racer_kai", "apothecary_mo",
 	"perfumer", "swarm_navigator", "vex", "guild_inspector", "gourmet_vega",
-	"catlady", "engineer", "marketer"]
+	"catlady", "engineer", "marketer",
+	# особые типы (dual_size/no_timer/shape/gradient/moving/trust) — работают на ВСЕХ уровнях
+	"supernova_child", "the_waiter", "nebula_chef", "twofaced_priestess",
+	"plasma_bartender", "last_of_ir"]
 
 func mech_active(id: String, level: int) -> bool:
 	return level == 4 or id in MECH_FROM_L1
