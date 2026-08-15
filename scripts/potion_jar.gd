@@ -9,6 +9,7 @@ extends Control
 ## банки). Форма сгустков и рябь анимируются в шейдере по TIME.
 
 const LiquidShader := preload("res://shaders/liquid.gdshader")
+const BottleBlurShader := preload("res://shaders/jar_blur.gdshader")
 
 # Границы интерьера стекла в UV (замерены по bottle_interior.png).
 const I_TOP := 0.150
@@ -23,6 +24,8 @@ var vsize: float = 0.6
 var height_frac: float = -1.0  # отдельная высота (Дитя Сверхновой); <0 = масштаб равномерный
 var count: int = 5
 var count2: int = 0        # 2-й счётчик (Двуликая): >0 → банка делится на 2 половины
+var fill_level: float = -1.0   # уровень жидкости (Пит); <0 = константа FILL
+var blur_amt: float = 0.0      # «пьяное» размытие 0..1 (Пит, градус)
 
 # --- физика летающих сгустков (Бармен плазма-бара) ---
 var _phys_on: bool = false
@@ -40,6 +43,7 @@ var sway: Control        # покачивание банки (пивот у ос
 var liquid: ColorRect
 var bottle: TextureRect
 var mat: ShaderMaterial
+var bottle_mat: ShaderMaterial
 
 # --- состояние анимации ---
 var _t: float = 0.0
@@ -76,6 +80,9 @@ func _ready() -> void:
 	bottle.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	bottle.stretch_mode = TextureRect.STRETCH_SCALE
 	bottle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bottle_mat = ShaderMaterial.new()          # box-размытие стекла (градус Пита)
+	bottle_mat.shader = BottleBlurShader
+	bottle.material = bottle_mat
 	sway.add_child(bottle)
 
 	# небольшой сдвиг фазы, чтобы разные банки качались вразнобой
@@ -84,12 +91,13 @@ func _ready() -> void:
 	resized.connect(_apply)
 	_apply()
 
-func set_potion(h: float, v: float, c: int, b: float, s: int, sat: float = 0.72, height: float = -1.0, c2: int = 0) -> void:
+func set_potion(h: float, v: float, c: int, b: float, s: int, sat: float = 0.72, height: float = -1.0, c2: int = 0, fill: float = -1.0) -> void:
 	hue = h
 	saturation = clampf(sat, 0.0, 1.0)
 	vsize = clampf(v, 0.0, 1.0)
 	height_frac = height     # <0 → равномерный масштаб по vsize
 	count2 = max(0, c2)      # >0 → две половины со своими счётчиками
+	fill_level = fill        # <0 → уровень по умолчанию (FILL)
 	count = max(0, c)
 	bsize = clampf(b, 0.0, 1.0)
 	pot_seed = s
@@ -104,6 +112,14 @@ func set_physics(on: bool) -> void:
 # Бармен: обновить скорость полёта без сброса позиций (читается каждый кадр).
 func set_physics_speed(frac: float) -> void:
 	_phys_speed = clampf(frac, 0.0, 1.0)
+
+# Пит: «пьяное» размытие жидкости и сгустков (0..1), обновляется каждый кадр.
+func set_blur(amt: float) -> void:
+	blur_amt = clampf(amt, 0.0, 1.0)
+	if mat != null:
+		mat.set_shader_parameter("blur", blur_amt)
+	if bottle_mat != null:
+		bottle_mat.set_shader_parameter("amount", blur_amt)   # мылим и само стекло
 
 func _process(delta: float) -> void:
 	if sway == null or mat == null:
@@ -166,17 +182,23 @@ func _apply() -> void:
 	sway.pivot_offset = base
 
 	var ar: float = size.x / size.y
+	var f: float = FILL if fill_level < 0.0 else clampf(fill_level, 0.05, 1.0)   # уровень жидкости (Пит)
 	mat.set_shader_parameter("liquid_col", Color.from_hsv(fposmod(hue, 360.0) / 360.0, saturation, 0.95))
-	mat.set_shader_parameter("fill", FILL)
+	mat.set_shader_parameter("fill", f)
 	mat.set_shader_parameter("interior_top", I_TOP)
 	mat.set_shader_parameter("interior_bot", I_BOT)
 	mat.set_shader_parameter("interior_left", I_LEFT)
 	mat.set_shader_parameter("interior_right", I_RIGHT)
 	mat.set_shader_parameter("aspect", ar)
 
+	mat.set_shader_parameter("blur", clampf(blur_amt, 0.0, 1.0))
 	# сгустки в зоне жидкости (в UV), каждая своего размера и с фазой w
-	var liq_top: float = I_BOT - (I_BOT - I_TOP) * FILL
+	var liq_top: float = I_BOT - (I_BOT - I_TOP) * f
 	_liq_top = liq_top
+	# при низком уровне жидкости полоса тонкая — ограничиваем радиус капли, чтобы
+	# они ВСЕГДА помещались (иначе rejection sampling их выкидывал → «исчезали»)
+	var band: float = maxf(0.02, I_BOT - liq_top)
+	var r_cap: float = maxf(0.014, band * 0.36)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = pot_seed
 	var arr := PackedVector4Array()
@@ -196,16 +218,21 @@ func _apply() -> void:
 		for i in k:
 			if n_real >= 12:
 				break
-			# размер каждой капли слегка разный
-			var r_uv: float = lerpf(0.02, 0.055, bsize) * rng.randf_range(0.72, 1.28)
+			# крупнее и «пузырчатее»; кламп по полосе жидкости — не даём вылезти/пропасть
+			var r_uv: float = lerpf(0.032, 0.075, bsize) * rng.randf_range(0.84, 1.16)
+			r_uv = clampf(r_uv, 0.014, r_cap)
 			var mx: float = r_uv / max(0.0001, ar)   # x сжат аспектом
 			# запас под покачивание/дрейф капель + границы группы (половины)
-			var minx: float = maxf(I_LEFT + mx + 0.02, gx0 + mx)
-			var maxx: float = minf(I_RIGHT - mx - 0.02, gx1 - mx)
-			var miny: float = liq_top + r_uv + 0.03
-			var maxy: float = I_BOT - r_uv - 0.02
-			if maxx <= minx or maxy <= miny:
-				continue
+			var minx: float = maxf(I_LEFT + mx + 0.015, gx0 + mx)
+			var maxx: float = minf(I_RIGHT - mx - 0.015, gx1 - mx)
+			var miny: float = liq_top + r_uv + 0.012
+			var maxy: float = I_BOT - r_uv - 0.012
+			if maxx <= minx:
+				minx = (gx0 + gx1) * 0.5
+				maxx = minx
+			if maxy <= miny:
+				miny = (liq_top + I_BOT) * 0.5
+				maxy = miny
 			# rejection sampling: позиция подальше от уже стоящих капель
 			var bx: float = 0.0
 			var by: float = 0.0

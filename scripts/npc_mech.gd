@@ -76,6 +76,7 @@ static func make(id: String) -> NpcMech:
 		"the_waiter": return WaiterMech.new()
 		"twofaced_priestess": return TwofacedMech.new()
 		"plasma_bartender": return PlasmaMech.new()
+		"pete": return PeteMech.new()
 		_: return null
 
 # ============================================================
@@ -911,6 +912,7 @@ class DroneMech extends NpcMech:
 class PerfumerMech extends NpcMech:
 	var g_ref
 	var pad: ColorPad = null
+	var col: VBoxContainer = null    # колонка-обёртка пэда (встаёт в ряд регуляторов)
 
 	func setup(g) -> void:
 		# накал — часть заказа Парфюмера на любом уровне
@@ -919,17 +921,25 @@ class PerfumerMech extends NpcMech:
 
 	func craft_start(g) -> void:
 		g_ref = g
-		# прячем колонки спектра и накала — их заменяет пэд
+		# прячем колонки спектра и накала — их заменяет квадратный пэд в том же ряду
 		g.slider_cols["color"].visible = false
 		g.slider_cols["sat"].visible = false
 		var cs = g.sliders["color"]
 		var ss = g.sliders["sat"]
+		var row: HBoxContainer = g.slider_cols["color"].get_parent()   # ряд регуляторов
+		col = VBoxContainer.new()
+		col.alignment = BoxContainer.ALIGNMENT_CENTER
+		var lbl := Label.new()
+		lbl.text = "Спектр × Накал"
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		col.add_child(lbl)
 		pad = ColorPad.new()
-		pad.custom_minimum_size = Vector2(300, 300)
+		pad.custom_minimum_size = Vector2(248, 248)   # компактный квадрат
 		pad.config(cs.min_value, cs.max_value, cs.step, ss.min_value, ss.max_value, ss.step, cs.value, ss.value)
 		pad.changed.connect(_on_pad)
-		g.round_ui.add_child(pad)
-		g.round_ui.move_child(pad, g.done_btn.get_index())
+		col.add_child(pad)
+		row.add_child(col)
+		row.move_child(col, 0)                        # слева, где были цвет/накал
 
 	func _on_pad(hue: float, sat: float) -> void:
 		g_ref.sliders["color"].set_value_no_signal(hue)
@@ -937,8 +947,9 @@ class PerfumerMech extends NpcMech:
 		g_ref._on_slider_changed(hue, "color")   # обновит банку (читает оба) + тик
 
 	func stop(g) -> void:
-		if pad != null and is_instance_valid(pad):
-			pad.queue_free()
+		if col != null and is_instance_valid(col):
+			col.queue_free()
+		col = null
 		pad = null
 		if g.slider_cols.has("color"):
 			g.slider_cols["color"].visible = true
@@ -1223,6 +1234,13 @@ class CollectorMech extends NpcMech:
 	var overlay: Control = null
 	var chosen_correct: bool = false
 
+	# отступ сетки от верха (лампы + надпись фазы) и снизу — банки не лезут на них
+	const TOP_RESERVE := 260.0
+	const BOT_RESERVE := 64.0
+	const SIDE_MARGIN := 28.0
+	const GAP := 10.0
+	const JAR_ASPECT := 215.0 / 385.0   # пропорции банки из potion_jar.tscn (ш/в)
+
 	func craft_start(g) -> void:
 		g_ref = g
 		# прячем обычную игру — ни ползунков, ни банки, ни «Готово»
@@ -1231,36 +1249,53 @@ class CollectorMech extends NpcMech:
 		g.done_btn.visible = false
 		g.jar_stage.visible = false
 		var n: int = int(N_BY_LVL.get(g.level, 9))
-		var cols: int = int(round(sqrt(float(n))))
+		var cols: int = int(ceil(sqrt(float(n))))
+		var rows: int = int(ceil(float(n) / float(cols)))
 		# параметры образца
 		var tcolor: float = float(g.target["color"])
 		var tcount: int = int(g.target["count"])
 		var correct_idx: int = randi() % n
-		# оверлей с центрированной сеткой
+		# размер ячейки считаем от доступной области (низ экрана под шапкой), а не
+		# фиксированно — иначе на сетке 4×4 банки не вмещаются и лезут из блоков.
+		var vp: Vector2 = g.get_viewport_rect().size
+		var avail_w: float = vp.x - SIDE_MARGIN * 2.0 - float(cols - 1) * GAP
+		var avail_h: float = vp.y - TOP_RESERVE - BOT_RESERVE - float(rows - 1) * GAP
+		var cw: float = avail_w / float(cols)
+		var ch: float = avail_h / float(rows)
+		# держим пропорции банки: берём ограничивающую сторону
+		var w: float = minf(cw, ch * JAR_ASPECT)
+		var cell := Vector2(floorf(w), floorf(w / JAR_ASPECT))
+		# оверлей с сеткой, прижатой под шапку (лампы/надпись фазы)
 		overlay = Control.new()
 		overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 		g.add_child(overlay)
 		var center := CenterContainer.new()
 		center.set_anchors_preset(Control.PRESET_FULL_RECT)
+		center.offset_top = TOP_RESERVE
+		center.offset_bottom = -BOT_RESERVE
 		center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		overlay.add_child(center)
 		var grid := GridContainer.new()
 		grid.columns = cols
-		grid.add_theme_constant_override("h_separation", 10)
-		grid.add_theme_constant_override("v_separation", 10)
+		grid.add_theme_constant_override("h_separation", int(GAP))
+		grid.add_theme_constant_override("v_separation", int(GAP))
 		center.add_child(grid)
 		for i in n:
 			var is_correct: bool = (i == correct_idx)
 			var cvals: Array = [tcolor, tcount] if is_correct else _decoy(tcolor, tcount)
-			grid.add_child(_cell(cvals[0], int(cvals[1]), is_correct))
+			grid.add_child(_cell(cell, cvals[0], int(cvals[1]), is_correct))
 
-	# ячейка = кнопка с мини-банкой
-	func _cell(color_v: float, count_v: int, is_correct: bool) -> Button:
+	# ячейка = кнопка с мини-банкой (банка клипается по блоку — не вылезает)
+	func _cell(cell: Vector2, color_v: float, count_v: int, is_correct: bool) -> Button:
 		var btn := Button.new()
-		btn.custom_minimum_size = Vector2(128, 176)
+		btn.custom_minimum_size = cell
+		btn.clip_contents = true
 		btn.focus_mode = Control.FOCUS_NONE
 		var jar = g_ref.PotionJarScene.instantiate()
+		# сцена банки задаёт min 215×385 — в маленькой ячейке его надо снять, иначе
+		# банка не ужимается до блока и вылезает за него.
+		jar.custom_minimum_size = Vector2.ZERO
 		jar.set_anchors_preset(Control.PRESET_FULL_RECT)
 		jar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		btn.add_child(jar)
@@ -1395,6 +1430,52 @@ class SupernovaMech extends NpcMech:
 
 	func result_note(_g) -> String:
 		return "💫 Дитя Сверхновой: ширина и высота раздельно"
+
+# ============================================================
+# Пьяница Пит: «уровень жидкости» (fill) — отдельный регулятор, активен С УР.1.
+# Порт cfg.id==='pete' (fill в activeKeys). Градус (degree, УР.4) — TODO.
+# ============================================================
+class PeteMech extends NpcMech:
+	var g_ref
+
+	func setup(g) -> void:
+		if not ("fill" in g.active):
+			g.active.append("fill")     # уровень жидкости — часть заказа на всех уровнях
+
+	# УР.4: эксклюзивный «Градус» — риск-дайл (не в active → не оценивается)
+	func craft_start(g) -> void:
+		g_ref = g
+		if g.level != 4:
+			return
+		g.slider_cols["degree"].visible = true
+		g.sliders["degree"].set_value_no_signal(0.0)     # с нуля — трезвый
+
+	func _degree_frac() -> float:
+		if g_ref == null or g_ref.level != 4:
+			return 0.0
+		return clampf(g_ref.sliders["degree"].value / 100.0, 0.0, 1.0)
+
+	func process(g, _delta: float) -> void:
+		if g.level != 4:
+			return
+		var gd: float = _degree_frac()
+		g.timer_rate = 1.0 - 0.5 * gd                    # до ×2 медленнее
+		g.jar.set_blur(gd)                               # настоящее размытие жидкости+сгустков
+		g.drunk_amount = gd                              # «пьяная» качка камеры + двоение
+
+	func score_bonus(_g) -> float:
+		return 1.0 - 0.5 * _degree_frac()                # выше градус — меньше рейтинга
+
+	func stop(g) -> void:
+		g.timer_rate = 1.0
+		g.drunk_amount = 0.0
+		if is_instance_valid(g.jar):
+			g.jar.set_blur(0.0)
+		if g.slider_cols.has("degree"):
+			g.slider_cols["degree"].visible = false
+
+	func result_note(_g) -> String:
+		return "🍺 Пьяница Пит: важен уровень жидкости"
 
 # ============================================================
 # Тот-Кто-Ждёт (no_timer): таймеров нет — «ЗАПОМНИ» и «ВОССОЗДАЙ» переключаются

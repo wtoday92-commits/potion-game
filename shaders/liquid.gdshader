@@ -16,6 +16,7 @@ uniform float tilt = 0.0;            // наклон поверхности от
 uniform float slosh = 0.0;           // энергия плескания 0..1 (усиливает волны/дрейф)
 uniform vec4 blobs[12];              // xy=центр(UV), z=радиус(UV), w=фаза/сид 0..1
 uniform int blob_n = 0;
+uniform float blur = 0.0;            // «пьяное» размытие 0..1 (Пит, градус) — мылит жидкость и сгустки
 
 void fragment() {
 	float m = texture(mask, UV).a;
@@ -42,8 +43,8 @@ void fragment() {
 			float hw = (interior_right - interior_left) * 0.5;
 			float sidex = clamp(abs(UV.x - cx) / max(0.0001, hw), 0.0, 1.0);
 			col.rgb *= mix(1.06, 0.80, sidex);
-			// блик поверхности (следует за наклонённой волной)
-			col.rgb += smoothstep(0.012, 0.0, abs(UV.y - liq_top)) * 0.45;
+			// блик поверхности (следует за наклонённой волной); мылится при blur
+			col.rgb += smoothstep(0.012 + blur * 0.07, 0.0, abs(UV.y - liq_top)) * 0.45 * (1.0 - 0.6 * blur);
 			// полутон
 			vec2 gp = vec2(UV.x * aspect, UV.y) * 95.0;
 			col.rgb *= mix(0.9, 1.0, smoothstep(0.30, 0.42, length(fract(gp) - 0.5)));
@@ -73,23 +74,27 @@ void fragment() {
 			vec2 lp = dd / reff;
 			float q = length(lp);
 
-			float edge = 0.06;
+			// края мылятся при blur (пьяный градус) — сгусток теряет чёткость
+			float edge = 0.05 + blur * 0.55;
 			float alpha = 1.0 - smoothstep(1.0 - edge, 1.0, q);
 			if (alpha > 0.001) {
-				// светлая заливка (ярче окружающей жидкости)
-				vec3 fillc = clamp(liquid_col.rgb * 1.5 + 0.12, vec3(0.0), vec3(1.0));
+				// светлая полупрозрачная заливка «пузыря» (ярче жидкости)
+				vec3 fillc = clamp(liquid_col.rgb * 1.55 + 0.14, vec3(0.0), vec3(1.0));
 				// объёмная подтень к низу-справа
-				float shade = mix(1.08, 0.78, clamp(lp.x * 0.5 + lp.y * 0.6 + 0.5, 0.0, 1.0));
+				float shade = mix(1.12, 0.72, clamp(lp.x * 0.5 + lp.y * 0.6 + 0.5, 0.0, 1.0));
 				vec3 body = fillc * shade;
-				// мягкий блик сверху-слева
-				float hl = 1.0 - smoothstep(0.0, 0.42, length(lp - vec2(-0.34, -0.40)));
-				body = mix(body, clamp(fillc * 1.35 + 0.3, vec3(0.0), vec3(1.0)), hl * 0.7);
-				// глянцевая точка
-				float glint = 1.0 - smoothstep(0.0, 0.12, length(lp - vec2(-0.30, -0.36)));
-				body += glint * 0.4;
-				// тёмная окаёмка у края
-				float rim = smoothstep(0.72, 0.96, q);
-				body = mix(body, liquid_col.rgb * 0.22, rim * 0.85);
+				// КРУПНЫЙ мягкий блик сверху-слева (как на пузыре)
+				float hl = 1.0 - smoothstep(0.0, 0.52, length(lp - vec2(-0.32, -0.40)));
+				body = mix(body, clamp(fillc * 1.45 + 0.4, vec3(0.0), vec3(1.0)), hl * 0.8 * (1.0 - 0.5 * blur));
+				// яркая глянцевая точка
+				float glint = 1.0 - smoothstep(0.0, 0.16, length(lp - vec2(-0.30, -0.36)));
+				body += glint * 0.6 * (1.0 - blur);
+				// светлая обводка-ободок (приятный контур пузыря)
+				float lite = smoothstep(0.66, 0.84, q) * (1.0 - smoothstep(0.84, 0.98, q));
+				body += lite * 0.4 * (1.0 - 0.6 * blur);
+				// тёмная окаёмка у самого края
+				float rim = smoothstep(0.86, 0.995, q);
+				body = mix(body, liquid_col.rgb * 0.25, rim * 0.8);
 				col.rgb = mix(col.rgb, body, alpha);
 			}
 		}

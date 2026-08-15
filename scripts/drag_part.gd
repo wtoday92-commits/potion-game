@@ -9,6 +9,7 @@ signal dropped(part)
 const SZ := 64.0
 var _drag: bool = false
 var _lbl: Label
+var _drag_snd_t: int = 0        # троттлинг звука волочения
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -43,4 +44,8 @@ func _gui_input(event: InputEvent) -> void:
 		accept_event()
 	elif (event is InputEventScreenDrag or event is InputEventMouseMotion) and _drag:
 		position += event.relative
+		var now: int = Time.get_ticks_msec()
+		if now - _drag_snd_t > 130:      # звук волочения, троттлинг ~130мс
+			_drag_snd_t = now
+			Sfx.play("blobDrag")
 		accept_event()
