@@ -63,7 +63,8 @@ const MECH_FROM_L1 := ["drone", "janitor", "trucker_chrome", "collector_gz",
 	"catlady", "engineer", "marketer",
 	# особые типы (dual_size/no_timer/shape/gradient/moving/trust) — работают на ВСЕХ уровнях
 	"supernova_child", "the_waiter", "nebula_chef", "twofaced_priestess",
-	"plasma_bartender", "last_of_ir"]
+	"plasma_bartender", "last_of_ir",
+	"pete"]   # «уровень жидкости» (fill) — с УР.1
 
 func mech_active(id: String, level: int) -> bool:
 	return level == 4 or id in MECH_FROM_L1

@@ -19,16 +19,20 @@ const PARAMS := {
 	"color":  {"min": 0.0,  "max": 360.0, "step": 5.0,  "weight": 1.0, "label": "Спектр",  "suffix": "°"},
 	"sat":    {"min": 0.0,  "max": 100.0, "step": 10.0, "weight": 0.6, "label": "Накал",   "suffix": "%"},
 	"volume": {"min": 10.0, "max": 100.0, "step": 1.0,  "weight": 1.0, "label": "Объём",   "suffix": "%"},
+	"fill":   {"min": 20.0, "max": 100.0, "step": 10.0, "weight": 0.7, "label": "Уровень", "suffix": "%"},
 	"size2":  {"min": 10.0, "max": 100.0, "step": 2.0,  "weight": 0.6, "label": "Высота",  "suffix": "%"},
 	"count":  {"min": 1.0,  "max": 12.0,  "step": 1.0,  "weight": 0.8, "label": "Сгустки", "suffix": ""},
 	"countB": {"min": 1.0,  "max": 7.0,   "step": 1.0,  "weight": 0.8, "label": "Сгустки Б", "suffix": ""},
 	"bsize":  {"min": 10.0, "max": 100.0, "step": 2.0,  "weight": 0.6, "label": "Размер",  "suffix": "%"},
 	"speed":  {"min": 0.0,  "max": 100.0, "step": 10.0, "weight": 0.6, "label": "Скорость", "suffix": ""},
+	# «Градус» Пита (УР.4) — риск-дайл, НЕ оценивается (не входит в active): выше =
+	# больше времени и чаевых, но меньше рейтинга и мутнее банка.
+	"degree": {"min": 0.0,  "max": 100.0, "step": 10.0, "weight": 0.0, "label": "Градус",  "suffix": "°"},
 }
 # Накал (sat) — у спектра; Высота (size2) — у объёма; Сгустки Б (countB) — у сгустков;
 # Скорость (speed) — в конце. size2/countB/speed активны только у своих гостей
 # (Сверхнова / Двуликая / Бармен).
-const ORDER: Array = ["color", "sat", "volume", "size2", "count", "countB", "bsize", "speed"]
+const ORDER: Array = ["color", "sat", "volume", "fill", "size2", "count", "countB", "bsize", "speed", "degree"]
 
 # Какие ползунки активны (доступны и учитываются) на каждом уровне сложности.
 # Накал — только на УР.4 (доп. регулятор рядом с цветом).
@@ -122,6 +126,14 @@ var perfect_streak_max: int = 0
 var good_streak_max: int = 0
 var last_grade: String = ""
 var ir_pending: String = ""     # «Последний из Ир»: бафф/дебафф СЛЕДУЮЩЕМУ заказу ("buff"/"debuff")
+var timer_rate: float = 1.0     # множитель хода таймера варки (Пит: «градус» замедляет до ×2)
+var drunk_amount: float = 0.0   # «пьяный» эффект 0..1 (качка камеры + двоение) — от градуса Пита
+var drunk_layer: CanvasLayer    # слой поверх экрана с шейдером-двойником
+var drunk_rect: ColorRect
+var drunk_mat: ShaderMaterial
+var _dev_panel: Control          # дев-панель мгновенного теста любого гостя
+var _dev_level: int = 4
+var _dev_lvl_btns: Array = []
 
 var day_panel: Control
 var day_header: Label
@@ -222,12 +234,19 @@ const SCENE_STATES := {
 	"menu":   [[1.05, 1.0, 0.0],   [1.30, 0.0, 0.0],   [1.60, 0.0, 0.0]],
 	"select": [[1.15, 1.0, 150.0], [1.45, 1.0, 276.0], [1.90, 0.0, 0.0]],
 	"game":   [[1.00, 1.0, 0.0],   [1.00, 1.0, 0.0],   [1.00, 1.0, 0.0]],
+	# «play» — камера ближе на время игры: окно крупнее, СТОЛ (передний слой) выше
+	# (offset вверх синхронизирован с JarStage.TABLE_SCREEN_Y). Тюнится по скрину.
+	"play":   [[1.12, 1.0, 0.0],   [1.22, 1.0, -30.0], [1.28, 1.0, -150.0]],
 }
 func _scene_state(state: String, dur: float = 0.55) -> void:
 	var c: Array = SCENE_STATES.get(state, SCENE_STATES["game"])
 	_tween_layer(layer_back, c[0], dur)
 	_tween_layer(layer_mid, c[1], dur)
 	_tween_layer(layer_front, c[2], dur)
+	_slide_header(state == "play")     # на игре верхние панели уезжают вверх, иначе — на месте
+	if state != "play":                # вне игры — снять «пьяную» качку/двоение
+		drunk_amount = 0.0
+		_apply_drunk(0.0)
 
 func _tween_layer(l: TextureRect, cfg: Array, dur: float) -> void:
 	if l == null:
@@ -273,9 +292,9 @@ func _build_ui() -> void:
 	round_ui = VBoxContainer.new()
 	round_ui.set_anchors_preset(Control.PRESET_FULL_RECT)
 	round_ui.offset_left = 36.0
-	round_ui.offset_top = CONTENT_TOP        # ниже постоянной верхней панели
+	round_ui.offset_top = 18.0               # на игре топбар уезжает — лампы/надписи наверху
 	round_ui.offset_right = -36.0
-	round_ui.offset_bottom = -36.0
+	round_ui.offset_bottom = -28.0
 	round_ui.add_theme_constant_override("separation", 14)
 	add_child(round_ui)
 
@@ -299,7 +318,7 @@ func _build_ui() -> void:
 
 	var sliders_row := HBoxContainer.new()
 	sliders_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	sliders_row.add_theme_constant_override("separation", 24)
+	sliders_row.add_theme_constant_override("separation", 8)   # плотнее — до 7 колонок влезает
 	round_ui.add_child(sliders_row)
 
 	for key in ORDER:
@@ -320,7 +339,7 @@ func _build_ui() -> void:
 		s.step = p["step"]
 		s.value = p["min"]
 		s.hue_track = key == "color"   # регулятор спектра — радужный градиент
-		s.custom_minimum_size = Vector2(84, 300)
+		s.custom_minimum_size = Vector2(70, 300)   # уже — чтобы 7 колонок влезли в кадр
 		s.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		s.value_changed.connect(_on_slider_changed.bind(key))
 		col.add_child(s)
@@ -506,6 +525,19 @@ func _build_ui() -> void:
 	_build_topbar()
 	# ---- стрип прогрессии под топбаром (постоянный) ----
 	_build_prog_strip()
+	# ---- «пьяный» слой-двойник поверх всего (шейдер, вкл. по градусу Пита) ----
+	drunk_layer = CanvasLayer.new()
+	drunk_layer.layer = 5
+	add_child(drunk_layer)
+	drunk_rect = ColorRect.new()
+	drunk_rect.size = Vector2(720, 1280)
+	drunk_rect.color = Color(1, 1, 1, 1)
+	drunk_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	drunk_mat = ShaderMaterial.new()
+	drunk_mat.shader = preload("res://shaders/drunk_ghost.gdshader")
+	drunk_rect.material = drunk_mat
+	drunk_rect.visible = false
+	drunk_layer.add_child(drunk_rect)
 	# ---- слой тостов (поверх всего) ----
 	toast_layer = VBoxContainer.new()
 	toast_layer.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -524,8 +556,9 @@ func _build_ui() -> void:
 	dev_btn.offset_right = -18.0
 	dev_btn.offset_bottom = -18.0
 	dev_btn.modulate = Color(1, 1, 1, 0.6)
-	dev_btn.pressed.connect(_dev_boost)
+	dev_btn.pressed.connect(_dev_open)
 	add_child(dev_btn)
+	_build_dev_panel()
 	# рамкой служит сам бар-арт (bar_frame) — отдельная металлическая рамка не нужна
 
 func _dev_boost() -> void:
@@ -534,6 +567,75 @@ func _dev_boost() -> void:
 	if prog_strip.visible:
 		prog_widget.refresh()
 	_toast("DEV: +опыт лавки, +чаевые, реп. со всеми", Color("6dff8f"))
+
+# Дев-панель: мгновенно прыгнуть в раунд любого гостя на любом УР (для теста механик).
+func _build_dev_panel() -> void:
+	_dev_panel = _make_center_panel()
+	var v := _dev_panel.get_node("Card/V") as VBoxContainer
+	v.add_theme_constant_override("separation", 8)
+	var title := Label.new()
+	title.text = "DEV — тест гостя"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	v.add_child(title)
+	# выбор уровня сложности
+	var lvlrow := HBoxContainer.new()
+	lvlrow.alignment = BoxContainer.ALIGNMENT_CENTER
+	lvlrow.add_theme_constant_override("separation", 8)
+	v.add_child(lvlrow)
+	_dev_lvl_btns.clear()
+	for l in [1, 2, 3, 4]:
+		var b := Button.new()
+		b.text = "УР.%d" % l
+		b.toggle_mode = true
+		b.button_pressed = (l == _dev_level)
+		b.pressed.connect(_dev_set_level.bind(l))
+		lvlrow.add_child(b)
+		_dev_lvl_btns.append(b)
+	var boost := Button.new()
+	boost.text = "💰 BOOST (опыт/чаевые/реп)"
+	boost.pressed.connect(_dev_boost)
+	v.add_child(boost)
+	# список всех гостей — по кнопке прыгаем прямо в раунд
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.custom_minimum_size = Vector2(0, 560)
+	v.add_child(scroll)
+	var grid := VBoxContainer.new()
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("separation", 4)
+	scroll.add_child(grid)
+	for e in GameData.NPCS:
+		var nb := Button.new()
+		nb.text = "%s  ·  тир %d  ·  %s" % [String(e.get("name", e.get("id", "?"))), int(e.get("tier", 1)), String(e.get("id", ""))]
+		nb.pressed.connect(_dev_start.bind(e))
+		grid.add_child(nb)
+	var close := Button.new()
+	close.text = "Закрыть"
+	close.pressed.connect(_dev_close)
+	v.add_child(close)
+
+func _dev_open() -> void:
+	_dev_panel.visible = true
+
+func _dev_close() -> void:
+	_dev_panel.visible = false
+
+func _dev_set_level(l: int) -> void:
+	_dev_level = l
+	for i in _dev_lvl_btns.size():
+		_dev_lvl_btns[i].button_pressed = (i == l - 1)
+
+func _dev_start(e: Dictionary) -> void:
+	_dev_panel.visible = false
+	npc = e
+	# минимальный контекст цикла, чтобы топбар/переходы не падали
+	if not cycle_active:
+		cycle_active = true
+		day_num = 1
+		cycle_days = GameData.prog_cycle_days(_xp())
+		stage = 0
+	_start_round(_dev_level)
 
 # Всплывающий тост: панель с текстом, влетает сверху, держится и уходит.
 func _toast(text: String, col: Color = Color("6ec3ff"), delay: float = 0.0) -> void:
@@ -2098,8 +2200,12 @@ func _start_round(lvl: int) -> void:
 	_serving = false
 	jar_stage.reset_jar()          # вернуть банку на стол после прошлого отъезда
 	jar.modulate = Color.WHITE     # сбросить «выцветание» от дебаффа Ир
+	jar.set_blur(0.0)              # сбросить размытие (градус Пита) от прошлого заказа
+	timer_rate = 1.0               # сбросить замедление таймера (градус Пита)
+	drunk_amount = 0.0             # сбросить «пьяный» эффект
 	_set_topbar(true)
-	_scene_state("game")
+	_scene_state("play")           # камера ближе; верхние панели уезжают вверх
+	_enter_jar()                   # банка выезжает справа на своё место
 	Juice.fade_in(round_ui)
 
 	# ВАЖНО: на фазе «ЗАПОМНИ» регуляторы и кнопку прячем целиком — иначе игрок
@@ -2177,6 +2283,24 @@ func _start_recreate() -> void:
 		_apply_ir(ir_pending)
 		ir_pending = ""
 
+# «Пьяный» эффект: качка «камеры» (canvas_transform всего кадра) + двоение-призрак.
+func _apply_drunk(g: float) -> void:
+	if g <= 0.001:
+		get_viewport().canvas_transform = Transform2D.IDENTITY
+		if drunk_rect != null:
+			drunk_rect.visible = false
+		return
+	var tt: float = Time.get_ticks_msec() / 1000.0
+	var ang: float = (sin(tt * 1.7) * 0.020 + sin(tt * 0.9) * 0.010) * g
+	var ox: float = (sin(tt * 1.3) * 11.0 + sin(tt * 0.7) * 5.0) * g
+	var oy: float = sin(tt * 1.1 + 1.0) * 8.0 * g
+	var c := Vector2(360, 640)
+	var rot := Transform2D(ang, Vector2.ZERO)
+	get_viewport().canvas_transform = Transform2D(ang, c + Vector2(ox, oy) - (rot * c))
+	if drunk_rect != null:
+		drunk_rect.visible = true
+		drunk_mat.set_shader_parameter("amount", g)
+
 # «Последний из Ир»: бафф/дебафф на текущий заказ (случайный из пары), с тостом.
 func _apply_ir(kind: String) -> void:
 	if kind == "buff":
@@ -2214,10 +2338,11 @@ func _process(delta: float) -> void:
 	elif phase == "recreate":
 		if mech:
 			mech.process(self, delta)      # покадровый хук механики (таймеры/анимация)
+		_apply_drunk(drunk_amount)         # «пьяная» качка камеры + двоение (градус Пита)
 		if no_timer:
 			phase_label.text = "ВОССОЗДАЙ — жми «Готово»"
 		else:
-			phase_left -= delta
+			phase_left -= delta * timer_rate       # градус Пита замедляет ход
 			# лампы ГАСНУТ по мере игры
 			bulb_bar.set_fraction(clampf(phase_left / phase_total, 0.0, 1.0))
 			phase_label.text = "ВОССОЗДАЙ — %dс" % int(ceil(maxf(phase_left, 0.0)))
@@ -2260,6 +2385,36 @@ func _finish() -> void:
 	bulb_bar.visible = false
 	_set_sliders_interactable(false)
 	_serve_jar()
+
+# Банка ВЫЕЗЖАЕТ на своё место справа (зеркало отъезда) — на старте раунда.
+func _enter_jar() -> void:
+	# На 1-м заказе после запуска jar_stage ещё не разложен (size=0) → домашняя
+	# позиция считается криво (банка «сбоку»). Ждём кадр и пересчитываем home.
+	jar.visible = false
+	await get_tree().process_frame
+	jar_stage.reset_jar()
+	jar.visible = true
+	jar.pivot_offset = Vector2(jar.size.x * 0.5, jar.size.y * 0.92)
+	var x0: float = jar.position.x
+	jar.rotation = deg_to_rad(-9.0)                     # лёгкий наклон «толчка»
+	jar.position.x = x0 - size.x - 300.0                # старт за ЛЕВЫМ краем — выезжает по столу
+	var t := jar.create_tween()
+	t.tween_property(jar, "position:x", x0, 0.5).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(jar, "rotation", 0.0, 0.5).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+# Верхние панели (топбар + стрип прогрессии) уезжают вверх на игру и приезжают
+# обратно после. hidden=true — вверх за экран; false — на место.
+func _slide_header(hidden: bool, dur: float = 0.45) -> void:
+	var dy: float = -190.0 if hidden else 0.0
+	_tween_offsets(topbar, 30.0 + dy, 30.0 + TOPBAR_H + dy, dur)
+	_tween_offsets(prog_strip, STRIP_TOP + dy, STRIP_TOP + STRIP_H + dy, dur)
+
+func _tween_offsets(p: Control, top: float, bot: float, dur: float) -> void:
+	if p == null:
+		return
+	var t := p.create_tween().set_parallel(true)
+	t.tween_property(p, "offset_top", top, dur).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_property(p, "offset_bottom", bot, dur).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 # Мультяшный отъезд: короткий замах влево, затем разгон вправо с наклоном.
 func _serve_jar() -> void:
@@ -2497,14 +2652,40 @@ func _apply_to_jar(vals: Dictionary) -> void:
 	var c2: int = 0
 	if "countB" in active and vals.has("countB"):
 		c2 = int(vals["countB"])
-	jar.set_potion(float(vals["color"]), vsize, int(vals["count"]), bfrac, seed_val, sat_actual, hfrac, c2)
+	# уровень жидкости — только у Пита (fill активен); иначе -1 = уровень по умолчанию
+	var fill_frac: float = -1.0
+	if "fill" in active and vals.has("fill"):
+		fill_frac = float(vals["fill"]) / 100.0
+	jar.set_potion(float(vals["color"]), vsize, int(vals["count"]), bfrac, seed_val, sat_actual, hfrac, c2, fill_frac)
 
-func _on_slider_changed(_value: float, key: String) -> void:
+var _atmo_t: int = 0                 # троттлинг атмо-звука ползунков (110мс)
+var _prev_slider: Dictionary = {}    # прошлое значение для направления (объём/высота)
+
+func _on_slider_changed(value: float, key: String) -> void:
 	if phase != "recreate":
 		return
 	_apply_to_jar(_current_values())
 	value_labels[key].text = _fmt(key, sliders[key].value)
 	Sfx.play("tick")
+	_atmo_slider_sound(key, value)
+
+# Атмосферный звук по типу параметра (порт atmoSliderSound): объём/высота →
+# liquidUp/Down, спектр → colorShift, сгустки/размер → bubble, накал → stir.
+func _atmo_slider_sound(key: String, v: float) -> void:
+	var old: float = float(_prev_slider.get(key, v))
+	_prev_slider[key] = v
+	var now: int = Time.get_ticks_msec()
+	if now - _atmo_t < 110:
+		return
+	var snd := ""
+	match key:
+		"volume", "size2": snd = "liquidUp" if v > old else "liquidDown"
+		"color": snd = "colorShift"
+		"sat": snd = "stir"
+		"count", "bsize": snd = "bubble"
+	if snd != "":
+		_atmo_t = now
+		Sfx.play(snd)
 
 func _update_value_labels(vals: Dictionary) -> void:
 	for key in ORDER:
