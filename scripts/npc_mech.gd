@@ -13,6 +13,7 @@ func memorize_start(_g) -> void: pass   # начало фазы «ЗАПОМНИ
 func craft_start(_g) -> void: pass      # начало фазы «ВОССОЗДАЙ»
 func process(_g, _delta: float) -> void: pass  # каждый кадр фазы «ВОССОЗДАЙ» (таймеры/анимация)
 func on_done(_g) -> bool: return true   # нажата «ГОТОВО»; false = НЕ финишировать (Гурман)
+func pre_serve(_g) -> void: pass        # перед отъездом банки (детали Роя уезжают внутри неё)
 func skip_memorize(_g) -> bool: return false   # true = без фазы показа (Инспектор — цель в тексте)
 func no_timer(_g) -> bool: return false        # true = без таймеров фаз (Тот-Кто-Ждёт)
 func blocks_points(_g, _overall: float) -> bool: return false  # true = рейтинг не начислять (Тот-Кто-Ждёт при <99%)
@@ -992,10 +993,11 @@ class GourmetMech extends NpcMech:
 		return "👅 Гурман: одна дегустация-переигровка"
 
 # ============================================================
-# Навигатор Роя: «Сгустки» задаются не ползунком, а перетаскиванием деталей-железок
-# в банку — счётчик = число деталей внутри зоны. Детали лежат НА СТОЛЕ и по СТЕНАМ
-# (не в окне-космосе и не в зоне ползунков), их надо собрать в банку. На УР.4 они
-# ещё и дрейфуют, как мухи. +время. Порт LEVEL4_FX.swarm_navigator.
+# Навигатор Роя (игра на память): на «ЗАПОМНИ» в банке лежит НАБОР деталей — их надо
+# запомнить. На старте «ВОССОЗДАЙ» они резко разлетаются за экран, а из-за краёв на
+# стол и стены влетают ДЕСЯТКИ разных деталей. Задача — собрать в банку именно те,
+# что были в образце (цвет/накал/объём — обычными ползунками). На УР.4 детали ещё и
+# дрейфуют, как мухи. Собранные детали уезжают ВНУТРИ банки. Порт swarm_navigator.
 # ============================================================
 class SwarmMech extends NpcMech:
 	# зона банки (куда собирать) в долях области сцены
@@ -1006,37 +1008,117 @@ class SwarmMech extends NpcMech:
 	# зоны «обитания» деталей (доли слоя): стол снизу + левая/правая стена — всё ВНЕ
 	# зоны банки, ВНЕ окна (верх-центр) и ВНЕ ползунков (ниже jar_stage).
 	var ZONES := [
-		Rect2(0.10, 0.83, 0.80, 0.10),   # стол (нижняя полоса)
-		Rect2(0.03, 0.32, 0.12, 0.50),   # левая стена
-		Rect2(0.85, 0.32, 0.12, 0.50),   # правая стена
+		Rect2(0.08, 0.83, 0.84, 0.11),   # стол (нижняя полоса)
+		Rect2(0.02, 0.30, 0.14, 0.52),   # левая стена
+		Rect2(0.84, 0.30, 0.14, 0.52),   # правая стена
 	]
 	var g_ref
-	var layer: Control = null
+	var mem_layer: Control = null       # образец: детали внутри банки на «ЗАПОМНИ»
+	var layer: Control = null           # разлетевшиеся детали на «ВОССОЗДАЙ»
+	var mem_parts: Array = []
 	var parts: Array = []
+	var targets: Array = []             # сигнатуры деталей, которые надо собрать
+	var served: Array = []              # детали, уехавшие внутри банки (для уборки)
+	var n_target: int = 4
 	var drift_timer: Timer = null
+	var final_acc: float = 0.0
+
+	func setup(g) -> void:
+		g.active.erase("count")          # «сгустки» и «размер» — это детали, не ползунки
+		g.active.erase("bsize")
+
+	func _all_sigs() -> Array:
+		var a: Array = []
+		for sh in DragPart.N_SHAPE:
+			for ti in DragPart.N_COLOR:
+				a.append(sh * 10 + ti)
+		return a
+
+	func memorize_start(g) -> void:
+		g_ref = g
+		n_target = clampi(int(g.target["count"]), 3, 7)
+		g.target["count"] = 0                      # жидких сгустков нет — «начинка» = детали
+		g.sliders["count"].set_value_no_signal(0.0)
+		g._apply_to_jar(g.target)                  # перерисовать банку без сгустков
+		var pool := _all_sigs(); pool.shuffle()
+		targets = pool.slice(0, n_target)
+		# показать цели ВНУТРИ банки — вразброс по объёму жидкости (как сгустки), не рядами
+		mem_layer = Control.new()
+		mem_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		mem_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+		g.jar_stage.add_child(mem_layer)
+		var sz: Vector2 = g.jar_stage.size
+		var placed: Array = []          # уже расставленные центры (для разнесения)
+		for i in n_target:
+			var mp := DragPart.new()
+			mp.set_signature(int(targets[i]) / 10, int(targets[i]) % 10)
+			mem_layer.add_child(mp)                        # _ready() ставит size/STOP
+			mp.mouse_filter = Control.MOUSE_FILTER_IGNORE  # образец не таскаем (после _ready)
+			mp.scale = Vector2(0.82, 0.82)                 # чуть мельче — «сгустки» в узком горле
+			# rejection sampling: случайная точка в зоне жидкости, подальше от прочих
+			var best := Vector2(0.5 * sz.x, 0.6 * sz.y)
+			for _attempt in 14:
+				var cand := Vector2(randf_range(0.42, 0.58) * sz.x, randf_range(0.50, 0.72) * sz.y)
+				best = cand
+				var ok := true
+				for pp in placed:
+					if cand.distance_to(pp) < 40.0:
+						ok = false
+						break
+				if ok:
+					break
+			placed.append(best)
+			mp.position = best - mp.size * 0.5
+			mem_parts.append(mp)
 
 	func craft_start(g) -> void:
 		g_ref = g
-		g.slider_cols["count"].visible = false      # счёт задаётся деталями
 		g.phase_total += 3.0
 		g.phase_left += 3.0
+		g.target["count"] = 0                       # никаких жидких сгустков — «начинка» = детали
+		g.sliders["count"].set_value_no_signal(0.0)
+		g._apply_to_jar(g._current_values())        # перерисовать банку пустой (без сгустков)
+		var sz: Vector2 = g.jar_stage.size
+		# 1) детали образца резко разлетаются за пределы экрана
+		for mp in mem_parts:
+			var dir: Vector2 = (mp.center() - sz * 0.5)
+			dir = dir.normalized() if dir.length() > 1.0 else Vector2(randf_range(-1, 1), randf_range(-1, 1)).normalized()
+			var tw: Tween = mp.create_tween()
+			tw.tween_property(mp, "position", mp.position + dir * sz.length(), 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+			tw.tween_callback(mp.queue_free)
+		mem_parts.clear()
+		# 2) из-за краёв влетают десятки деталей: цели + обманки, почти все уникальны
 		layer = Control.new()
 		layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		layer.set_anchors_preset(Control.PRESET_FULL_RECT)
 		g.jar_stage.add_child(layer)
-		var sz: Vector2 = g.jar_stage.size
-		var n: int = int(g.target["count"])
-		for i in n:
+		var decoys := _all_sigs()
+		decoys.shuffle()
+		var pool: Array = targets.duplicate()          # все цели по одному разу
+		var want: int = clampi(n_target + 12, 16, 24)  # «несколько десятков» разных
+		for s in decoys:
+			if pool.size() >= want:
+				break
+			if not (s in targets):
+				pool.append(s)
+		pool.shuffle()
+		for i in pool.size():
 			var part := DragPart.new()
-			part.set_kind(i % 4)
+			part.set_signature(int(pool[i]) / 10, int(pool[i]) % 10)
 			var zone: Rect2 = ZONES[i % ZONES.size()]
 			part.home_zone = zone
-			var c := _rand_in_zone(zone, sz)
-			part.position = c - part.size * 0.5
+			var dst := _rand_in_zone(zone, sz)
+			var start := dst
+			if zone.position.x < 0.2: start.x = -80.0          # влетает слева
+			elif zone.position.x > 0.7: start.x = sz.x + 80.0  # справа
+			else: start.y = sz.y + 90.0                        # снизу (стол)
+			part.position = start - part.size * 0.5
 			layer.add_child(part)
 			part.dropped.connect(_on_dropped)
 			parts.append(part)
-		_recount()                                   # изначально снаружи → счёт минимальный
+			var tw2: Tween = part.create_tween()
+			tw2.tween_interval(0.02 * float(i))
+			tw2.tween_property(part, "position", dst - part.size * 0.5, 0.45).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 		# УР.4: детали дрейфуют по своим зонам, как мухи (сложнее поймать)
 		if g.level == 4:
 			drift_timer = Timer.new()
@@ -1077,29 +1159,58 @@ class SwarmMech extends NpcMech:
 
 	func _on_dropped(part) -> void:
 		Sfx.play("blobSnap" if _inside(part) else "tick")
-		_recount()
 
-	func _recount() -> void:
-		var inside: int = 0
+	# точность: доля верных целей в банке минус штраф за лишние (обманки)
+	func _accuracy() -> float:
+		if targets.is_empty():
+			return 1.0
+		var tset := {}
+		for s in targets:
+			tset[int(s)] = true
+		var matched := {}
+		var wrong: int = 0
 		for p in parts:
 			if _inside(p):
-				inside += 1
-		var s = g_ref.sliders["count"]
-		var v: float = clampf(float(inside), s.min_value, s.max_value)
-		s.set_value_no_signal(v)
-		g_ref._on_slider_changed(v, "count")
+				var s: int = p.sig()
+				if tset.has(s):
+					matched[s] = true
+				else:
+					wrong += 1
+		return clampf((float(matched.size()) - 0.5 * float(wrong)) / float(targets.size()), 0.0, 1.0)
 
-	func stop(g) -> void:
-		drift_timer = null                # освободится вместе со слоем
+	# перед отъездом: считаем точность и переносим собранные детали ВНУТРЬ банки,
+	# чтобы они уехали вместе с ней (как сгустки у других). Лишние — убираем.
+	func pre_serve(g) -> void:
+		final_acc = _accuracy()
+		for p in parts:
+			if is_instance_valid(p) and _inside(p):
+				p.reparent(g.jar)          # keep_global_transform → останется на месте, поедет с банкой
+				served.append(p)
+			elif is_instance_valid(p):
+				p.queue_free()
+		parts.clear()
+
+	func override_overall(g) -> float:
+		# 0.55·(цвет/накал/объём) + 0.45·(верно собранные детали)
+		return 0.55 * g._current_overall() + 0.45 * final_acc
+
+	func stop(_g) -> void:
+		drift_timer = null
+		for p in served:
+			if is_instance_valid(p):
+				p.queue_free()
+		served.clear()
 		if layer != null and is_instance_valid(layer):
 			layer.queue_free()
 		layer = null
+		if mem_layer != null and is_instance_valid(mem_layer):
+			mem_layer.queue_free()
+		mem_layer = null
 		parts.clear()
-		if g.slider_cols.has("count"):
-			g.slider_cols["count"].visible = true
+		mem_parts.clear()
 
 	func result_note(_g) -> String:
-		return "🐝 Навигатор Роя: детали — руками в банку"
+		return "🐝 Навигатор Роя: собрано верных деталей — %d%%" % int(round(final_acc * 100.0))
 
 # ============================================================
 # Инспектор Гильдии: фазы показа НЕТ — цель описана в листе «Допуски» (значения
