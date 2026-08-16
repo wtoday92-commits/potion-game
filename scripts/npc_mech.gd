@@ -601,7 +601,7 @@ class JanitorMech extends NpcMech:
 		g_ref = g
 		grime = GrimeOverlay.new()
 		grime.sponge_r = float(SPONGE.get(g.level, 55.0))
-		g.jar_stage.add_child(grime)
+		g.jar_stage.add_child(grime)      # статичное пятно на всё окно
 
 	func craft_start(g) -> void:
 		g_ref = g
@@ -609,6 +609,7 @@ class JanitorMech extends NpcMech:
 			memorize_start(g)
 		else:
 			grime.reset()                 # свежая грязь на фазу игры
+		grime.refog_on = (g.level == 4)   # УР.4: экран снова пачкается со временем
 
 	func score_bonus(_g) -> float:
 		return 1.0 + 0.5 * (grime.clean_fraction() if grime != null else 0.0)
@@ -991,20 +992,28 @@ class GourmetMech extends NpcMech:
 		return "👅 Гурман: одна дегустация-переигровка"
 
 # ============================================================
-# Навигатор Роя: «Сгустки» задаются не ползунком, а перетаскиванием деталей в
-# банку — счётчик = число деталей внутри зоны. Деталей ровно target.count (все
-# внутри = верный счёт). +время. Порт LEVEL4_FX.swarm_navigator (дрейф УР.4 — TODO).
+# Навигатор Роя: «Сгустки» задаются не ползунком, а перетаскиванием деталей-железок
+# в банку — счётчик = число деталей внутри зоны. Детали лежат НА СТОЛЕ и по СТЕНАМ
+# (не в окне-космосе и не в зоне ползунков), их надо собрать в банку. На УР.4 они
+# ещё и дрейфуют, как мухи. +время. Порт LEVEL4_FX.swarm_navigator.
 # ============================================================
 class SwarmMech extends NpcMech:
-	const SYMBOLS := ["⚙", "🔩", "🔧", "🔗", "🧲", "🪛", "🔋", "⛓"]
-	# зона банки в долях области сцены (как у Дрона)
+	# зона банки (куда собирать) в долях области сцены
 	const ZX0 := 0.30
 	const ZX1 := 0.70
 	const ZY0 := 0.42
 	const ZY1 := 0.82
+	# зоны «обитания» деталей (доли слоя): стол снизу + левая/правая стена — всё ВНЕ
+	# зоны банки, ВНЕ окна (верх-центр) и ВНЕ ползунков (ниже jar_stage).
+	var ZONES := [
+		Rect2(0.10, 0.83, 0.80, 0.10),   # стол (нижняя полоса)
+		Rect2(0.03, 0.32, 0.12, 0.50),   # левая стена
+		Rect2(0.85, 0.32, 0.12, 0.50),   # правая стена
+	]
 	var g_ref
 	var layer: Control = null
 	var parts: Array = []
+	var drift_timer: Timer = null
 
 	func craft_start(g) -> void:
 		g_ref = g
@@ -1016,19 +1025,47 @@ class SwarmMech extends NpcMech:
 		layer.set_anchors_preset(Control.PRESET_FULL_RECT)
 		g.jar_stage.add_child(layer)
 		var sz: Vector2 = g.jar_stage.size
-		var center := sz * 0.5
-		var ring: float = 0.40 * minf(sz.x, sz.y)
 		var n: int = int(g.target["count"])
 		for i in n:
 			var part := DragPart.new()
-			part.set_symbol(SYMBOLS[i % SYMBOLS.size()])
-			var ang: float = TAU * float(i) / float(maxi(1, n)) - PI * 0.5
-			var c := center + Vector2(cos(ang), sin(ang)) * ring   # на кольце вокруг банки (снаружи)
+			part.set_kind(i % 4)
+			var zone: Rect2 = ZONES[i % ZONES.size()]
+			part.home_zone = zone
+			var c := _rand_in_zone(zone, sz)
 			part.position = c - part.size * 0.5
 			layer.add_child(part)
 			part.dropped.connect(_on_dropped)
 			parts.append(part)
 		_recount()                                   # изначально снаружи → счёт минимальный
+		# УР.4: детали дрейфуют по своим зонам, как мухи (сложнее поймать)
+		if g.level == 4:
+			drift_timer = Timer.new()
+			drift_timer.wait_time = 0.62
+			drift_timer.timeout.connect(_drift)
+			layer.add_child(drift_timer)
+			drift_timer.start()
+
+	# случайная точка-ЦЕНТР детали в зоне (доли → пиксели слоя)
+	func _rand_in_zone(zone: Rect2, sz: Vector2) -> Vector2:
+		var fx: float = zone.position.x + randf() * zone.size.x
+		var fy: float = zone.position.y + randf() * zone.size.y
+		return Vector2(fx * sz.x, fy * sz.y)
+
+	# УР.4: мелкими шагами гоняем непойманные детали внутри их зоны (плавно тви́ном)
+	func _drift() -> void:
+		if layer == null or layer.size.x <= 0.0:
+			return
+		var sz: Vector2 = layer.size
+		for p in parts:
+			if p.is_dragging() or _inside(p):
+				continue
+			var z: Rect2 = p.home_zone
+			var cur: Vector2 = p.center()
+			var nc := cur + Vector2(randf_range(-24.0, 24.0), randf_range(-24.0, 24.0))
+			nc.x = clampf(nc.x, z.position.x * sz.x, (z.position.x + z.size.x) * sz.x)
+			nc.y = clampf(nc.y, z.position.y * sz.y, (z.position.y + z.size.y) * sz.y)
+			var tw: Tween = p.create_tween()
+			tw.tween_property(p, "position", nc - p.size * 0.5, 0.5).set_trans(Tween.TRANS_SINE)
 
 	func _inside(part) -> bool:
 		if layer == null or layer.size.x <= 0.0:
@@ -1053,6 +1090,7 @@ class SwarmMech extends NpcMech:
 		g_ref._on_slider_changed(v, "count")
 
 	func stop(g) -> void:
+		drift_timer = null                # освободится вместе со слоем
 		if layer != null and is_instance_valid(layer):
 			layer.queue_free()
 		layer = null
@@ -1061,7 +1099,7 @@ class SwarmMech extends NpcMech:
 			g.slider_cols["count"].visible = true
 
 	func result_note(_g) -> String:
-		return "🐝 Навигатор Роя: сгустки — деталями в банку"
+		return "🐝 Навигатор Роя: детали — руками в банку"
 
 # ============================================================
 # Инспектор Гильдии: фазы показа НЕТ — цель описана в листе «Допуски» (значения
@@ -1376,7 +1414,7 @@ class VexMech extends NpcMech:
 		for ti in target_nodes:
 			var b := DragPart.new()
 			board.add_child(b)
-			b.set_symbol("⚫")
+			b.set_kind(DragPart.BLOB)
 			b.mouse_filter = Control.MOUSE_FILTER_IGNORE   # на показе не таскаем
 			b.position = board.nodes[ti] - b.size * 0.5
 			b.dropped.connect(_on_drop)
@@ -1420,15 +1458,20 @@ class VexMech extends NpcMech:
 
 # ============================================================
 # Дитя Сверхновой (dual_size): габарит распадается на ширину («Объём») и высоту
-# («Высота», size2) — два независимых регулятора. Банка масштабируется по осям
-# раздельно. Порт special:'dual_size'. Эксклюзивный поворот (rotation, УР.4) — TODO.
+# («Высота», size2) — два независимых регулятора. На УР.4 добавляется «Наклон» —
+# банка кренится (в пределах ±15°, остаётся стоять). Порт special:'dual_size' +
+# эксклюзивный rotation УР.4.
 # ============================================================
 class SupernovaMech extends NpcMech:
 	func setup(g) -> void:
 		if not ("size2" in g.active):
 			g.active.append("size2")     # высота — часть заказа на всех уровнях
+		if g.level == 4 and not ("rotation" in g.active):
+			g.active.append("rotation")  # наклон — эксклюзив УР.4
 
-	func result_note(_g) -> String:
+	func result_note(g) -> String:
+		if "rotation" in g.active:
+			return "💫 Дитя Сверхновой: ширина, высота и наклон"
 		return "💫 Дитя Сверхновой: ширина и высота раздельно"
 
 # ============================================================

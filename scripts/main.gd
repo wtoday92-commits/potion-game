@@ -21,6 +21,8 @@ const PARAMS := {
 	"volume": {"min": 10.0, "max": 100.0, "step": 1.0,  "weight": 1.0, "label": "Объём",   "suffix": "%"},
 	"fill":   {"min": 20.0, "max": 100.0, "step": 10.0, "weight": 0.7, "label": "Уровень", "suffix": "%"},
 	"size2":  {"min": 10.0, "max": 100.0, "step": 2.0,  "weight": 0.6, "label": "Высота",  "suffix": "%"},
+	# Наклон сосуда (Дитя Сверхновой, УР.4) — небольшой, банка остаётся стоять на столе.
+	"rotation": {"min": -15.0, "max": 15.0, "step": 5.0, "weight": 0.5, "label": "Наклон", "suffix": "°"},
 	"count":  {"min": 1.0,  "max": 12.0,  "step": 1.0,  "weight": 0.8, "label": "Сгустки", "suffix": ""},
 	"countB": {"min": 1.0,  "max": 7.0,   "step": 1.0,  "weight": 0.8, "label": "Сгустки Б", "suffix": ""},
 	"bsize":  {"min": 10.0, "max": 100.0, "step": 2.0,  "weight": 0.6, "label": "Размер",  "suffix": "%"},
@@ -32,7 +34,7 @@ const PARAMS := {
 # Накал (sat) — у спектра; Высота (size2) — у объёма; Сгустки Б (countB) — у сгустков;
 # Скорость (speed) — в конце. size2/countB/speed активны только у своих гостей
 # (Сверхнова / Двуликая / Бармен).
-const ORDER: Array = ["color", "sat", "volume", "fill", "size2", "count", "countB", "bsize", "speed", "degree"]
+const ORDER: Array = ["color", "sat", "volume", "fill", "size2", "rotation", "count", "countB", "bsize", "speed", "degree"]
 
 # Какие ползунки активны (доступны и учитываются) на каждом уровне сложности.
 # Накал — только на УР.4 (доп. регулятор рядом с цветом).
@@ -87,6 +89,8 @@ var result_breakdown: VBoxContainer
 var result_detail: Label
 
 var result_sticker_tex: TextureRect
+var result_next_btn: Button       # «Дальше →»
+var result_replay_btn: Button     # «Переиграть» (Ир)
 
 var start_panel: Control
 var hud_tips: Label
@@ -125,7 +129,30 @@ var cycle_score: int = 0
 var perfect_streak_max: int = 0
 var good_streak_max: int = 0
 var last_grade: String = ""
-var ir_pending: String = ""     # «Последний из Ир»: бафф/дебафф СЛЕДУЮЩЕМУ заказу ("buff"/"debuff")
+var ir_pending: String = ""     # «Последний из Ир»: знак эффекта СЛЕДУЮЩЕМУ заказу ("buff"/"debuff"/"")
+var ir_effect_id: String = ""   # конкретный эффект, выбранный ЭТОМУ заказу (пусто = нет)
+var ir_effect_kind: String = "" # "buff"/"debuff" — для окраски чипа
+var ir_chip: Label              # плашка активного эффекта под надписью фазы
+# --- переигровка (Ир): «Второй рассвет» (optional) и «Дважды безупречно» (forced) ---
+var ir_replay_mode: String = ""     # "" | "optional" | "forced" — что предложить на результате
+var ir_replay_active: bool = false  # цепочка «Второго рассвета» держится, пока не идеал/не принял
+var ir_force_extra: String = ""     # доп. дебафф форс-переигровке ("mono"/"time_minus")
+var _is_replay_run: bool = false    # следующий _start_round — это переигровка того же заказа
+var _replay_snapshot: Dictionary = {}  # снимок профиля+счётчиков для отката результата
+
+# Пулы эффектов Ир (по знаку) и их метаданные для чипа. id совпадают с браузером.
+const IR_POOL := {
+	"buff": ["gift", "time_plus", "replay"],
+	"debuff": ["mono", "time_minus", "force_replay"],
+}
+const IR_META := {
+	"gift":         {"icon": "🌅", "name": "Рука Ир"},
+	"time_plus":    {"icon": "⏱", "name": "Подаренные секунды"},
+	"replay":       {"icon": "🔄", "name": "Второй рассвет"},
+	"mono":         {"icon": "🌫", "name": "Выцветший мир"},
+	"time_minus":   {"icon": "⏳", "name": "Украденные секунды"},
+	"force_replay": {"icon": "♻", "name": "Дважды безупречно"},
+}
 var timer_rate: float = 1.0     # множитель хода таймера варки (Пит: «градус» замедляет до ×2)
 var drunk_amount: float = 0.0   # «пьяный» эффект 0..1 (качка камеры + двоение) — от градуса Пита
 var drunk_layer: CanvasLayer    # слой поверх экрана с шейдером-двойником
@@ -308,6 +335,13 @@ func _build_ui() -> void:
 	phase_label.add_theme_font_size_override("font_size", 30)
 	round_ui.add_child(phase_label)
 	_glow_label(phase_label, Color("6ec3ff"))
+
+	# чип активного эффекта Ир (бафф/дебафф) — «висит» весь заказ под надписью фазы
+	ir_chip = Label.new()
+	ir_chip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ir_chip.add_theme_font_size_override("font_size", 18)
+	ir_chip.visible = false
+	round_ui.add_child(ir_chip)
 
 	# банка «на сцене»: спот + барный стол + тень (даёт ей место и точку отсчёта)
 	jar_stage = JarStage.new()
@@ -495,12 +529,20 @@ func _build_ui() -> void:
 	result_detail.custom_minimum_size = Vector2(420, 0)
 	rv.add_child(result_detail)
 
-	var again := Button.new()
-	again.text = "Дальше →"
-	again.custom_minimum_size = Vector2(360, 52)
-	again.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	again.pressed.connect(_result_next)
-	rv.add_child(again)
+	# «Переиграть» (Ир): показывается только когда активен бафф/дебафф переигровки
+	result_replay_btn = Button.new()
+	result_replay_btn.custom_minimum_size = Vector2(360, 52)
+	result_replay_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	result_replay_btn.visible = false
+	result_replay_btn.pressed.connect(_ir_replay)
+	rv.add_child(result_replay_btn)
+
+	result_next_btn = Button.new()
+	result_next_btn.text = "Дальше →"
+	result_next_btn.custom_minimum_size = Vector2(360, 52)
+	result_next_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	result_next_btn.pressed.connect(_result_next)
+	rv.add_child(result_next_btn)
 
 	var res_menu := Button.new()
 	res_menu.text = "← В меню"
@@ -2092,6 +2134,8 @@ func _show_cycle_end() -> void:
 	if PotionAuth.is_logged_in():
 		PotionAuth.push_profile()      # синк прогресса в облако в конце цикла
 	# кнопки на экране результата переиспользуем: «Дальше →» стартует новый цикл
+	result_replay_btn.visible = false   # переигровка Ир на экран итога цикла не попадает
+	result_next_btn.visible = true
 	result_panel.visible = true
 	_set_topbar(true)
 	_scene_state("select")          # итог цикла — тоже в проёме окна
@@ -2199,7 +2243,21 @@ func _start_round(lvl: int) -> void:
 	bulb_bar.visible = true
 	_serving = false
 	jar_stage.reset_jar()          # вернуть банку на стол после прошлого отъезда
-	jar.modulate = Color.WHITE     # сбросить «выцветание» от дебаффа Ир
+	for ch in jar_stage.get_children():   # снять «залипшую» грязь Уборщика с прошлого заказа
+		if ch is GrimeOverlay:
+			ch.queue_free()
+	jar.modulate = Color.WHITE     # общий сброс тона банки (страховка)
+	jar.set_mono(false)            # снять «Выцветший мир» (ч-б) прошлого заказа
+	jar.set_tilt(0.0)              # снять наклон (Сверхнова) прошлого заказа
+	ir_effect_id = ""              # эффект прошлого заказа отыграл
+	ir_effect_kind = ""
+	ir_chip.visible = false
+	var replaying: bool = _is_replay_run   # это переигровка того же заказа?
+	_is_replay_run = false
+	if not replaying:              # свежий заказ — цепочка переигровки сброшена
+		ir_replay_active = false
+		ir_force_extra = ""
+		_replay_snapshot = {}
 	jar.set_blur(0.0)              # сбросить размытие (градус Пита) от прошлого заказа
 	timer_rate = 1.0               # сбросить замедление таймера (градус Пита)
 	drunk_amount = 0.0             # сбросить «пьяный» эффект
@@ -2224,6 +2282,21 @@ func _start_round(lvl: int) -> void:
 
 	seed_val = randi()
 	target = _random_values()
+	# Ир: эффект этого заказа. На переигровке прежний эффект уже отыграл — новый знак
+	# не берём; форс-переигровка тащит доп. дебафф. Иначе ожидающий знак → случайный эффект.
+	if replaying:
+		if ir_force_extra != "":               # «Дважды безупречно»: доп. дебафф на редо
+			ir_effect_id = ir_force_extra
+			ir_effect_kind = "debuff"
+			ir_force_extra = ""
+			_show_ir_chip()
+	elif ir_pending != "":
+		var pool: Array = IR_POOL.get(ir_pending, [])
+		if not pool.is_empty():
+			ir_effect_id = pool[randi() % pool.size()]
+			ir_effect_kind = ir_pending
+			_show_ir_chip()
+		ir_pending = ""
 	# Инспектор: фазы показа нет — цель описана в «Допусках», сразу к воссозданию
 	if mech and mech.skip_memorize(self):
 		Sfx.play("orderShow")
@@ -2279,9 +2352,7 @@ func _start_recreate() -> void:
 	_update_value_labels(_current_values())
 	if mech:
 		mech.craft_start(self)
-	if ir_pending != "":           # эффект Ир с прошлого заказа — применяем к этому
-		_apply_ir(ir_pending)
-		ir_pending = ""
+	_apply_ir_effect()             # игровые эффекты выбранного заказу баффа/дебаффа
 
 # «Пьяный» эффект: качка «камеры» (canvas_transform всего кадра) + двоение-призрак.
 func _apply_drunk(g: float) -> void:
@@ -2301,25 +2372,36 @@ func _apply_drunk(g: float) -> void:
 		drunk_rect.visible = true
 		drunk_mat.set_shader_parameter("amount", g)
 
-# «Последний из Ир»: бафф/дебафф на текущий заказ (случайный из пары), с тостом.
-func _apply_ir(kind: String) -> void:
-	if kind == "buff":
-		if randf() < 0.5:
+# Чип активного эффекта Ир — «висит» весь заказ (иконка + название, цвет по знаку).
+func _show_ir_chip() -> void:
+	if ir_effect_id == "" or not IR_META.has(ir_effect_id):
+		ir_chip.visible = false
+		return
+	var m: Dictionary = IR_META[ir_effect_id]
+	ir_chip.text = "%s %s" % [m["icon"], m["name"]]
+	ir_chip.add_theme_color_override("font_color",
+		Color("6dff8f") if ir_effect_kind == "buff" else Color("ff9a6a"))
+	ir_chip.visible = true
+
+# «Последний из Ир»: игровые эффекты выбранного заказу баффа/дебаффа (по ir_effect_id).
+# Вызывается на входе в фазу «ВОССОЗДАЙ», когда ползунки/таймер уже готовы.
+func _apply_ir_effect() -> void:
+	match ir_effect_id:
+		"time_plus":
 			phase_total += 4.0; phase_left += 4.0
-			_toast("🌅 Рука Ир: +4 секунды", Color("6dff8f"))
-		else:
+			_toast("🌅 Подаренные секунды: +4с", Color("6dff8f"))
+		"gift":
 			var ks: Array = active.duplicate(); ks.shuffle()
 			for i in mini(2, ks.size()):
 				var k: String = ks[i]
 				sliders[k].set_value_no_signal(float(target[k]))
 				_on_slider_changed(float(target[k]), k)
 			_toast("🌅 Рука Ир: 2 регулятора выставлены", Color("6dff8f"))
-	else:
-		if randf() < 0.5:
+		"time_minus":
 			phase_total = maxf(4.0, phase_total - 2.0); phase_left = maxf(2.0, phase_left - 2.0)
 			_toast("🌫 Украденные секунды: −2с", Color("ff9a6a"))
-		else:
-			jar.modulate = Color(0.55, 0.55, 0.6)   # выцветший мир
+		"mono":
+			jar.set_mono(true)                    # банка ч-б + подмылена
 			_toast("🌫 Выцветший мир", Color("ff9a6a"))
 
 # ---------- таймеры фаз ----------
@@ -2467,6 +2549,25 @@ func _do_finish() -> void:
 	var cat: Array = GameData.STICKERS[grade]
 	var sticker_name: String = cat[randi() % GameData.BASE_STICKERS]
 	var time_frac: float = clampf(1.0 - phase_left / maxf(0.001, phase_total), 0.0, 1.0)
+
+	# Ир: решаем, предложить ли переигровку ЭТОГО заказа (до записи результата,
+	# чтобы можно было откатить профиль/счётчики к состоянию «до результата»).
+	var perfect: bool = grade == "perfect"
+	ir_replay_mode = ""
+	if ir_effect_id == "replay" and not perfect:
+		ir_replay_active = true                   # «Второй рассвет» держится, пока не идеал
+	if ir_effect_id == "force_replay" and perfect:
+		ir_replay_mode = "forced"                 # «Дважды безупречно»: идеал доказать заново
+		ir_force_extra = "mono" if randf() < 0.5 else "time_minus"
+	elif ir_replay_active and not perfect:
+		ir_replay_mode = "optional"
+	if ir_replay_mode != "":
+		_replay_snapshot = {
+			"profile": PotionProfile.data.duplicate(true),
+			"cycle_score": cycle_score,
+			"last_grade": last_grade,
+		}
+
 	var outcome: Dictionary = PotionProfile.record_result(
 		npc["id"], tier, overall, grade, reward, sticker_name,
 		time_frac, level, "", rating_mult, no_points)
@@ -2486,10 +2587,31 @@ func _do_finish() -> void:
 
 # «Дальше →» на экране результата: конец цикла → новый цикл, иначе → следующий день.
 func _result_next() -> void:
+	# принял результат — цепочка переигровки Ир закрыта, снимок больше не нужен
+	ir_replay_active = false
+	ir_force_extra = ""
+	_replay_snapshot = {}
+	ir_replay_mode = ""
 	if phase == "cycle_end":
 		_start_cycle()
 	else:
 		_after_order()
+
+# «Переиграть» (Ир): откатываем профиль и счётчики цикла к «до результата» и
+# заново запускаем ТОТ ЖЕ заказ (новая случайная цель). Эффект Ир уже отыграл;
+# на форс-переигровке навешивается доп. дебафф (ir_force_extra), см. _start_round.
+func _ir_replay() -> void:
+	if not _replay_snapshot.is_empty():
+		PotionProfile.data = _replay_snapshot["profile"]
+		PotionProfile.save()                     # откат в профиле — на диск
+		cycle_score = int(_replay_snapshot["cycle_score"])
+		last_grade = String(_replay_snapshot["last_grade"])
+		_replay_snapshot = {}
+	_refresh_hud()                               # счёт/чаевые/репутация обратно к «до»
+	ir_pending = ""                              # знак уже превратился в эффект
+	ir_replay_mode = ""
+	_is_replay_run = true
+	_start_round(level)                          # тот же гость (npc), тот же уровень
 
 const GRADE_LABEL := {"perfect": "ИДЕАЛ!", "good": "ГОДНО", "swill": "ПОЙЛО", "bad": "БРАК"}
 
@@ -2564,6 +2686,14 @@ func _show_result(overall: float, comps: Dictionary, grade: String, outcome: Dic
 	if bool(outcome.get("level_up", false)):
 		var tcol: Color = GameData.TIER_COLORS.get(int(npc.get("tier", 1)), Color.WHITE)
 		_toast.call_deferred("★ Репутация с «%s»: ур.%d" % [npc["name"], int(outcome["level_after"])], tcol)
+
+	# Ир: кнопки переигровки. forced — «Дальше» скрыта (идеал придётся доказать заново).
+	result_replay_btn.visible = ir_replay_mode != ""
+	if ir_replay_mode == "forced":
+		result_replay_btn.text = "♻ Переиграть идеал"
+	elif ir_replay_mode == "optional":
+		result_replay_btn.text = "🔄 Ещё попытка"
+	result_next_btn.visible = ir_replay_mode != "forced"
 
 	result_panel.visible = true
 	_set_topbar(true)
@@ -2657,6 +2787,11 @@ func _apply_to_jar(vals: Dictionary) -> void:
 	if "fill" in active and vals.has("fill"):
 		fill_frac = float(vals["fill"]) / 100.0
 	jar.set_potion(float(vals["color"]), vsize, int(vals["count"]), bfrac, seed_val, sat_actual, hfrac, c2, fill_frac)
+	# наклон сосуда — только у Сверхновой на УР.4 (rotation активен); иначе прямо
+	var tilt_deg: float = 0.0
+	if "rotation" in active and vals.has("rotation"):
+		tilt_deg = float(vals["rotation"])
+	jar.set_tilt(tilt_deg)
 
 var _atmo_t: int = 0                 # троттлинг атмо-звука ползунков (110мс)
 var _prev_slider: Dictionary = {}    # прошлое значение для направления (объём/высота)

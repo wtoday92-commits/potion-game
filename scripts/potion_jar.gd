@@ -26,6 +26,9 @@ var count: int = 5
 var count2: int = 0        # 2-й счётчик (Двуликая): >0 → банка делится на 2 половины
 var fill_level: float = -1.0   # уровень жидкости (Пит); <0 = константа FILL
 var blur_amt: float = 0.0      # «пьяное» размытие 0..1 (Пит, градус)
+var mono_on: bool = false      # «Выцветший мир» (дебафф Ир): ч-б + постоянный блюр
+const MONO_BLUR := 0.55        # базовый блюр банки в режиме «Выцветший мир»
+var tilt_deg: float = 0.0      # наклон сосуда (Дитя Сверхновой, УР.4)
 
 # --- физика летающих сгустков (Бармен плазма-бара) ---
 var _phys_on: bool = false
@@ -104,6 +107,13 @@ func set_potion(h: float, v: float, c: int, b: float, s: int, sat: float = 0.72,
 	_t = float(pot_seed) * 0.7
 	_apply()
 
+# Дитя Сверхновой (УР.4): наклон сосуда. Крутим content вокруг основания (пивот у
+# дна) — банка кренится влево/вправо, но остаётся стоять на столе.
+func set_tilt(deg: float) -> void:
+	tilt_deg = deg
+	if content != null:
+		content.rotation = deg_to_rad(deg)
+
 # Бармен: включить/выключить физику полёта (пере-инициализирует позиции).
 func set_physics(on: bool) -> void:
 	_phys_on = on
@@ -116,10 +126,25 @@ func set_physics_speed(frac: float) -> void:
 # Пит: «пьяное» размытие жидкости и сгустков (0..1), обновляется каждый кадр.
 func set_blur(amt: float) -> void:
 	blur_amt = clampf(amt, 0.0, 1.0)
-	if mat != null:
-		mat.set_shader_parameter("blur", blur_amt)
+	_refresh_blur()
+
+# Ир «Выцветший мир»: банка чёрно-белая + постоянно подмылена (сложнее оценить
+# габариты на глаз). Обесцвечиваем жидкость через насыщенность 0 (_apply), а
+# стекло — через grayscale-uniform шейдера бутыли.
+func set_mono(on: bool) -> void:
+	mono_on = on
 	if bottle_mat != null:
-		bottle_mat.set_shader_parameter("amount", blur_amt)   # мылим и само стекло
+		bottle_mat.set_shader_parameter("grayscale", 1.0 if on else 0.0)
+	_refresh_blur()
+	_apply()             # пересчёт liquid_col с насыщенностью 0/обычной
+
+# Эффективный блюр = max(градус Пита, базовый блюр «Выцветшего мира»).
+func _refresh_blur() -> void:
+	var eff: float = maxf(blur_amt, MONO_BLUR if mono_on else 0.0)
+	if mat != null:
+		mat.set_shader_parameter("blur", eff)
+	if bottle_mat != null:
+		bottle_mat.set_shader_parameter("amount", eff)   # мылим и само стекло
 
 func _process(delta: float) -> void:
 	if sway == null or mat == null:
@@ -183,7 +208,8 @@ func _apply() -> void:
 
 	var ar: float = size.x / size.y
 	var f: float = FILL if fill_level < 0.0 else clampf(fill_level, 0.05, 1.0)   # уровень жидкости (Пит)
-	mat.set_shader_parameter("liquid_col", Color.from_hsv(fposmod(hue, 360.0) / 360.0, saturation, 0.95))
+	var sat_eff: float = 0.0 if mono_on else saturation   # «Выцветший мир» → серая жидкость
+	mat.set_shader_parameter("liquid_col", Color.from_hsv(fposmod(hue, 360.0) / 360.0, sat_eff, 0.95))
 	mat.set_shader_parameter("fill", f)
 	mat.set_shader_parameter("interior_top", I_TOP)
 	mat.set_shader_parameter("interior_bot", I_BOT)
