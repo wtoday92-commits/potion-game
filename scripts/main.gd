@@ -2297,6 +2297,13 @@ func _start_round(lvl: int) -> void:
 			ir_effect_kind = ir_pending
 			_show_ir_chip()
 		ir_pending = ""
+	# ВАЖНО: на ПЕРВОМ заказе раскладка ещё не посчитана → jar_stage.size == 0, и
+	# механики (детали Роя, грязь, доска Векса…) лепят всё в угол. Ждём валидный
+	# размер сцены, прежде чем механика начнёт расставлять свои узлы.
+	var _sg: int = 0
+	while jar_stage.size.x < 1.0 and _sg < 12:
+		await get_tree().process_frame
+		_sg += 1
 	# Инспектор: фазы показа нет — цель описана в «Допусках», сразу к воссозданию
 	if mech and mech.skip_memorize(self):
 		Sfx.play("orderShow")
@@ -2466,6 +2473,8 @@ func _finish() -> void:
 	phase = "serving"
 	bulb_bar.visible = false
 	_set_sliders_interactable(false)
+	if mech:
+		mech.pre_serve(self)   # напр. детали Роя переезжают внутрь банки перед отъездом
 	_serve_jar()
 
 # Банка ВЫЕЗЖАЕТ на своё место справа (зеркало отъезда) — на старте раунда.
