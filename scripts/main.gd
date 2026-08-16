@@ -17,6 +17,8 @@ func _make_wood_material(planks_val: float) -> ShaderMaterial:
 # Параметры зелья. count.min = 1 (нулевых сгустков не бывает).
 const PARAMS := {
 	"color":  {"min": 0.0,  "max": 360.0, "step": 5.0,  "weight": 1.0, "label": "Спектр",  "suffix": "°"},
+	# 2-й спектр (Двуликая жрица, градиент) — базовая механика на всех уровнях
+	"colorB": {"min": 0.0,  "max": 360.0, "step": 5.0,  "weight": 1.0, "label": "Спектр Б", "suffix": "°"},
 	"sat":    {"min": 0.0,  "max": 100.0, "step": 10.0, "weight": 0.6, "label": "Накал",   "suffix": "%"},
 	"volume": {"min": 10.0, "max": 100.0, "step": 1.0,  "weight": 1.0, "label": "Объём",   "suffix": "%"},
 	"fill":   {"min": 20.0, "max": 100.0, "step": 10.0, "weight": 0.7, "label": "Уровень", "suffix": "%"},
@@ -34,7 +36,7 @@ const PARAMS := {
 # Накал (sat) — у спектра; Высота (size2) — у объёма; Сгустки Б (countB) — у сгустков;
 # Скорость (speed) — в конце. size2/countB/speed активны только у своих гостей
 # (Сверхнова / Двуликая / Бармен).
-const ORDER: Array = ["color", "sat", "volume", "fill", "size2", "rotation", "count", "countB", "bsize", "speed", "degree"]
+const ORDER: Array = ["color", "colorB", "sat", "volume", "fill", "size2", "rotation", "count", "countB", "bsize", "speed", "degree"]
 
 # Какие ползунки активны (доступны и учитываются) на каждом уровне сложности.
 # Накал — только на УР.4 (доп. регулятор рядом с цветом).
@@ -372,7 +374,7 @@ func _build_ui() -> void:
 		s.max_value = p["max"]
 		s.step = p["step"]
 		s.value = p["min"]
-		s.hue_track = key == "color"   # регулятор спектра — радужный градиент
+		s.hue_track = key == "color" or key == "colorB"   # спектр/спектр Б — радужный градиент
 		s.custom_minimum_size = Vector2(70, 300)   # уже — чтобы 7 колонок влезли в кадр
 		s.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		s.value_changed.connect(_on_slider_changed.bind(key))
@@ -2246,6 +2248,9 @@ func _start_round(lvl: int) -> void:
 	for ch in jar_stage.get_children():   # снять «залипшую» грязь Уборщика с прошлого заказа
 		if ch is GrimeOverlay:
 			ch.queue_free()
+	for ch in jar.inner_holder().get_children():   # снять «залипшие» детали Роя из банки
+		if ch is DragPart:
+			ch.queue_free()
 	jar.modulate = Color.WHITE     # общий сброс тона банки (страховка)
 	jar.set_mono(false)            # снять «Выцветший мир» (ч-б) прошлого заказа
 	jar.set_tilt(0.0)              # снять наклон (Сверхнова) прошлого заказа
@@ -2733,7 +2738,7 @@ func _config_sliders_for_npc() -> void:
 	for key in ORDER:
 		var s: TouchSlider = sliders[key]
 		match key:
-			"color":
+			"color", "colorB":
 				var n: int = maxi(2, int(cfg["color_steps"]))
 				s.min_value = 0.0
 				s.step = 360.0 / float(n)
@@ -2795,7 +2800,11 @@ func _apply_to_jar(vals: Dictionary) -> void:
 	var fill_frac: float = -1.0
 	if "fill" in active and vals.has("fill"):
 		fill_frac = float(vals["fill"]) / 100.0
-	jar.set_potion(float(vals["color"]), vsize, int(vals["count"]), bfrac, seed_val, sat_actual, hfrac, c2, fill_frac)
+	# 2-й спектр — только у Двуликой (colorB активен); иначе -1 = одноцветная жидкость
+	var hue2v: float = -1.0
+	if "colorB" in active and vals.has("colorB"):
+		hue2v = float(vals["colorB"])
+	jar.set_potion(float(vals["color"]), vsize, int(vals["count"]), bfrac, seed_val, sat_actual, hfrac, c2, fill_frac, hue2v)
 	# наклон сосуда — только у Сверхновой на УР.4 (rotation активен); иначе прямо
 	var tilt_deg: float = 0.0
 	if "rotation" in active and vals.has("rotation"):

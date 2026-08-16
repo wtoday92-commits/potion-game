@@ -17,8 +17,10 @@ const I_BOT := 0.953
 const I_LEFT := 0.240
 const I_RIGHT := 0.746
 const FILL := 0.78     # уровень жидкости (ниже горлышка — видно, как плещется)
+const MAX_BLOBS := 18  # потолок числа сгустков (должен совпадать с liquid.gdshader)
 
 var hue: float = 120.0
+var hue2: float = -1.0         # 2-й спектр (Двуликая, градиент); <0 = одноцветная жидкость
 var saturation: float = 0.72   # насыщенность жидкости (накал); 0.72 — старый вид
 var vsize: float = 0.6
 var height_frac: float = -1.0  # отдельная высота (Дитя Сверхновой); <0 = масштаб равномерный
@@ -94,8 +96,9 @@ func _ready() -> void:
 	resized.connect(_apply)
 	_apply()
 
-func set_potion(h: float, v: float, c: int, b: float, s: int, sat: float = 0.72, height: float = -1.0, c2: int = 0, fill: float = -1.0) -> void:
+func set_potion(h: float, v: float, c: int, b: float, s: int, sat: float = 0.72, height: float = -1.0, c2: int = 0, fill: float = -1.0, h2: float = -1.0) -> void:
 	hue = h
+	hue2 = h2                # <0 → без градиента
 	saturation = clampf(sat, 0.0, 1.0)
 	vsize = clampf(v, 0.0, 1.0)
 	height_frac = height     # <0 → равномерный масштаб по vsize
@@ -113,6 +116,11 @@ func set_tilt(deg: float) -> void:
 	tilt_deg = deg
 	if content != null:
 		content.rotation = deg_to_rad(deg)
+
+# Узел, что качается вместе с банкой (Навигатор Роя вешает сюда детали, чтобы они
+# качались и «жили» внутри сосуда, а не висели статично поверх него).
+func inner_holder() -> Control:
+	return sway
 
 # Бармен: включить/выключить физику полёта (пере-инициализирует позиции).
 func set_physics(on: bool) -> void:
@@ -188,7 +196,7 @@ func _process(delta: float) -> void:
 			_phys_pos[i] = p
 			_phys_vel[i] = v
 			arr.append(Vector4(p.x, p.y, r, _phys_w[i]))
-		while arr.size() < 12:
+		while arr.size() < MAX_BLOBS:
 			arr.append(Vector4(0.0, 0.0, 0.0, 0.0))
 		mat.set_shader_parameter("blobs", arr)
 		mat.set_shader_parameter("blob_n", _phys_pos.size())
@@ -210,6 +218,11 @@ func _apply() -> void:
 	var f: float = FILL if fill_level < 0.0 else clampf(fill_level, 0.05, 1.0)   # уровень жидкости (Пит)
 	var sat_eff: float = 0.0 if mono_on else saturation   # «Выцветший мир» → серая жидкость
 	mat.set_shader_parameter("liquid_col", Color.from_hsv(fposmod(hue, 360.0) / 360.0, sat_eff, 0.95))
+	# 2-й спектр (Двуликая): вертикальный градиент верх→низ; иначе одноцветная
+	var grad_on: float = 1.0 if hue2 >= 0.0 else 0.0
+	var col2: Color = Color.from_hsv(fposmod(hue2, 360.0) / 360.0, sat_eff, 0.95) if hue2 >= 0.0 else Color.from_hsv(fposmod(hue, 360.0) / 360.0, sat_eff, 0.95)
+	mat.set_shader_parameter("liquid_col2", col2)
+	mat.set_shader_parameter("grad_on", grad_on)
 	mat.set_shader_parameter("fill", f)
 	mat.set_shader_parameter("interior_top", I_TOP)
 	mat.set_shader_parameter("interior_bot", I_BOT)
@@ -237,16 +250,23 @@ func _apply() -> void:
 		groups = [[mini(count, 7), cxm + 0.015, I_RIGHT], [mini(count2, 7), I_LEFT, cxm - 0.015]]
 	else:
 		groups = [[count, I_LEFT, I_RIGHT]]
+	# размер сгустка привязан к ОБЪЁМУ банки: большая банка → крупнее сгустки (и min,
+	# и max). Так в маленькой банке они не наползают друг на друга.
+	var vol_f: float = lerpf(0.58, 1.0, vsize)
 	for grp in groups:
 		var k: int = grp[0]
 		var gx0: float = grp[1]
 		var gx1: float = grp[2]
+		# адаптивный потолок радиуса: k сгустков должны уместиться в площадь группы
+		# (иначе при многих/крупных сгустках в узкой банке они наползают)
+		var grp_w: float = maxf(0.02, gx1 - gx0)
+		var r_fit: float = sqrt(0.55 * grp_w * band * ar / (4.0 * float(maxi(1, k))))
 		for i in k:
-			if n_real >= 12:
+			if n_real >= MAX_BLOBS:
 				break
-			# крупнее и «пузырчатее»; кламп по полосе жидкости — не даём вылезти/пропасть
-			var r_uv: float = lerpf(0.032, 0.075, bsize) * rng.randf_range(0.84, 1.16)
-			r_uv = clampf(r_uv, 0.014, r_cap)
+			# базовый размер по «Размеру» × фактор объёма, но не больше, чем влезает
+			var r_uv: float = minf(lerpf(0.032, 0.075, bsize) * vol_f, r_fit) * rng.randf_range(0.88, 1.12)
+			r_uv = clampf(r_uv, 0.012, r_cap)
 			var mx: float = r_uv / max(0.0001, ar)   # x сжат аспектом
 			# запас под покачивание/дрейф капель + границы группы (половины)
 			var minx: float = maxf(I_LEFT + mx + 0.015, gx0 + mx)
@@ -281,7 +301,7 @@ func _apply() -> void:
 			placed.append(Vector3(bx, by, r_uv))
 			arr.append(Vector4(bx, by, r_uv, rng.randf()))
 			n_real += 1
-	while arr.size() < 12:
+	while arr.size() < MAX_BLOBS:
 		arr.append(Vector4(0.0, 0.0, 0.0, 0.0))
 	mat.set_shader_parameter("blobs", arr)
 	mat.set_shader_parameter("blob_n", n_real)

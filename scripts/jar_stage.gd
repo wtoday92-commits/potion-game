@@ -28,6 +28,16 @@ func set_jar(j: Control) -> void:
 func _base_local() -> float:
 	return TABLE_SCREEN_Y - global_position.y
 
+# Публично: линия стола в локальных координатах (низ «стекла окна»).
+func table_line() -> float:
+	return _base_local()
+
+# Публично: прямоугольник банки в координатах сцены (для расстановки деталей и т.п.).
+func jar_rect() -> Rect2:
+	if jar == null:
+		return Rect2()
+	return Rect2(jar.position, jar.size)
+
 func _layout() -> void:
 	if jar == null:
 		return

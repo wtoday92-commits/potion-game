@@ -602,7 +602,8 @@ class JanitorMech extends NpcMech:
 		g_ref = g
 		grime = GrimeOverlay.new()
 		grime.sponge_r = float(SPONGE.get(g.level, 55.0))
-		g.jar_stage.add_child(grime)      # статичное пятно на всё окно
+		g.jar_stage.add_child(grime)
+		grime.fit_window(g.jar_stage.size.x, g.jar_stage.table_line())   # только «стекло окна»
 
 	func craft_start(g) -> void:
 		g_ref = g
@@ -610,6 +611,7 @@ class JanitorMech extends NpcMech:
 			memorize_start(g)
 		else:
 			grime.reset()                 # свежая грязь на фазу игры
+		grime.fit_window(g.jar_stage.size.x, g.jar_stage.table_line())   # окно могло изменить высоту
 		grime.refog_on = (g.level == 4)   # УР.4: экран снова пачкается со временем
 
 	func score_bonus(_g) -> float:
@@ -1013,7 +1015,6 @@ class SwarmMech extends NpcMech:
 		Rect2(0.84, 0.30, 0.14, 0.52),   # правая стена
 	]
 	var g_ref
-	var mem_layer: Control = null       # образец: детали внутри банки на «ЗАПОМНИ»
 	var layer: Control = null           # разлетевшиеся детали на «ВОССОЗДАЙ»
 	var mem_parts: Array = []
 	var parts: Array = []
@@ -1026,6 +1027,7 @@ class SwarmMech extends NpcMech:
 	func setup(g) -> void:
 		g.active.erase("count")          # «сгустки» и «размер» — это детали, не ползунки
 		g.active.erase("bsize")
+		g.sliders["count"].min_value = 0.0   # разрешаем 0 сгустков (иначе банка держит 1)
 
 	func _all_sigs() -> Array:
 		var a: Array = []
@@ -1042,23 +1044,22 @@ class SwarmMech extends NpcMech:
 		g._apply_to_jar(g.target)                  # перерисовать банку без сгустков
 		var pool := _all_sigs(); pool.shuffle()
 		targets = pool.slice(0, n_target)
-		# показать цели ВНУТРИ банки — вразброс по объёму жидкости (как сгустки), не рядами
-		mem_layer = Control.new()
-		mem_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		mem_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
-		g.jar_stage.add_child(mem_layer)
-		var sz: Vector2 = g.jar_stage.size
-		var placed: Array = []          # уже расставленные центры (для разнесения)
+		# цели показываем ВНУТРИ банки — вешаем в качающийся узел (sway), чтобы детали
+		# качались вместе с сосудом и стояли в жидкости (вразброс, не рядами)
+		var holder: Control = g.jar.inner_holder()
+		var jw: float = JarStage.JAR_W             # фиксированный размер банки (без завязки на layout)
+		var jh: float = JarStage.JAR_H
+		var placed: Array = []
 		for i in n_target:
 			var mp := DragPart.new()
 			mp.set_signature(int(targets[i]) / 10, int(targets[i]) % 10)
-			mem_layer.add_child(mp)                        # _ready() ставит size/STOP
+			holder.add_child(mp)                           # _ready() ставит size/STOP
 			mp.mouse_filter = Control.MOUSE_FILTER_IGNORE  # образец не таскаем (после _ready)
-			mp.scale = Vector2(0.82, 0.82)                 # чуть мельче — «сгустки» в узком горле
-			# rejection sampling: случайная точка в зоне жидкости, подальше от прочих
-			var best := Vector2(0.5 * sz.x, 0.6 * sz.y)
+			mp.scale = Vector2(0.8, 0.8)                   # чуть мельче — «сгустки» в горле
+			# rejection sampling в зоне жидкости (доли от размера банки)
+			var best := Vector2(0.49 * jw, 0.62 * jh)
 			for _attempt in 14:
-				var cand := Vector2(randf_range(0.42, 0.58) * sz.x, randf_range(0.50, 0.72) * sz.y)
+				var cand := Vector2(randf_range(0.33, 0.65) * jw, randf_range(0.44, 0.84) * jh)
 				best = cand
 				var ok := true
 				for pp in placed:
@@ -1079,8 +1080,9 @@ class SwarmMech extends NpcMech:
 		g.sliders["count"].set_value_no_signal(0.0)
 		g._apply_to_jar(g._current_values())        # перерисовать банку пустой (без сгустков)
 		var sz: Vector2 = g.jar_stage.size
-		# 1) детали образца резко разлетаются за пределы экрана
+		# 1) детали образца резко разлетаются за пределы экрана (из банки — в координаты сцены)
 		for mp in mem_parts:
+			mp.reparent(g.jar_stage)                       # keep_global → остаётся на месте
 			var dir: Vector2 = (mp.center() - sz * 0.5)
 			dir = dir.normalized() if dir.length() > 1.0 else Vector2(randf_range(-1, 1), randf_range(-1, 1)).normalized()
 			var tw: Tween = mp.create_tween()
@@ -1182,9 +1184,10 @@ class SwarmMech extends NpcMech:
 	# чтобы они уехали вместе с ней (как сгустки у других). Лишние — убираем.
 	func pre_serve(g) -> void:
 		final_acc = _accuracy()
+		var holder: Control = g.jar.inner_holder()   # качающийся узел банки
 		for p in parts:
 			if is_instance_valid(p) and _inside(p):
-				p.reparent(g.jar)          # keep_global_transform → останется на месте, поедет с банкой
+				p.reparent(holder)         # keep_global → на месте; едет и качается с банкой
 				served.append(p)
 			elif is_instance_valid(p):
 				p.queue_free()
@@ -1200,14 +1203,14 @@ class SwarmMech extends NpcMech:
 			if is_instance_valid(p):
 				p.queue_free()
 		served.clear()
+		for mp in mem_parts:               # если бросили заказ на «ЗАПОМНИ» — убрать из банки
+			if is_instance_valid(mp):
+				mp.queue_free()
+		mem_parts.clear()
 		if layer != null and is_instance_valid(layer):
 			layer.queue_free()
 		layer = null
-		if mem_layer != null and is_instance_valid(mem_layer):
-			mem_layer.queue_free()
-		mem_layer = null
 		parts.clear()
-		mem_parts.clear()
 
 	func result_note(_g) -> String:
 		return "🐝 Навигатор Роя: собрано верных деталей — %d%%" % int(round(final_acc * 100.0))
@@ -1678,13 +1681,49 @@ class WaiterMech extends NpcMech:
 # Порт special:'gradient' + LEVEL4_FX.twofaced. Градиент (2-й цвет) — TODO.
 # ============================================================
 class TwofacedMech extends NpcMech:
+	# gradient: ДВА СПЕКТРА (градиент банки) — базовая механика на ВСЕХ уровнях.
+	# Два счётчика (countB, лево/право) — довесок только на УР.4.
 	func setup(g) -> void:
-		if not ("countB" in g.active):
-			g.active.append("countB")
-		g.sliders["count"].max_value = 7.0   # обе половины ограничены семью
+		g.active.erase("sat")                     # у градиент-персонажа накала нет (вместо него 2-й спектр)
+		if not ("colorB" in g.active):
+			g.active.append("colorB")
+		if g.level == 4:
+			if not ("countB" in g.active):
+				g.active.append("countB")
+			g.sliders["count"].max_value = 7.0    # обе половины ограничены семью
 
-	func result_note(_g) -> String:
-		return "🧿 Двуликая: два счётчика (лево/право)"
+	func memorize_start(g) -> void:
+		_spread_hue(g)                            # развести спектры подальше друг от друга
+		g._apply_to_jar(g.target)                 # перерисовать цель с разведённым 2-м спектром
+
+	# Второй спектр разводим по цветовому кругу: в ~94% минимум на 30% круга от первого
+	# (иначе часто выпадали почти одинаковые оттенки — не читалась разница). Порт Фазы 0.
+	func _spread_hue(g) -> void:
+		var s = g.sliders["colorB"]
+		var step: float = s.step
+		if step <= 0.0:
+			return
+		var n: int = int(round(360.0 / step))     # число оттенков
+		if n <= 2:
+			return
+		var i1: int = int(round(float(g.target["color"]) / step)) % n
+		var i2: int = int(round(float(g.target["colorB"]) / step)) % n
+		if randf() > 0.06:
+			var minsep: int = maxi(1, int(round(float(n) * 0.30)))
+			var guard: int = 24
+			while _circ_dist(i2, i1, n) < minsep and guard > 0:
+				i2 = randi() % n
+				guard -= 1
+		g.target["colorB"] = float(i2) * step
+
+	func _circ_dist(a: int, b: int, n: int) -> int:
+		var d: int = abs(a - b)
+		return mini(d, n - d)
+
+	func result_note(g) -> String:
+		if "countB" in g.active:
+			return "🧿 Двуликая: два спектра (градиент) + два счётчика (УР.4)"
+		return "🧿 Двуликая: градиент из двух спектров"
 
 # ============================================================
 # Бармен плазма-бара (moving + speed): сгустки летают внутри банки, скорость полёта
