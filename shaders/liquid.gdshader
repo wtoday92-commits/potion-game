@@ -5,7 +5,14 @@ shader_type canvas_item;
 // который считает скрипт по физике покачивания банки.
 
 uniform vec4 liquid_col : source_color = vec4(0.55, 0.25, 0.85, 1.0);
+uniform vec4 liquid_col2 : source_color = vec4(0.55, 0.25, 0.85, 1.0);  // 2-й спектр (Двуликая)
+uniform float grad_on = 0.0;         // 1 = вертикальный градиент цвета (верх=col, низ=col2)
 uniform sampler2D mask;              // альфа = внутренняя область стекла
+
+// цвет жидкости на вертикальной доле ty (0 верх → 1 низ): при grad_on смешиваем два спектра
+vec3 liq_at(float ty) {
+	return mix(liquid_col.rgb, liquid_col2.rgb, clamp(ty, 0.0, 1.0) * grad_on);
+}
 uniform float fill = 0.88;           // уровень жидкости в интерьере
 uniform float interior_top = 0.15;
 uniform float interior_bot = 0.95;
@@ -14,7 +21,8 @@ uniform float interior_right = 0.75;
 uniform float aspect = 0.558;        // ширина/высота контрола (для круглых сгустков)
 uniform float tilt = 0.0;            // наклон поверхности от плескания (радианы, из скрипта)
 uniform float slosh = 0.0;           // энергия плескания 0..1 (усиливает волны/дрейф)
-uniform vec4 blobs[12];              // xy=центр(UV), z=радиус(UV), w=фаза/сид 0..1
+const int MAX_BLOBS = 18;            // потолок числа сгустков (Двуликая: 7+7=14)
+uniform vec4 blobs[MAX_BLOBS];       // xy=центр(UV), z=радиус(UV), w=фаза/сид 0..1
 uniform int blob_n = 0;
 uniform float blur = 0.0;            // «пьяное» размытие 0..1 (Пит, градус) — мылит жидкость и сгустки
 
@@ -36,8 +44,9 @@ void fragment() {
 
 		if (UV.y > liq_top) {
 			float t = clamp((UV.y - liq_top) / max(0.0001, interior_bot - liq_top), 0.0, 1.0);
-			vec3 topc = clamp(liquid_col.rgb * 1.22 + 0.03, vec3(0.0), vec3(1.0));
-			vec3 botc = liquid_col.rgb * 0.60;
+			vec3 lc = liq_at(t);   // локальный цвет (градиент двух спектров или один цвет)
+			vec3 topc = clamp(lc * 1.22 + 0.03, vec3(0.0), vec3(1.0));
+			vec3 botc = lc * 0.60;
 			col = vec4(mix(topc, botc, t), 0.96);
 			// тень цилиндра по бокам
 			float hw = (interior_right - interior_left) * 0.5;
@@ -52,7 +61,7 @@ void fragment() {
 
 		// сгустки: округлые «желейные» капли — светлая заливка, тёмная окаёмка,
 		// блик сверху-слева и глянцевая точка. Слегка покачиваются и дрейфуют.
-		for (int i = 0; i < 12; i++) {
+		for (int i = 0; i < MAX_BLOBS; i++) {
 			if (i >= blob_n) { break; }
 			float br = blobs[i].z;
 			float ph = blobs[i].w;
@@ -62,6 +71,8 @@ void fragment() {
 			vec2 c = blobs[i].xy;
 			c.x += (0.006 + 0.008 * slosh) * sin(TIME * 0.55 + ph * 30.0) + tilt * 0.04;
 			c.y += 0.008 * sin(TIME * 0.80 + ph * 18.0);
+			// цвет сгустка — из градиента жидкости на его высоте
+			vec3 lcb = liq_at(clamp((c.y - liq_top) / max(0.0001, interior_bot - liq_top), 0.0, 1.0));
 
 			vec2 dd = UV - c;
 			dd.x *= aspect;
@@ -79,7 +90,7 @@ void fragment() {
 			float alpha = 1.0 - smoothstep(1.0 - edge, 1.0, q);
 			if (alpha > 0.001) {
 				// светлая полупрозрачная заливка «пузыря» (ярче жидкости)
-				vec3 fillc = clamp(liquid_col.rgb * 1.55 + 0.14, vec3(0.0), vec3(1.0));
+				vec3 fillc = clamp(lcb * 1.55 + 0.14, vec3(0.0), vec3(1.0));
 				// объёмная подтень к низу-справа
 				float shade = mix(1.12, 0.72, clamp(lp.x * 0.5 + lp.y * 0.6 + 0.5, 0.0, 1.0));
 				vec3 body = fillc * shade;
@@ -94,7 +105,7 @@ void fragment() {
 				body += lite * 0.4 * (1.0 - 0.6 * blur);
 				// тёмная окаёмка у самого края
 				float rim = smoothstep(0.86, 0.995, q);
-				body = mix(body, liquid_col.rgb * 0.25, rim * 0.8);
+				body = mix(body, lcb * 0.25, rim * 0.8);
 				col.rgb = mix(col.rgb, body, alpha);
 			}
 		}

@@ -28,7 +28,8 @@ var _mask_tex: ImageTexture
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	set_anchors_preset(Control.PRESET_FULL_RECT)   # на всё окно (родитель — jar_stage)
+	# размер выставляет JanitorMech через fit_window() — грязь только на «стекле окна»
+	# (сверху до линии стола), а не на всю высоту jar_stage (иначе пятно уезжает вниз)
 	_mat = ShaderMaterial.new()
 	_mat.shader = GrimeShader
 
@@ -42,6 +43,11 @@ func _ready() -> void:
 	_mask_tex = ImageTexture.create_from_image(_mask_img)
 	_mat.set_shader_parameter("mask_tex", _mask_tex)
 	reset()
+
+# Занять «стекло окна»: от верха сцены до линии стола, во всю ширину.
+func fit_window(w: float, h: float) -> void:
+	position = Vector2.ZERO
+	size = Vector2(maxf(w, 1.0), maxf(h, 1.0))
 
 # Ячейка внутри пятна грязи: эллипс с лопастями (низкочастотный синус по углу) —
 # кромка неровная, не прямоугольник и не ровный овал.
