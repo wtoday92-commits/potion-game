@@ -10,6 +10,7 @@ extends Control
 
 const LiquidShader := preload("res://shaders/liquid.gdshader")
 const BottleBlurShader := preload("res://shaders/jar_blur.gdshader")
+const ScreenBlurShader := preload("res://shaders/jar_screenblur.gdshader")
 
 # Границы интерьера стекла в UV (замерены по bottle_interior.png).
 const I_TOP := 0.150
@@ -30,6 +31,7 @@ var fill_level: float = -1.0   # уровень жидкости (Пит); <0 = 
 var blur_amt: float = 0.0      # «пьяное» размытие 0..1 (Пит, градус)
 var mono_on: bool = false      # «Выцветший мир» (дебафф Ир): ч-б + постоянный блюр
 const MONO_BLUR := 0.55        # базовый блюр банки в режиме «Выцветший мир»
+var desat: float = 1.0         # «состояние пациента» (Аптекарь Мо): 1 цвет → 0.25 приглушённый
 var tilt_deg: float = 0.0      # наклон сосуда (Дитя Сверхновой, УР.4)
 
 # --- физика летающих сгустков (Бармен плазма-бара) ---
@@ -49,6 +51,8 @@ var liquid: ColorRect
 var bottle: TextureRect
 var mat: ShaderMaterial
 var bottle_mat: ShaderMaterial
+var blur_overlay: ColorRect
+var blur_mat: ShaderMaterial
 
 # --- состояние анимации ---
 var _t: float = 0.0
@@ -78,6 +82,20 @@ func _ready() -> void:
 		mat.set_shader_parameter("mask", mask_tex)
 	liquid.material = mat
 	sway.add_child(liquid)
+
+	# слой настоящего размытия содержимого (Аптекарь Мо / градус Пита) — поверх
+	# жидкости, но под стеклом; клипается маской интерьера (фон вокруг не трогает)
+	blur_overlay = ColorRect.new()
+	blur_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	blur_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	blur_mat = ShaderMaterial.new()
+	blur_mat.shader = ScreenBlurShader
+	if mask_tex:
+		blur_mat.set_shader_parameter("mask", mask_tex)
+	blur_mat.set_shader_parameter("amount", 0.0)
+	blur_overlay.material = blur_mat
+	blur_overlay.visible = false          # включается только при блюре (Мо/Пит)
+	sway.add_child(blur_overlay)
 
 	bottle = TextureRect.new()
 	bottle.texture = load("res://assets/bottle/bottle.png") as Texture2D
@@ -141,10 +159,32 @@ func set_blur(amt: float) -> void:
 # стекло — через grayscale-uniform шейдера бутыли.
 func set_mono(on: bool) -> void:
 	mono_on = on
-	if bottle_mat != null:
-		bottle_mat.set_shader_parameter("grayscale", 1.0 if on else 0.0)
+	_refresh_gray()
 	_refresh_blur()
 	_apply()             # пересчёт liquid_col с насыщенностью 0/обычной
+
+# Аптекарь Мо: «состояние пациента» — банка постепенно теряет цвет (m: 1→0.25).
+# Лёгкое обновление (без пересчёта сгустков) — вызывается каждый кадр.
+func set_desat(m: float) -> void:
+	desat = clampf(m, 0.0, 1.0)
+	_refresh_gray()
+	_refresh_color()
+
+# Обесцвечивание стекла: max(полный ч-б от Ир, частичное от Аптекаря).
+func _refresh_gray() -> void:
+	if bottle_mat != null:
+		bottle_mat.set_shader_parameter("grayscale", clampf(maxf(1.0 if mono_on else 0.0, 1.0 - desat), 0.0, 1.0))
+
+# Цвет/градиент/насыщенность жидкости в шейдере (без пересчёта сгустков).
+func _refresh_color() -> void:
+	if mat == null:
+		return
+	var sat_eff: float = (0.0 if mono_on else saturation) * desat   # Ир → серая; Аптекарь → приглушённая
+	mat.set_shader_parameter("liquid_col", Color.from_hsv(fposmod(hue, 360.0) / 360.0, sat_eff, 0.95))
+	var grad_on: float = 1.0 if hue2 >= 0.0 else 0.0
+	var col2: Color = Color.from_hsv(fposmod(hue2, 360.0) / 360.0, sat_eff, 0.95) if hue2 >= 0.0 else Color.from_hsv(fposmod(hue, 360.0) / 360.0, sat_eff, 0.95)
+	mat.set_shader_parameter("liquid_col2", col2)
+	mat.set_shader_parameter("grad_on", grad_on)
 
 # Эффективный блюр = max(градус Пита, базовый блюр «Выцветшего мира»).
 func _refresh_blur() -> void:
@@ -153,6 +193,10 @@ func _refresh_blur() -> void:
 		mat.set_shader_parameter("blur", eff)
 	if bottle_mat != null:
 		bottle_mat.set_shader_parameter("amount", eff)   # мылим и само стекло
+	if blur_mat != null:
+		blur_mat.set_shader_parameter("amount", eff)     # настоящее размытие содержимого
+	if blur_overlay != null:
+		blur_overlay.visible = eff > 0.004               # без блюра слой выключен (нет backbuffer-copy)
 
 func _process(delta: float) -> void:
 	if sway == null or mat == null:
@@ -216,13 +260,7 @@ func _apply() -> void:
 
 	var ar: float = size.x / size.y
 	var f: float = FILL if fill_level < 0.0 else clampf(fill_level, 0.05, 1.0)   # уровень жидкости (Пит)
-	var sat_eff: float = 0.0 if mono_on else saturation   # «Выцветший мир» → серая жидкость
-	mat.set_shader_parameter("liquid_col", Color.from_hsv(fposmod(hue, 360.0) / 360.0, sat_eff, 0.95))
-	# 2-й спектр (Двуликая): вертикальный градиент верх→низ; иначе одноцветная
-	var grad_on: float = 1.0 if hue2 >= 0.0 else 0.0
-	var col2: Color = Color.from_hsv(fposmod(hue2, 360.0) / 360.0, sat_eff, 0.95) if hue2 >= 0.0 else Color.from_hsv(fposmod(hue, 360.0) / 360.0, sat_eff, 0.95)
-	mat.set_shader_parameter("liquid_col2", col2)
-	mat.set_shader_parameter("grad_on", grad_on)
+	_refresh_color()   # цвет/градиент/насыщенность жидкости
 	mat.set_shader_parameter("fill", f)
 	mat.set_shader_parameter("interior_top", I_TOP)
 	mat.set_shader_parameter("interior_bot", I_BOT)

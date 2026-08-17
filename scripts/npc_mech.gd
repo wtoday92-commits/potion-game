@@ -341,6 +341,11 @@ class CatladyMech extends NpcMech:
 		max_paws = int(MAX_BY_LVL.get(g.level, 2))
 		interval = float(RETURN_BY_LVL.get(g.level, 4.2))
 		acc = 0.0
+		# ждём, пока стулья-ползунки доедут (иначе лапа спавнится в невидимой
+		# колонке — modulate.a=0 на выезде — и «пропадает»)
+		await g.get_tree().create_timer(0.55).timeout
+		if not is_instance_valid(g) or g.phase != "recreate":
+			return
 		for i in max_paws:
 			_spawn_one()
 
@@ -533,6 +538,7 @@ class ApothecaryMech extends NpcMech:
 	var g_ref
 	var bar: Panel = null
 	var fill: ColorRect = null
+	var ekg: EkgLine = null
 
 	func craft_start(g) -> void:
 		g_ref = g
@@ -560,6 +566,12 @@ class ApothecaryMech extends NpcMech:
 		fill.offset_top = 3.0
 		fill.offset_bottom = -3.0
 		bar.add_child(fill)
+		# УР.4: линия сердцебиения (ЭКГ) поверх сцены — учащается по мере ухудшения
+		if g.level == 4:
+			ekg = EkgLine.new()
+			ekg.set_anchors_preset(Control.PRESET_FULL_RECT)
+			ekg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			g.jar_stage.add_child(ekg)
 		_update(1.0)
 
 	func process(g, _delta: float) -> void:
@@ -573,15 +585,27 @@ class ApothecaryMech extends NpcMech:
 		fill.offset_top = 3.0
 		# цвет: зелёный (полно) → красный (пусто)
 		fill.color = Color.from_hsv(lerpf(0.0, 0.33, frac), 0.85, 0.95)
+		# «состояние пациента»: банка мутнеет и теряет цвет по мере убывания времени
+		if g_ref != null and g_ref.jar != null:
+			g_ref.jar.set_blur(1.0 - frac)
+			g_ref.jar.set_desat(0.15 + frac * 0.85)
+		if ekg != null and is_instance_valid(ekg):
+			ekg.set_rate(1.0 + (1.0 - frac) * 2.0)   # чем хуже, тем чаще пульс
 
 	func score_bonus(g) -> float:
 		return 1.0 + 0.5 * clampf(g.phase_left / maxf(0.001, g.phase_total), 0.0, 1.0)
 
-	func stop(_g) -> void:
+	func stop(g) -> void:
 		if bar != null and is_instance_valid(bar):
 			bar.queue_free()
+		if ekg != null and is_instance_valid(ekg):
+			ekg.queue_free()
+		if g != null and g.jar != null:      # вернуть банке цвет/резкость
+			g.jar.set_blur(0.0)
+			g.jar.set_desat(1.0)
 		bar = null
 		fill = null
+		ekg = null
 
 	func result_note(g) -> String:
 		var pct: int = int(round(50.0 * clampf(g.phase_left / maxf(0.001, g.phase_total), 0.0, 1.0)))

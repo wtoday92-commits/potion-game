@@ -152,6 +152,13 @@ func get_rep(npc_id: String) -> float:
 func get_rep_level(npc_id: String) -> int:
 	return GameData.rep_level(get_rep(npc_id))
 
+# Изменить репутацию на delta (может быть отрицательной — «Погром»). Не ниже 0.
+func adjust_rep(npc_id: String, delta: float) -> void:
+	ensure_npc(npc_id)
+	var rep: Dictionary = data["npc_reputation"][npc_id]
+	rep["value"] = maxf(0.0, float(rep["value"]) + delta)
+	rep["level"] = GameData.rep_level(float(rep["value"]))
+
 func npc_stats(npc_id: String) -> Dictionary:
 	ensure_npc(npc_id)
 	return data["npc_stats"][npc_id]
@@ -164,7 +171,8 @@ func npc_stats(npc_id: String) -> Dictionary:
 func record_result(npc_id: String, tier: int, overall: float, grade: String,
 		reward: int, sticker_name: String = "",
 		time_frac: float = 1.0, reg_level: int = 1,
-		focus: String = "", rating_mult: float = 1.0, no_points: bool = false) -> Dictionary:
+		focus: String = "", rating_mult: float = 1.0, no_points: bool = false,
+		neg_mult: float = 1.0, tip_mult: float = 1.0) -> Dictionary:
 	ensure_npc(npc_id)
 	var is_perfect := grade == "perfect"
 	var is_good := grade == "good" or is_perfect     # «годнота+»
@@ -179,9 +187,11 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 	# дельта рейтинга (может быть отрицательной: пойло/брак отнимают)
 	var sd: Dictionary = GameData.score_delta(overall, grade, tier, reward, reg_level, time_frac)
 	var points: int = int(sd["delta"])
-	# множитель рейтинга от механики гостя (racer_kai/apothecary_mo/janitor) — только на плюс
+	# множитель рейтинга: механика гостя + «Погром»/«Утка» на плюс; «Утка» усиливает и штраф
 	if points > 0 and rating_mult != 1.0:
 		points = int(round(points * rating_mult))
+	elif points < 0 and neg_mult != 1.0:
+		points = int(round(points * neg_mult))
 	# Тот-Кто-Ждёт: при <99% рейтинг не начисляется (только стикер)
 	if no_points:
 		points = 0
@@ -237,7 +247,7 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 	rep["level"] = lvl_after
 
 	# --- чаевые ---
-	var tip := int(round(reward * float(TIP_FACTOR.get(grade, 0.0))))
+	var tip := int(round(reward * float(TIP_FACTOR.get(grade, 0.0)) * tip_mult))
 	if tip > 0:
 		data["tips"]["balance"] += tip
 		data["tips"]["lifetime"] += tip
