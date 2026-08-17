@@ -66,6 +66,11 @@ var slider_cols: Dictionary = {}
 var active: Array = []
 var level: int = 1
 var npc: Dictionary = {}
+var order_focus: String = ""     # фокус-заказ ("bubbles"/"color"/"size"/"") — Фаза 3
+var order_mods: Array = []       # поведенческие модификаторы заказа (timer/duck/rampage)
+var day_order_mods: Dictionary = {}   # id гостя дня → {"focus":..., "mods":[...]} (для карточек выбора)
+var pogrom_removed: Array = []   # id гостей, выбывших из цикла из-за «Погрома»
+var mod_chip: Label              # плашка фокуса/модификаторов под надписью фазы
 
 var round_ui: VBoxContainer
 var done_btn: Button
@@ -344,6 +349,13 @@ func _build_ui() -> void:
 	ir_chip.add_theme_font_size_override("font_size", 18)
 	ir_chip.visible = false
 	round_ui.add_child(ir_chip)
+
+	# плашка фокуса/модификаторов заказа (Фаза 3) — «висит» весь заказ
+	mod_chip = Label.new()
+	mod_chip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mod_chip.add_theme_font_size_override("font_size", 18)
+	mod_chip.visible = false
+	round_ui.add_child(mod_chip)
 
 	# банка «на сцене»: спот + барный стол + тень (даёт ей место и точку отсчёта)
 	jar_stage = JarStage.new()
@@ -673,6 +685,7 @@ func _dev_set_level(l: int) -> void:
 func _dev_start(e: Dictionary) -> void:
 	_dev_panel.visible = false
 	npc = e
+	day_order_mods[String(e.get("id", ""))] = _roll_order_mods(e, true)   # DEV: гарантируем модификатор
 	# минимальный контекст цикла, чтобы топбар/переходы не падали
 	if not cycle_active:
 		cycle_active = true
@@ -1836,6 +1849,7 @@ func _start_cycle() -> void:
 	good_streak_max = 0
 	cycle_active = true
 	_tb_rating_shown = 0
+	pogrom_removed = []              # «Погром»: выбывшие возвращаются в новый цикл
 	cycle_days = GameData.prog_cycle_days(_xp())   # длина цикла по прогрессии
 	PotionProfile.reset_picks_cycle()
 	_new_day()
@@ -1843,6 +1857,10 @@ func _start_cycle() -> void:
 # Новый день: фиксируем тройку посетителей и показываем экран выбора.
 func _new_day() -> void:
 	day_choices = _pick_day_npcs()
+	# заранее бросаем фокус/модификаторы каждому гостю дня — чтобы показать на карточке
+	day_order_mods = {}
+	for e in day_choices:
+		day_order_mods[String(e.get("id", ""))] = _roll_order_mods(e, false)
 	_show_day()
 
 func _show_day() -> void:
@@ -1907,6 +1925,8 @@ func _npc_pool(tier: int, unlocked: Dictionary, used: Array) -> Array:
 	var pool: Array = []
 	for n in GameData.NPCS:
 		if used.has(n["id"]):
+			continue
+		if pogrom_removed.has(n["id"]):    # выбыл из цикла из-за «Погрома»
 			continue
 		if tier != -1 and int(n.get("tier", 1)) != tier:
 			continue
@@ -1975,8 +1995,65 @@ func _day_card(npc_e: Dictionary) -> Button:
 	fl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(fl)
 
+	col.add_child(_mod_badge(String(npc_e.get("id", ""))))   # плашка фокуса/модификаторов
+
 	row.add_child(col)
 	return btn
+
+const FOCUS_IMG := {"bubbles": "bubble", "color": "color", "size": "size"}
+
+# Плашка модификаторов для карточки выбора: иконки + названия + тултипы (или «без»).
+func _mod_badge(npc_id: String) -> Control:
+	var om: Dictionary = day_order_mods.get(npc_id, {})
+	var focus: String = String(om.get("focus", ""))
+	var mods: Array = om.get("mods", [])
+	var box := HBoxContainer.new()
+	box.add_theme_constant_override("separation", 12)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if focus == "" and mods.is_empty():
+		var l := Label.new()
+		l.text = "✕ без модификатора"
+		l.add_theme_font_size_override("font_size", 13)
+		l.modulate = Color(1, 1, 1, 0.4)
+		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		box.add_child(l)
+		return box
+	if focus != "":
+		var fm: Dictionary = GameData.FOCUS_META[focus]
+		var tex := load("res://assets/ui/%s.png" % FOCUS_IMG.get(focus, "bubble")) as Texture2D
+		box.add_child(_mod_chip_item(tex, "", "фокус: %s" % fm["name"],
+			"Фокус на «%s»: эти параметры важнее в оценке, награда выше." % fm["name"], Color("6ec3ff")))
+	for m in mods:
+		var mm: Dictionary = GameData.MOD_META[m]
+		box.add_child(_mod_chip_item(null, String(mm["icon"]), String(mm["name"]), String(mm["desc"]), Color("ffcf5d")))
+	return box
+
+# Один чип плашки: иконка (картинка или эмодзи) + название, с тултипом.
+func _mod_chip_item(tex: Texture2D, emoji: String, text: String, tooltip: String, col: Color) -> Control:
+	var h := HBoxContainer.new()
+	h.mouse_filter = Control.MOUSE_FILTER_PASS   # hover для тултипа, но клик проходит к карточке
+	h.tooltip_text = tooltip
+	h.add_theme_constant_override("separation", 5)
+	if tex != null:
+		var ir := TextureRect.new()
+		ir.texture = tex
+		ir.custom_minimum_size = Vector2(22, 22)
+		ir.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		ir.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		ir.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		h.add_child(ir)
+	elif emoji != "":
+		var el := Label.new()
+		el.text = emoji
+		el.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		h.add_child(el)
+	var l := Label.new()
+	l.text = text.to_upper()
+	l.add_theme_font_size_override("font_size", 14)
+	l.add_theme_color_override("font_color", col)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	h.add_child(l)
+	return h
 
 # Стайлбокс карточки: тёмный фон, тир-кайма, толстый левый акцент (яркость каймы
 # растёт на hover/press через параметр k).
@@ -2253,10 +2330,14 @@ func _start_round(lvl: int) -> void:
 			ch.queue_free()
 	jar.modulate = Color.WHITE     # общий сброс тона банки (страховка)
 	jar.set_mono(false)            # снять «Выцветший мир» (ч-б) прошлого заказа
+	jar.set_desat(1.0)             # вернуть цвет (Аптекарь Мо) от прошлого заказа
 	jar.set_tilt(0.0)              # снять наклон (Сверхнова) прошлого заказа
 	ir_effect_id = ""              # эффект прошлого заказа отыграл
 	ir_effect_kind = ""
 	ir_chip.visible = false
+	order_focus = ""               # фокус/модификаторы прошлого заказа сброшены
+	order_mods = []
+	mod_chip.visible = false
 	var replaying: bool = _is_replay_run   # это переигровка того же заказа?
 	_is_replay_run = false
 	if not replaying:              # свежий заказ — цепочка переигровки сброшена
@@ -2287,6 +2368,9 @@ func _start_round(lvl: int) -> void:
 
 	seed_val = randi()
 	target = _random_values()
+	if not replaying:
+		_load_order_mods()          # фокус/модификаторы, назначенные при формировании дня
+	_show_mod_chip()
 	# Ир: эффект этого заказа. На переигровке прежний эффект уже отыграл — новый знак
 	# не берём; форс-переигровка тащит доп. дебафф. Иначе ожидающий знак → случайный эффект.
 	if replaying:
@@ -2365,6 +2449,9 @@ func _start_recreate() -> void:
 	if mech:
 		mech.craft_start(self)
 	_apply_ir_effect()             # игровые эффекты выбранного заказу баффа/дебаффа
+	if "timer" in order_mods:      # модификатор «Таймер»: −25% времени (после всех аддитивов)
+		phase_total = maxf(3.0, phase_total * 0.75)
+		phase_left = maxf(2.0, phase_left * 0.75)
 
 # «Пьяный» эффект: качка «камеры» (canvas_transform всего кадра) + двоение-призрак.
 func _apply_drunk(g: float) -> void:
@@ -2415,6 +2502,76 @@ func _apply_ir_effect() -> void:
 		"mono":
 			jar.set_mono(true)                    # банка ч-б + подмылена
 			_toast("🌫 Выцветший мир", Color("ff9a6a"))
+
+# ---------- Фаза 3: фокус-заказы и модификаторы ----------
+# Бросок модификаторов для КОНКРЕТНОГО гостя (при формировании дня, чтобы показать
+# их на карточке выбора). Всё гейтится прогрессией: фокус — с «modifiers» (ур.3),
+# timer/duck/rampage — с «modifiers_new3» (ур.4), несколько — с «modifiers_multi» (ур.7).
+func _roll_order_mods(npc_e: Dictionary, force: bool) -> Dictionary:
+	var res: Dictionary = {"focus": "", "mods": []}
+	var xp: int = _xp()
+	if not GameData.prog_mech_unlocked("modifiers", xp):
+		return res
+	var tier: int = int(npc_e.get("tier", 1))
+	if tier < 2 or String(npc_e.get("id", "")) == "tentacloid":
+		return res
+	if not force and randf() >= 0.4:            # DEV-форс обходит шанс, но не гейтинг прогрессии
+		return res
+	var new3: bool = GameData.prog_mech_unlocked("modifiers_new3", xp)
+	var multi: bool = GameData.prog_mech_unlocked("modifiers_multi", xp)
+	var kinds: Array = []
+	if String(npc_e.get("type", "normal")) == "normal" and not (String(npc_e.get("id", "")) in GameData.MOD_FOCUS_EXCLUDE):
+		kinds.append("focus")
+	if new3:
+		if String(npc_e.get("special", "")) != "no_timer":
+			kinds.append("timer")
+		kinds.append("duck")
+		kinds.append("rampage")
+	if kinds.is_empty():
+		return res
+	var count: int = 1
+	if multi and tier >= 4:
+		var r: float = randf()
+		if r < 0.015: count = 3
+		elif r < 0.12: count = 2
+	count = mini(count, kinds.size())
+	kinds.shuffle()
+	for i in count:
+		var k: String = kinds[i]
+		if k == "focus":
+			var opts: Array = ["color", "size"] if String(npc_e.get("id", "")) == "swarm_navigator" else ["bubbles", "color", "size"]
+			res["focus"] = String(opts[randi() % opts.size()])
+		else:
+			(res["mods"] as Array).append(k)
+	return res
+
+# Применить назначенные модификаторы к текущему заказу (из day_order_mods по id гостя).
+func _load_order_mods() -> void:
+	var om: Dictionary = day_order_mods.get(String(npc.get("id", "")), {})
+	order_focus = String(om.get("focus", ""))
+	order_mods = (om.get("mods", []) as Array).duplicate()
+	# фокус на низких УР бесполезен, если его регуляторы не активны — добавляем их
+	# (только обычные оцениваемые: спектр/объём/сгустки/размер; sat/colorB и т.п. не трогаем)
+	if order_focus != "" and level < 3:
+		for fk in GameData.FOCUS_KEYS[order_focus]:
+			if fk in ["color", "volume", "count", "bsize"] and fk in ORDER and not (fk in active):
+				active.append(fk)
+
+# Плашка фокуса/модификаторов заказа: иконки + названия, «висит» весь заказ.
+func _show_mod_chip() -> void:
+	var parts: Array = []
+	if order_focus != "":
+		var fm: Dictionary = GameData.FOCUS_META[order_focus]
+		parts.append("%s фокус: %s" % [fm["icon"], fm["name"]])
+	for m in order_mods:
+		var mm: Dictionary = GameData.MOD_META[m]
+		parts.append("%s %s" % [mm["icon"], mm["name"]])
+	if parts.is_empty():
+		mod_chip.visible = false
+		return
+	mod_chip.text = "   ".join(parts)
+	mod_chip.add_theme_color_override("font_color", Color("ffcf5d"))
+	mod_chip.visible = true
 
 # ---------- таймеры фаз ----------
 func _process(delta: float) -> void:
@@ -2540,6 +2697,9 @@ func _do_finish() -> void:
 		var w: float = float(PARAMS[key]["weight"])
 		if mech:
 			w = mech.weight_for(key, w)
+		# фокус-заказ: фокусные параметры весят ×2.2, остальные ×0.55
+		if order_focus != "":
+			w *= GameData.FOCUS_W_ON if key in GameData.FOCUS_KEYS[order_focus] else GameData.FOCUS_W_OFF
 		overall += sc * w
 		wsum += w
 	overall = overall / maxf(wsum, 0.001)
@@ -2560,6 +2720,17 @@ func _do_finish() -> void:
 	var tier: int = int(npc.get("tier", 1))
 	var grade: String = GameData.grade(overall, tier)
 	var reward: int = int(GameData.npc_config(npc)["reward"])
+	# Фаза 3: множители от модификаторов заказа (фокус +25% награды; Утка усиливает
+	# плюс и штраф; Погром — ×2 рейтинг и чаевые)
+	if order_focus != "":
+		reward = int(round(float(reward) * GameData.FOCUS_REWARD))
+	var pos_mult: float = rating_mult
+	var neg_mult: float = 1.0
+	var tip_mult: float = 1.0
+	if "duck" in order_mods:
+		pos_mult *= 1.6; neg_mult *= 1.6
+	if "rampage" in order_mods:
+		pos_mult *= 2.0; tip_mult *= 2.0
 	var cat: Array = GameData.STICKERS[grade]
 	var sticker_name: String = cat[randi() % GameData.BASE_STICKERS]
 	var time_frac: float = clampf(1.0 - phase_left / maxf(0.001, phase_total), 0.0, 1.0)
@@ -2584,7 +2755,7 @@ func _do_finish() -> void:
 
 	var outcome: Dictionary = PotionProfile.record_result(
 		npc["id"], tier, overall, grade, reward, sticker_name,
-		time_frac, level, "", rating_mult, no_points)
+		time_frac, level, order_focus, pos_mult, no_points, neg_mult, tip_mult)
 
 	# «Последний из Ир» (УР.3+): идеал → бафф след. заказу, брак/пойло → дебафф
 	if String(npc.get("id", "")) == "last_of_ir" and level >= 3:
@@ -2592,6 +2763,17 @@ func _do_finish() -> void:
 			ir_pending = "buff"
 		elif grade != "good":
 			ir_pending = "debuff"
+
+	# «Погром»: гость дерётся — выбывает из цикла и портит репутацию другим гостям дня
+	if "rampage" in order_mods:
+		var myid: String = String(npc.get("id", ""))
+		if not (myid in pogrom_removed):
+			pogrom_removed.append(myid)
+		for e in day_choices:
+			var oid: String = String(e.get("id", ""))
+			if oid != "" and oid != myid:
+				PotionProfile.adjust_rep(oid, -2.0)
+		_toast.call_deferred("💥 Погром: «%s» ушёл и подпортил репутацию гостям дня" % String(npc.get("name", "")), Color("ff9a6a"))
 
 	# для перехода дня/цикла
 	last_grade = grade
@@ -2673,12 +2855,14 @@ func _show_result(overall: float, comps: Dictionary, grade: String, outcome: Dic
 	# аккуратная разбивка по параметрам: имя слева, % справа (цветом по значению)
 	for c in result_breakdown.get_children():
 		c.queue_free()
+	var focus_keys: Array = GameData.FOCUS_KEYS.get(order_focus, []) if order_focus != "" else []
 	for key in active:
 		var pct: int = int(round(float(comps[key]) * 100.0))
 		var rowb := HBoxContainer.new()
 		var nl := Label.new()
-		nl.text = PARAMS[key]["label"]
-		nl.modulate = Color(1, 1, 1, 0.8)
+		var focused: bool = key in focus_keys
+		nl.text = ("%s " % GameData.FOCUS_META[order_focus]["icon"] if focused else "") + PARAMS[key]["label"]
+		nl.modulate = Color("ffcf5d") if focused else Color(1, 1, 1, 0.8)
 		nl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		rowb.add_child(nl)
 		var vl := Label.new()
