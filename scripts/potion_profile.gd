@@ -280,6 +280,26 @@ func end_cycle(cycle_score: int) -> Dictionary:
 	save()
 	return {"xp_before": xp_before, "xp_after": int(pr["xp"]), "cycles": int(st["cycles_completed"])}
 
+# ---------- Локальный лидерборд (fallback, когда не в аккаунте) ----------
+func lb_local_all() -> Array:
+	return data.get("leaderboard", [])
+
+# Добавить/обновить запись (одна строка на ник — храним ВЫСШИЙ счёт).
+func lb_local_add(nick: String, score: int) -> void:
+	var lst: Array = (data.get("leaderboard", []) as Array).duplicate()
+	var best: int = score
+	var kept: Array = []
+	for e in lst:
+		if String(e.get("name", "")) == nick:
+			best = maxi(best, int(e.get("score", 0)))
+		else:
+			kept.append(e)
+	var d: Dictionary = Time.get_date_dict_from_system()
+	kept.append({"name": nick, "score": best, "date": "%02d.%02d.%d" % [d["day"], d["month"], d["year"]]})
+	kept.sort_custom(func(a, b): return int(a.get("score", 0)) > int(b.get("score", 0)))
+	data["leaderboard"] = kept.slice(0, mini(50, kept.size()))
+	save()
+
 # Сброс счётчика выборов гостя за цикл (вызывать в начале цикла).
 func reset_picks_cycle() -> void:
 	for id in data["npc_stats"].keys():
