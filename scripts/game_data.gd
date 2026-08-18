@@ -99,6 +99,35 @@ const INSPECTOR_PHRASE := {
 	"sat":    "накал цвета выставляется на отметке {v}",
 }
 const REP_L4_UNLOCK_LEVEL := 1                    # с какого ур. репутации открыт УР.4 персонажа
+
+# ---------- Фаза 9: «грейд выше своего» ----------
+# Персонаж низкого тира изредка выпадает как заказ более ВЫСОКОГО тира: числовые
+# характеристики целевого тира (больше сгустков/мельче деления/накал) + повышенная
+# награда. Личность/имя/механика/тайминги — родные. Вес выпадения по разрыву тиров.
+const GRADE_WEIGHT := [1.0, 0.15, 0.05, 0.02, 0.008]   # [родной, +1 тир, +2, +3, +4]
+const GRADE_REWARD_MULT := [1.0, 1.6, 2.3, 3.2, 4.5]
+
+func grade_up_cfg(npc: Dictionary, target_tier: int) -> Dictionary:
+	var base_tier: int = int(npc.get("tier", 1))
+	var gap: int = mini(target_tier - base_tier, GRADE_REWARD_MULT.size() - 1)
+	if gap <= 0:
+		return npc
+	var clone: Dictionary = npc.duplicate(true)
+	clone["tier"] = target_tier
+	clone["graded_from"] = base_tier
+	var t: Dictionary = TIERS[target_tier]
+	# «зернистость» регуляторов и число сгустков — целевого тира
+	clone["color_steps"] = t["color_steps"]
+	clone["size_steps"] = t["size_steps"]
+	clone["count_max"] = t["count_max"]
+	clone["bsize_steps"] = t["bsize_steps"]
+	# тайминги — родные (личность персонажа не трогаем)
+	clone["memorize_ms"] = int(npc.get("memorize_ms", TIERS[base_tier]["memorize_ms"]))
+	clone["craft_ms"] = int(npc.get("craft_ms", TIERS[base_tier]["craft_ms"]))
+	# награда масштабируется к целевому грейду
+	var base_reward: int = int(npc.get("reward", TIERS[base_tier]["reward"]))
+	clone["reward"] = int(round(float(base_reward) * GRADE_REWARD_MULT[gap]))
+	return clone
 const LORE_PHRASE_CHANCE := 0.35
 
 # Гости, у которых уникальная механика работает С УР.1 (а не только на УР.4).

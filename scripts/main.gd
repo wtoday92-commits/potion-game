@@ -1757,6 +1757,117 @@ func _build_day() -> void:
 	dv.add_child(to_menu)
 
 # ---------- постоянная верхняя панель ----------
+# ---------- Глобальный рейтинг (лидерборд) ----------
+var lb_panel: Control = null
+var lb_list: VBoxContainer = null
+
+# Загрузка: онлайн-топ (Supabase) читаем ВСЕГДА, когда настроен бэкенд (чтение
+# публичное — даже гостю); иначе локальный список.
+func _lb_load() -> Array:
+	if PotionAuth.configured():
+		var rows: Array = await PotionAuth.leaderboard_load("arcade")
+		if not rows.is_empty():
+			var out: Array = []
+			for r in rows:
+				out.append({"name": String(r.get("name", "?")), "score": int(r.get("score", 0)), "date": _lb_date(String(r.get("created_at", "")))})
+			return out
+	return PotionProfile.lb_local_all()
+
+func _lb_date(created: String) -> String:
+	if created.length() >= 10:
+		var p: PackedStringArray = created.substr(0, 10).split("-")   # YYYY-MM-DD
+		if p.size() == 3:
+			return "%s.%s.%s" % [p[2], p[1], p[0]]
+	return ""
+
+# Сохранить счёт: онлайн (если в аккаунте) + всегда локально (fallback/гость).
+func _lb_save(nick: String, score: int) -> void:
+	if PotionAuth.is_logged_in():
+		await PotionAuth.leaderboard_save("arcade", nick, score)
+	PotionProfile.lb_local_add(nick, score)
+
+func _open_leaderboard(highlight: int = -1) -> void:
+	if lb_panel == null:
+		_build_leaderboard_panel()
+	lb_panel.visible = true
+	Sfx.play("uiClick")
+	_render_leaderboard([], highlight)          # «загрузка…» (пусто) до ответа
+	var rows: Array = await _lb_load()
+	if lb_panel != null and lb_panel.visible:
+		_render_leaderboard(rows, highlight)
+
+func _build_leaderboard_panel() -> void:
+	lb_panel = Control.new()
+	lb_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	lb_panel.visible = false
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.65)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	lb_panel.add_child(dim)
+	var card := PanelContainer.new()
+	card.anchor_left = 0.5; card.anchor_right = 0.5; card.anchor_top = 0.5; card.anchor_bottom = 0.5
+	card.offset_left = -300.0; card.offset_right = 300.0; card.offset_top = -380.0; card.offset_bottom = 380.0
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.08, 0.08, 0.13, 0.98)
+	sb.set_corner_radius_all(16); sb.set_border_width_all(2)
+	sb.border_color = Color(0.90, 0.72, 0.42)
+	sb.set_content_margin_all(20.0)
+	card.add_theme_stylebox_override("panel", sb)
+	lb_panel.add_child(card)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 12)
+	card.add_child(col)
+	var title := Label.new()
+	title.text = "🏆 ГЛОБАЛЬНЫЙ РЕЙТИНГ"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 24)
+	title.add_theme_color_override("font_color", Color("ffcf5d"))
+	col.add_child(title)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(scroll)
+	lb_list = VBoxContainer.new()
+	lb_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lb_list.add_theme_constant_override("separation", 3)
+	scroll.add_child(lb_list)
+	var close := Button.new()
+	close.text = "Закрыть"
+	close.focus_mode = Control.FOCUS_NONE
+	close.pressed.connect(func(): lb_panel.visible = false)
+	col.add_child(close)
+	add_child(lb_panel)
+
+func _render_leaderboard(rows: Array, highlight: int) -> void:
+	if lb_list == null:
+		return
+	for c in lb_list.get_children():
+		c.queue_free()
+	if rows.is_empty():
+		var l := Label.new()
+		l.text = "Пока пусто — стань первым!"
+		l.modulate = Color(1, 1, 1, 0.5)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lb_list.add_child(l)
+		return
+	var rank := 0
+	for e in rows:
+		rank += 1
+		var me: bool = highlight >= 0 and int(e.get("score", -999)) == highlight
+		var r := HBoxContainer.new()
+		var n := Label.new()
+		n.text = "%d.  %s" % [rank, String(e.get("name", "?"))]
+		n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var s := Label.new()
+		s.text = "%d · %s" % [int(e.get("score", 0)), String(e.get("date", ""))]
+		s.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		if me:
+			n.add_theme_color_override("font_color", Color("6dff8f"))
+			s.add_theme_color_override("font_color", Color("6dff8f"))
+		r.add_child(n)
+		r.add_child(s)
+		lb_list.add_child(r)
+
 func _build_topbar() -> void:
 	topbar = PanelContainer.new()
 	topbar.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -1803,6 +1914,7 @@ func _build_topbar() -> void:
 
 	# иконки-кнопки (Коллекция гейтится прогрессией; остальное — заглушки)
 	topbar_coll_btn = _topbar_icon(row, "🗂", "Коллекция", _show_collection, true)
+	_topbar_icon(row, "🏆", "Рейтинг", _open_leaderboard, true)
 	_topbar_icon(row, "👥", "Персонажи", _show_chars, true)
 	_topbar_icon(row, "⚡", "Пассивки", Callable(), false)
 	_topbar_icon(row, "👤", "Профиль", _show_account, true)
@@ -1908,17 +2020,47 @@ func _pick_day_npcs() -> Array:
 	var chosen: Array = []
 	var used: Array = []
 	for tier in tiers:
-		var pool: Array = _npc_pool(tier, unlocked, used)   # открытые этого тира
-		if pool.is_empty():
-			pool = _npc_pool(-1, unlocked, used)            # любой открытый
-		if pool.is_empty():
-			pool = _npc_pool(tier, {}, used)                # крайний случай — любой тира
-		if pool.is_empty():
+		var e: Dictionary = _pick_config_for_tier(tier, unlocked, used)
+		if e.is_empty():
 			continue
-		var pick: Dictionary = pool[randi() % pool.size()]
-		used.append(pick["id"])
-		chosen.append(pick)
+		used.append(e["id"])
+		chosen.append(e)
 	return chosen
+
+# Фаза 9: кандидаты слота — персонажи РОДНОГО тира (полный вес) + НИЖНИХ тиров
+# «грейдом выше» (вес GRADE_WEIGHT[разрыв]); если выпал нижний — клонируем под целевой тир.
+func _pick_config_for_tier(tier: int, unlocked: Dictionary, used: Array) -> Dictionary:
+	var cands: Array = []            # [{npc, w}]
+	for t in range(tier, 0, -1):
+		var gap: int = tier - t
+		var w: float = GameData.GRADE_WEIGHT[mini(gap, GameData.GRADE_WEIGHT.size() - 1)]
+		for n in _npc_pool(t, unlocked, used):
+			cands.append({"npc": n, "w": w})
+	if cands.is_empty():
+		# родной+нижние исчерпаны — добираем из верхних тиров, иначе любой
+		for t in range(tier + 1, 6):
+			var up: Array = _npc_pool(t, unlocked, used)
+			if not up.is_empty():
+				return up[randi() % up.size()]
+		var any: Array = _npc_pool(-1, unlocked, used)
+		if any.is_empty():
+			any = _npc_pool(tier, {}, used)
+		return any[randi() % any.size()] if not any.is_empty() else {}
+	var picked: Dictionary = _weighted_pick(cands)
+	if int(picked.get("tier", 1)) < tier:
+		return GameData.grade_up_cfg(picked, tier)   # «грейд выше своего»
+	return picked
+
+func _weighted_pick(cands: Array) -> Dictionary:
+	var total: float = 0.0
+	for c in cands:
+		total += float(c["w"])
+	var r: float = randf() * total
+	for c in cands:
+		r -= float(c["w"])
+		if r <= 0.0:
+			return c["npc"]
+	return cands[-1]["npc"]
 
 # Пул NPC: tier (-1 = любой), unlocked (пусто = без фильтра открытости), не used.
 func _npc_pool(tier: int, unlocked: Dictionary, used: Array) -> Array:
@@ -1972,7 +2114,8 @@ func _day_card(npc_e: Dictionary) -> Button:
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	var badge := Label.new()
-	badge.text = "★ ТИР %d · %s" % [tier, TIER_NAMES.get(tier, "")]
+	var graded: bool = npc_e.has("graded_from")
+	badge.text = "★ ТИР %d · %s%s" % [tier, TIER_NAMES.get(tier, ""), "  ↑ грейд выше" if graded else ""]
 	badge.add_theme_font_size_override("font_size", 14)
 	badge.add_theme_color_override("font_color", tcol)
 	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2188,10 +2331,13 @@ func _show_cycle_end() -> void:
 	result_breakdown.visible = false
 	result_sticker.text = "Цикл пройден!"
 	result_sticker.add_theme_color_override("font_color", Color("6dff8f"))
+	# отправляем рейтинг цикла в глобальный топ (онлайн если в аккаунте + локально)
+	_lb_save(PotionAuth.get_nickname(), cycle_score)
 	var lines: Array = [
 		"Рейтинг цикла: %d" % cycle_score,
 		"Циклов всего: %d" % int(res.get("cycles", 0)),
 		"Опыт: %d" % xp_after,
+		"🏆 Рейтинг отправлен в топ (открой 🏆)",
 	]
 	# каскад тостов «в моменте»: повышение уровня, затем новые гости
 	var td: float = 0.5
