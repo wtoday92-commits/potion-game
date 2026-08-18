@@ -1246,8 +1246,12 @@ class SwarmMech extends NpcMech:
 # ============================================================
 class InspectorMech extends NpcMech:
 	var g_ref
-	var btn: Button = null
-	var panel: PanelContainer = null
+	var tol: int = 2
+	var folder: DossierFolder = null   # закрытая папка на столе
+	var dossier: Control = null        # открытое «дело» (поверх банки)
+
+	func setup(_g) -> void:
+		tol = randi() % 3 + 1              # допуск ±1..3 деления
 
 	func skip_memorize(_g) -> bool:
 		return true
@@ -1256,84 +1260,131 @@ class InspectorMech extends NpcMech:
 		g_ref = g
 		g.phase_total *= 2.0                # читать дольше, чем смотреть
 		g.phase_left *= 2.0
-		_build_panel(g)
-		# кнопка «ДОПУСКИ» — сверху, открывает/прячет лист
-		btn = Button.new()
-		btn.text = "📋 ДОПУСКИ"
-		btn.focus_mode = Control.FOCUS_NONE
-		btn.add_theme_font_size_override("font_size", 22)
-		btn.pressed.connect(_toggle)
-		g.add_child(btn)
-		btn.anchor_left = 0.5
-		btn.anchor_right = 0.5
-		btn.anchor_top = 0.0
-		btn.anchor_bottom = 0.0
-		btn.offset_left = -100.0
-		btn.offset_right = 100.0
-		btn.offset_top = 150.0
-		btn.offset_bottom = 202.0
-		panel.visible = true                # сразу показываем — это и есть «показ»
+		_build_dossier(g)
+		# закрытая папка «ДЕЛО» — на столе (низ окна), по клику открывается досье
+		folder = DossierFolder.new()
+		g.jar_stage.add_child(folder)
+		folder.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+		folder.anchor_left = 0.5; folder.anchor_right = 0.5
+		folder.anchor_top = 1.0;  folder.anchor_bottom = 1.0
+		folder.offset_left = -52.0; folder.offset_right = 52.0
+		folder.offset_top = -96.0;  folder.offset_bottom = -14.0
+		folder.opened.connect(_open_dossier)
+		dossier.visible = false            # на старте закрыто — лежит папкой на столе
 
-	func _spec_text() -> String:
-		var lines: Array = []
-		for k in g_ref.active:
-			var s = g_ref.sliders[k]
-			var steps: int = int(round((s.max_value - s.min_value) / s.step))
-			var n: int = steps + 1
-			var idx: int = int(round((float(g_ref.target[k]) - s.min_value) / s.step))
-			lines.append("• %s — №%d из %d" % [g_ref.PARAMS[k]["label"], idx + 1, n])
-		return "\n".join(lines)
+	func _open_dossier() -> void:
+		if dossier != null:
+			dossier.visible = true
+		if folder != null and is_instance_valid(folder):
+			folder.visible = false
 
-	func _build_panel(g) -> void:
-		panel = PanelContainer.new()
+	func _close_dossier() -> void:
+		if dossier != null:
+			dossier.visible = false
+		if folder != null and is_instance_valid(folder):
+			folder.visible = true
+		Sfx.play("uiClick")
+
+	# строка значения показателя: обычные — «отметка №X из N», сгустки — числом
+	func _value_str(g, key: String) -> String:
+		var s = g.sliders[key]
+		if key == "count":
+			return str(int(round(float(g.target[key]))))
+		var st: float = s.step if s.step > 0.0 else 1.0
+		var idx: int = int(round((float(g.target[key]) - s.min_value) / st))
+		var n: int = int(round((s.max_value - s.min_value) / st)) + 1
+		return "№%d из %d" % [idx + 1, n]
+
+	func _build_text(g) -> String:
+		var keys: Array = g.active.duplicate()
+		# порядок фраз перемешан по сиду — нельзя запомнить «какой пункт по счёту»
+		var rng := RandomNumberGenerator.new()
+		rng.seed = int(g.seed_val) + 4271
+		for i in range(keys.size() - 1, 0, -1):
+			var j: int = rng.randi() % (i + 1)
+			var tmp = keys[i]; keys[i] = keys[j]; keys[j] = tmp
+		var clauses: Array = []
+		for k in keys:
+			if GameData.INSPECTOR_PHRASE.has(k):
+				clauses.append(String(GameData.INSPECTOR_PHRASE[k]).replace("{v}", _value_str(g, k)))
+		var sentences: String = ""
+		if clauses.size() == 1:
+			sentences = String(clauses[0])
+		elif clauses.size() > 1:
+			var head: Array = clauses.slice(0, clauses.size() - 1)
+			sentences = ", ".join(head) + ", а " + String(clauses[-1])
+		if sentences != "":
+			sentences = sentences.substr(0, 1).to_upper() + sentences.substr(1) + "."
+		var tpl: String = String(GameData.INSPECTOR_TEMPLATES[randi() % GameData.INSPECTOR_TEMPLATES.size()])
+		return tpl.replace("{SENTENCES}", sentences).replace("{TOL}", str(tol))
+
+	# оценка = доля показателей, попавших в допуск ±tol делений (порт скоринга УР.4)
+	func override_overall(g) -> float:
+		var missed: int = 0
+		var n: int = 0
+		for k in g.active:
+			var s = g.sliders[k]
+			var st: float = s.step if s.step > 0.0 else 1.0
+			var tgt_idx: float = round((float(g.target[k]) - s.min_value) / st)
+			var cur_idx: float = round((s.value - s.min_value) / st)
+			n += 1
+			if absf(cur_idx - tgt_idx) > float(tol):
+				missed += 1
+		if n == 0 or missed == 0:
+			return 1.0
+		return maxf(0.80, 0.94 - float(missed) * 0.03)
+
+	# «Дело» — бумажный документ поверх окна (не над ползунками); клип по jar_stage
+	func _build_dossier(g) -> void:
+		dossier = Control.new()
+		dossier.set_anchors_preset(Control.PRESET_FULL_RECT)
+		g.jar_stage.add_child(dossier)
+		var paper := PanelContainer.new()
+		paper.set_anchors_preset(Control.PRESET_FULL_RECT)
+		paper.offset_left = 26.0; paper.offset_right = -26.0
+		paper.offset_top = 20.0;  paper.offset_bottom = -26.0
 		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(0.10, 0.11, 0.16, 0.97)
-		sb.set_corner_radius_all(14)
+		sb.bg_color = Color(0.93, 0.88, 0.76)            # бумага
+		sb.set_corner_radius_all(6)
 		sb.set_border_width_all(2)
-		sb.border_color = Color(0.90, 0.72, 0.42)
-		sb.set_content_margin_all(22.0)
-		panel.add_theme_stylebox_override("panel", sb)
-		panel.set_anchors_preset(Control.PRESET_CENTER)
-		panel.anchor_left = 0.5; panel.anchor_right = 0.5
-		panel.anchor_top = 0.5; panel.anchor_bottom = 0.5
-		panel.offset_left = -220.0; panel.offset_right = 220.0
-		panel.offset_top = -180.0; panel.offset_bottom = 180.0
+		sb.border_color = Color(0.55, 0.44, 0.26)
+		sb.content_margin_left = 22.0; sb.content_margin_right = 22.0
+		sb.content_margin_top = 18.0;  sb.content_margin_bottom = 18.0
+		sb.shadow_color = Color(0, 0, 0, 0.5); sb.shadow_size = 12
+		paper.add_theme_stylebox_override("panel", sb)
+		dossier.add_child(paper)
 		var col := VBoxContainer.new()
-		col.add_theme_constant_override("separation", 14)
-		panel.add_child(col)
-		var title := Label.new()
-		title.text = "ДОПУСКИ ГИЛЬДИИ"
-		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		title.add_theme_font_size_override("font_size", 24)
-		title.add_theme_color_override("font_color", Color("ffcf5d"))
-		col.add_child(title)
+		col.add_theme_constant_override("separation", 12)
+		paper.add_child(col)
+		var head := Label.new()
+		head.text = "ДЕЛО О ПРИЁМКЕ · ГИЛЬДИЯ"
+		head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		head.add_theme_font_size_override("font_size", 20)
+		head.add_theme_color_override("font_color", Color(0.42, 0.12, 0.10))
+		col.add_child(head)
 		var body := Label.new()
-		body.text = _spec_text() + "\n\n(допуск ±1 деление)"
+		body.text = _build_text(g)
 		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		body.add_theme_font_size_override("font_size", 20)
+		body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		body.add_theme_font_size_override("font_size", 19)
+		body.add_theme_color_override("font_color", Color(0.16, 0.12, 0.08))
 		col.add_child(body)
 		var close := Button.new()
-		close.text = "Скрыть"
+		close.text = "Убрать в папку"
 		close.focus_mode = Control.FOCUS_NONE
-		close.pressed.connect(_toggle)
+		close.pressed.connect(_close_dossier)
 		col.add_child(close)
-		g.add_child(panel)
-
-	func _toggle() -> void:
-		if panel != null:
-			panel.visible = not panel.visible
-			Sfx.play("uiClick")
 
 	func stop(_g) -> void:
-		if btn != null and is_instance_valid(btn):
-			btn.queue_free()
-		if panel != null and is_instance_valid(panel):
-			panel.queue_free()
-		btn = null
-		panel = null
+		if folder != null and is_instance_valid(folder):
+			folder.queue_free()
+		if dossier != null and is_instance_valid(dossier):
+			dossier.queue_free()
+		folder = null
+		dossier = null
 
 	func result_note(_g) -> String:
-		return "📋 Инспектор: сверял по «Допускам»"
+		return "📋 Инспектор: сверял по «Делу о приёмке»"
 
 # ============================================================
 # Инженер навигатора: фазы показа нет — цель показана ЗОНАМИ на треках. Ползунок
