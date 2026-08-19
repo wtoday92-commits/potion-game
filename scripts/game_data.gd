@@ -80,6 +80,53 @@ const MOD_META := {
 }
 const MOD_FOCUS_EXCLUDE := ["vex", "perfumer", "collector_gz"]   # без фокуса/модов (кастомная раскладка)
 
+# ---------- Фаза 6: магазин (предметы-расходники) ----------
+# Каждый предмет — 3 грейда (сильнее+дороже). Грейд i доступен по прогрессии
+# ("shop_grade_1/2/3" на ур.4/5/8). use: "select" (эффект след. заказу) или
+# "craft" (текущему заказу). Значения эффекта — per-grade.
+const SHOP_ITEMS := [
+	{"id": "stopwatch", "icon": "⏱", "use": "select", "effect": "time",
+		"name": "Секундомер", "desc": "Добавляет время на воссоздание следующего заказа.",
+		"grades": [{"price": 80, "sec": 1.0, "label": "+1с"}, {"price": 260, "sec": 2.0, "label": "+2с"}, {"price": 700, "sec": 4.0, "label": "+4с"}]},
+	{"id": "clarity", "icon": "💧", "use": "select", "effect": "memtime",
+		"name": "Тоник ясности", "desc": "Добавляет время на запоминание следующего заказа.",
+		"grades": [{"price": 90, "sec": 1.0, "label": "+1с"}, {"price": 300, "sec": 2.0, "label": "+2с"}, {"price": 800, "sec": 3.5, "label": "+3.5с"}]},
+	{"id": "salt", "icon": "🧂", "use": "craft", "effect": "flatbonus",
+		"name": "Звёздная соль", "desc": "Фиксированная прибавка рейтинга за годный+ заказ.",
+		"grades": [{"price": 110, "flat": 40, "label": "+40"}, {"price": 340, "flat": 90, "label": "+90"}, {"price": 900, "flat": 180, "label": "+180"}]},
+	{"id": "weight", "icon": "⚖", "use": "craft", "effect": "rewardmult",
+		"name": "Утяжелённый шейкер", "desc": "Увеличивает рейтинг за годный/идеальный заказ.",
+		"grades": [{"price": 160, "mult": 0.15, "label": "+15%"}, {"price": 520, "mult": 0.30, "label": "+30%"}, {"price": 1400, "mult": 0.50, "label": "+50%"}]},
+	{"id": "chip", "icon": "🎲", "use": "craft", "effect": "chip",
+		"name": "Фишка неудачника", "desc": "В конце меняет итоговый рейтинг на случайную величину.",
+		"grades": [{"price": 100, "lo": -0.05, "hi": 0.05, "label": "−5%…+5%"}, {"price": 320, "lo": -0.03, "hi": 0.07, "label": "−3%…+7%"}, {"price": 850, "lo": 0.0, "hi": 0.10, "label": "0…+10%"}]},
+	{"id": "paprika", "icon": "🌶", "use": "craft", "effect": "repboost",
+		"name": "Космическая паприка", "desc": "За годноту+ гость даст больше репутации, за брак — сильнее обидится.",
+		"grades": [{"price": 150, "rep": 2, "label": "±2 реп."}, {"price": 480, "rep": 4, "label": "±4 реп."}, {"price": 1300, "rep": 6, "label": "±6 реп."}]},
+	{"id": "shield", "icon": "🪢", "use": "craft", "effect": "shield",
+		"name": "Страховочный трос", "desc": "Смягчает потерю рейтинга, если заказ ушёл в брак.",
+		"grades": [{"price": 130, "cut": 0.5, "label": "−½ штрафа"}, {"price": 420, "cut": 0.75, "label": "−¾ штрафа"}, {"price": 1100, "cut": 1.0, "label": "без потерь"}]},
+	{"id": "eye", "icon": "👁", "use": "craft", "effect": "nudge",
+		"name": "Барменский глаз", "desc": "В конце подвинет ползунки на деление ближе к верному.",
+		"grades": [{"price": 180, "count": 1, "label": "1 ползунок"}, {"price": 560, "count": 2, "label": "2 ползунка"}, {"price": 1500, "count": 99, "label": "все"}]},
+	{"id": "haste", "icon": "⚡", "use": "craft", "effect": "speedlock",
+		"name": "Ускоритель варки", "desc": "Гарантирует минимальный бонус за скорость.",
+		"grades": [{"price": 140, "lock": 0.5, "label": "½ бонуса"}, {"price": 450, "lock": 0.75, "label": "¾ бонуса"}, {"price": 1200, "lock": 1.0, "label": "полный"}]},
+	{"id": "jigger", "icon": "🥃", "use": "craft", "effect": "jigger",
+		"name": "Джиггер", "desc": "Отключает случайный регулятор — он больше не влияет на рейтинг.",
+		"grades": [{"price": 120, "n": 1, "label": "1 регулятор"}, {"price": 380, "n": 1, "label": "1 регулятор"}, {"price": 1000, "n": 2, "label": "2 регулятора"}]},
+]
+
+func shop_item(id: String) -> Dictionary:
+	for it in SHOP_ITEMS:
+		if it["id"] == id:
+			return it
+	return {}
+
+# доступен ли грейд i (0..2) по прогрессии: shop_grade_1/2/3 на ур.4/5/8
+func shop_grade_unlocked(grade: int, xp: int) -> bool:
+	return prog_mech_unlocked("shop_grade_%d" % (grade + 1), xp)
+
 # ---------- Инспектор Гильдии: «Дело о приёмке» ----------
 # Показа образца нет — цель зашифрована в бюрократическом тексте (значения как
 # «отметка №X из N»), порядок фраз перемешан по сиду. Оценка — по допуску ±tol.
@@ -198,7 +245,7 @@ func npc_config(npc: Dictionary) -> Dictionary:
 const BASE_STICKERS := 3
 const STICKERS := {
 	"perfect": ["perfect1", "perfect2", "perfect3", "perfect4", "perfect5", "perfect6", "perfect7", "perfect8", "perfect9", "perfect10", "perfect11", "perfect12", "perfect13", "perfect14", "perfect15"],
-	"good": ["good1", "good2", "good3", "good4", "good5", "good6", "good7", "good8", "good9"],
+	"good": ["good1", "good2", "good3", "good4", "good5", "good6", "good7"],   # good8/good9 (стикеры за чаевые) — ждут ассетов
 	"swill": ["swill1", "swill2", "swill3", "swill4", "swill5"],
 	"bad": ["bad1", "bad2", "bad3", "bad4", "bad5", "bad6", "bad7", "bad8", "bad9"],
 }

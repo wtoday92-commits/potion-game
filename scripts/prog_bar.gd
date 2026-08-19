@@ -4,9 +4,9 @@ class_name ProgBar
 ## Мобилка: наведения нет — по ТАПУ на маркер всплывает, что откроется.
 ## Данные из GameData.PROG_LEVELS + текущий xp профиля.
 
-const BAR_H := 18.0
-const MARK_R := 16.0        # крупные маркеры под палец
-const PAD := 24.0
+const BAR_H := 26.0
+const MARK_R := 20.0        # крупные маркеры под палец
+const PAD := 26.0
 
 # id механики -> человекочитаемое имя (что показать на маркере уровня)
 const MECH_NAMES := {
@@ -27,37 +27,40 @@ var _popup: PanelContainer
 var _popup_label: Label
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(440, 60)
+	custom_minimum_size = Vector2(440, 92)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 
 	_title = Label.new()
-	_title.add_theme_font_size_override("font_size", 18)
+	_title.add_theme_font_size_override("font_size", 30)
 	_title.add_theme_color_override("font_color", Color(0.95, 0.82, 0.5))
 	_title.position = Vector2(PAD, 0)
 	add_child(_title)
 
 	_xptext = Label.new()
-	_xptext.add_theme_font_size_override("font_size", 16)
+	_xptext.add_theme_font_size_override("font_size", 26)
 	_xptext.modulate = Color(1, 1, 1, 0.8)
-	_xptext.custom_minimum_size = Vector2(160, 0)
+	_xptext.custom_minimum_size = Vector2(220, 0)
 	_xptext.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	add_child(_xptext)
 
 	_popup = PanelContainer.new()
 	_popup.visible = false
 	_popup.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_popup.z_index = 200                     # поверх строки день/рейтинг, что ниже по дереву
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.06, 0.10, 0.97)
+	sb.bg_color = Color(0.05, 0.05, 0.09, 1.0)   # ПОЛНОСТЬЮ непрозрачно — не сливается с фоном
 	sb.set_corner_radius_all(10)
-	sb.set_border_width_all(1)
-	sb.border_color = Color(0.55, 0.5, 0.85, 0.8)
-	sb.content_margin_left = 12.0; sb.content_margin_right = 12.0
-	sb.content_margin_top = 8.0; sb.content_margin_bottom = 8.0
+	sb.set_border_width_all(2)
+	sb.border_color = Color(0.62, 0.55, 0.92, 0.95)
+	sb.shadow_color = Color(0, 0, 0, 0.55)
+	sb.shadow_size = 8
+	sb.content_margin_left = 14.0; sb.content_margin_right = 14.0
+	sb.content_margin_top = 10.0; sb.content_margin_bottom = 10.0
 	_popup.add_theme_stylebox_override("panel", sb)
 	_popup_label = Label.new()
-	_popup_label.add_theme_font_size_override("font_size", 15)
+	_popup_label.add_theme_font_size_override("font_size", 19)
 	_popup_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_popup_label.custom_minimum_size = Vector2(220, 0)
+	_popup_label.custom_minimum_size = Vector2(260, 0)
 	_popup.add_child(_popup_label)
 	add_child(_popup)
 
@@ -86,13 +89,13 @@ func refresh() -> void:
 		_markers.append({"frac": 1.0, "text": "Ур.%d открывает:\n%s" % [_level + 1, ", ".join(comp)]})
 
 	_popup.visible = false
-	_xptext.position = Vector2(size.x - PAD - 160.0, 0)
+	_xptext.position = Vector2(size.x - PAD - 220.0, 2)
 	queue_redraw()
 
 func _bar_geom() -> Dictionary:
 	var x0: float = PAD
 	var x1: float = size.x - PAD
-	var y: float = 42.0
+	var y: float = 64.0
 	return {"x0": x0, "x1": x1, "y": y}
 
 func _draw() -> void:

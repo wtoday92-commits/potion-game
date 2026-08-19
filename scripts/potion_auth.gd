@@ -232,13 +232,13 @@ func leaderboard_load(board: String = "arcade") -> Array:
 	if not configured():
 		return []
 	var url := SUPABASE_URL + "/rest/v1/leaderboard?board=eq." + board.uri_encode() + "&select=name,score,created_at&order=score.desc&limit=50"
-	var res := await _req(HTTPClient.METHOD_GET, url, _headers(String(data.get("token", ""))))
+	var res := await _req(HTTPClient.METHOD_GET, url, _headers(str(data.get("token", ""))))
 	if res["ok"] and res["json"] is Array:
 		return res["json"]
 	return []
 
 func leaderboard_save(board: String, name: String, score: int) -> bool:
-	if get_mode() != "user" or String(data.get("token", "")) == "" or String(data.get("user_id", "")) == "":
+	if get_mode() != "user" or str(data.get("token", "")) == "" or str(data.get("user_id", "")) == "":
 		return false
 	var b := board if board != "" else "arcade"
 	var del := SUPABASE_URL + "/rest/v1/leaderboard?user_id=eq." + str(data["user_id"]).uri_encode() + "&board=eq." + b.uri_encode()
