@@ -172,7 +172,7 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 		reward: int, sticker_name: String = "",
 		time_frac: float = 1.0, reg_level: int = 1,
 		focus: String = "", rating_mult: float = 1.0, no_points: bool = false,
-		neg_mult: float = 1.0, tip_mult: float = 1.0) -> Dictionary:
+		neg_mult: float = 1.0, tip_mult: float = 1.0, flat_bonus: int = 0) -> Dictionary:
 	ensure_npc(npc_id)
 	var is_perfect := grade == "perfect"
 	var is_good := grade == "good" or is_perfect     # «годнота+»
@@ -192,6 +192,7 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 		points = int(round(points * rating_mult))
 	elif points < 0 and neg_mult != 1.0:
 		points = int(round(points * neg_mult))
+	points += flat_bonus                       # «Звёздная соль» — фиксированная прибавка
 	# Тот-Кто-Ждёт: при <99% рейтинг не начисляется (только стикер)
 	if no_points:
 		points = 0
@@ -299,6 +300,40 @@ func lb_local_add(nick: String, score: int) -> void:
 	kept.sort_custom(func(a, b): return int(a.get("score", 0)) > int(b.get("score", 0)))
 	data["leaderboard"] = kept.slice(0, mini(50, kept.size()))
 	save()
+
+# ---------- Магазин / инвентарь (Фаза 6) ----------
+func tips_balance() -> int:
+	return int((data.get("tips", {}) as Dictionary).get("balance", 0))
+
+func item_count(id: String, grade: int) -> int:
+	return int((data.get("inventory", {}) as Dictionary).get("%s_%d" % [id, grade], 0))
+
+func inventory_all() -> Dictionary:
+	return data.get("inventory", {})
+
+# Купить (списать чаевые, +1 в инвентарь). false = не хватило баланса.
+func buy_item(id: String, grade: int, price: int) -> bool:
+	if tips_balance() < price:
+		return false
+	data["tips"]["balance"] = tips_balance() - price
+	var inv: Dictionary = data.get("inventory", {})
+	var key: String = "%s_%d" % [id, grade]
+	inv[key] = int(inv.get(key, 0)) + 1
+	data["inventory"] = inv
+	save()
+	return true
+
+# Потратить один предмет. false = нет в наличии.
+func consume_item(id: String, grade: int) -> bool:
+	var inv: Dictionary = data.get("inventory", {})
+	var key: String = "%s_%d" % [id, grade]
+	var c: int = int(inv.get(key, 0))
+	if c <= 0:
+		return false
+	inv[key] = c - 1
+	data["inventory"] = inv
+	save()
+	return true
 
 # Сброс счётчика выборов гостя за цикл (вызывать в начале цикла).
 func reset_picks_cycle() -> void:

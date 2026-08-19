@@ -69,6 +69,8 @@ var npc: Dictionary = {}
 var order_focus: String = ""     # фокус-заказ ("bubbles"/"color"/"size"/"") — Фаза 3
 var order_mods: Array = []       # поведенческие модификаторы заказа (timer/duck/rampage)
 var day_order_mods: Dictionary = {}   # id гостя дня → {"focus":..., "mods":[...]} (для карточек выбора)
+var item_fx: Dictionary = {}          # эффекты применённых предметов на ТЕКУЩИЙ заказ
+var item_pending: Dictionary = {}     # эффекты «на следующий заказ» (Секундомер/Ясность)
 var pogrom_removed: Array = []   # id гостей, выбывших из цикла из-за «Погрома»
 var mod_chip: Label              # плашка фокуса/модификаторов под надписью фазы
 
@@ -140,6 +142,7 @@ var ir_pending: String = ""     # «Последний из Ир»: знак э�
 var ir_effect_id: String = ""   # конкретный эффект, выбранный ЭТОМУ заказу (пусто = нет)
 var ir_effect_kind: String = "" # "buff"/"debuff" — для окраски чипа
 var ir_chip: Label              # плашка активного эффекта под надписью фазы
+var _auto_finish: bool = false  # заказ завершён истёкшим таймером (не кнопкой) — для стикеров
 # --- переигровка (Ир): «Второй рассвет» (optional) и «Дважды безупречно» (forced) ---
 var ir_replay_mode: String = ""     # "" | "optional" | "forced" — что предложить на результате
 var ir_replay_active: bool = false  # цепочка «Второго рассвета» держится, пока не идеал/не принял
@@ -166,6 +169,7 @@ var drunk_layer: CanvasLayer    # слой поверх экрана с шейд
 var drunk_rect: ColorRect
 var drunk_mat: ShaderMaterial
 var _dev_panel: Control          # дев-панель мгновенного теста любого гостя
+var items_btn: Button            # «сумка» — применить предметы в игре (Фаза 6)
 var _dev_level: int = 4
 var _dev_lvl_btns: Array = []
 
@@ -175,10 +179,10 @@ var day_cards: VBoxContainer
 var day_choices: Array = []      # зафиксированная тройка на текущий день
 
 # постоянная верхняя панель (день/рейтинг/серия + иконки-кнопки) + стрип прогрессии
-const TOPBAR_H := 48.0
-const STRIP_TOP := 86.0          # верх стрипа прогрессии (под топбаром)
-const STRIP_H := 66.0
-const CONTENT_TOP := 162.0       # верх контента экранов — ниже топбара и стрипа
+const TOPBAR_H := 78.0           # выше — крупные тач-иконки
+const STRIP_TOP := 116.0         # верх стрипа прогрессии (под топбаром)
+const STRIP_H := 156.0           # прогресс-бар + строка день/серия/рейтинг + стикеры (крупно для телефона)
+const CONTENT_TOP := 284.0       # верх контента экранов — ниже топбара и стрипа
 
 # Три параллакс-слоя по Z: задний (космос) → средний (стена с окном) →
 # передний (стол+пол). Окно среднего слоя прозрачно — сквозь него виден космос.
@@ -191,6 +195,8 @@ var topbar: PanelContainer
 var tb_day: Label
 var tb_rating: Label
 var tb_streak: Label
+var _tb_stickers: HBoxContainer   # иконки стикеров за цикл (под прогрессией)
+var cycle_stickers: Dictionary = {"perfect": 0, "good": 0, "swill": 0, "bad": 0}
 var topbar_coll_btn: Button      # иконка коллекции (гейт прогрессией)
 var _tb_rating_shown: int = 0    # для count-up рейтинга
 
@@ -400,7 +406,9 @@ func _build_ui() -> void:
 
 	done_btn = Button.new()
 	done_btn.text = "ГОТОВО!"
-	done_btn.custom_minimum_size = Vector2(0, 56)
+	done_btn.custom_minimum_size = Vector2(300, 56)
+	done_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER   # компактная, по центру
+	done_btn.add_theme_font_size_override("font_size", 22)
 	done_btn.pressed.connect(_on_done)
 	round_ui.add_child(done_btn)
 
@@ -615,6 +623,21 @@ func _build_ui() -> void:
 	dev_btn.pressed.connect(_dev_open)
 	add_child(dev_btn)
 	_build_dev_panel()
+
+	# ---- кнопка «сумка» (слева снизу): применить предметы в игре (Фаза 6) ----
+	items_btn = Button.new()
+	items_btn.text = "🎒"
+	items_btn.add_theme_font_size_override("font_size", 40)
+	items_btn.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	items_btn.offset_left = 14.0
+	items_btn.offset_top = -98.0
+	items_btn.offset_right = 94.0
+	items_btn.offset_bottom = -18.0
+	items_btn.focus_mode = Control.FOCUS_NONE
+	items_btn.tooltip_text = "Предметы"
+	items_btn.visible = false
+	items_btn.pressed.connect(_open_items)
+	add_child(items_btn)
 	# рамкой служит сам бар-арт (bar_frame) — отдельная металлическая рамка не нужна
 
 func _dev_boost() -> void:
@@ -744,12 +767,36 @@ func _build_prog_strip() -> void:
 	sb.set_corner_radius_all(10)
 	sb.set_border_width_all(1)
 	sb.border_color = Color(0.35, 0.30, 0.5, 0.6)
-	sb.content_margin_left = 8.0; sb.content_margin_right = 8.0
-	sb.content_margin_top = 4.0; sb.content_margin_bottom = 4.0
+	sb.content_margin_left = 10.0; sb.content_margin_right = 10.0
+	sb.content_margin_top = 5.0; sb.content_margin_bottom = 5.0
 	prog_strip.add_theme_stylebox_override("panel", sb)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 4)
+	prog_strip.add_child(vb)
 	prog_widget = ProgBar.new()
 	prog_widget.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	prog_strip.add_child(prog_widget)
+	vb.add_child(prog_widget)
+	# строка под прогрессией: день/серия/рейтинг + стикеры за цикл (крупно для телефона)
+	var info := HBoxContainer.new()
+	info.add_theme_constant_override("separation", 12)
+	vb.add_child(info)
+	tb_day = Label.new()
+	tb_day.add_theme_font_size_override("font_size", 22)
+	info.add_child(tb_day)
+	tb_streak = Label.new()
+	tb_streak.add_theme_font_size_override("font_size", 22)
+	tb_streak.modulate = Color(1.0, 0.7, 0.4)
+	info.add_child(tb_streak)
+	tb_rating = Label.new()
+	tb_rating.add_theme_font_size_override("font_size", 22)
+	info.add_child(tb_rating)
+	var sp := Control.new()
+	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.add_child(sp)
+	# иконки стикеров за цикл (идеал/годно/пойло/брак) с счётчиками
+	_tb_stickers = HBoxContainer.new()
+	_tb_stickers.add_theme_constant_override("separation", 9)
+	info.add_child(_tb_stickers)
 	add_child(prog_strip)
 
 func _build_start() -> void:
@@ -1731,17 +1778,10 @@ func _build_day() -> void:
 	var dv := day_panel.get_node("Card/V") as VBoxContainer
 	dv.add_theme_constant_override("separation", 12)
 
-	var hint := Label.new()
-	hint.text = "КТО ПРИШВАРТОВАЛСЯ К ЛАВКЕ?"
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.add_theme_font_size_override("font_size", 22)
-	hint.add_theme_color_override("font_color", Color(0.95, 0.82, 0.5))
-	dv.add_child(hint)
-	_glow_label(hint, Color("ffcf5d"))
-
-	# карточки заполняют всю доступную высоту (крупно даже когда их 2)
+	# карточки фиксированной высоты (= размер аватарки), центрируем по вертикали
 	day_cards = VBoxContainer.new()
-	day_cards.add_theme_constant_override("separation", 16)
+	day_cards.add_theme_constant_override("separation", 18)
+	day_cards.alignment = BoxContainer.ALIGNMENT_CENTER
 	day_cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	dv.add_child(day_cards)
 
@@ -1751,8 +1791,10 @@ func _build_day() -> void:
 	dv.add_child(day_header)
 
 	var to_menu := Button.new()
-	to_menu.text = "← Меню (бросить цикл)"
-	to_menu.custom_minimum_size = Vector2(0, 48)
+	to_menu.text = "← Меню\n(бросить цикл)"
+	to_menu.custom_minimum_size = Vector2(240, 74)   # компактная кнопка: выше и уже
+	to_menu.add_theme_font_size_override("font_size", 19)
+	to_menu.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	to_menu.pressed.connect(_show_start)
 	dv.add_child(to_menu)
 
@@ -1769,7 +1811,7 @@ func _lb_load() -> Array:
 		if not rows.is_empty():
 			var out: Array = []
 			for r in rows:
-				out.append({"name": String(r.get("name", "?")), "score": int(r.get("score", 0)), "date": _lb_date(String(r.get("created_at", "")))})
+				out.append({"name": str(r.get("name", "?")), "score": int(r.get("score", 0)), "date": _lb_date(str(r.get("created_at", "")))})
 			return out
 	return PotionProfile.lb_local_all()
 
@@ -1786,15 +1828,19 @@ func _lb_save(nick: String, score: int) -> void:
 		await PotionAuth.leaderboard_save("arcade", nick, score)
 	PotionProfile.lb_local_add(nick, score)
 
-func _open_leaderboard(highlight: int = -1) -> void:
+var _lb_highlight: int = -1        # какой счёт подсветить при следующем открытии
+
+func _open_leaderboard() -> void:
 	if lb_panel == null:
 		_build_leaderboard_panel()
 	lb_panel.visible = true
 	Sfx.play("uiClick")
-	_render_leaderboard([], highlight)          # «загрузка…» (пусто) до ответа
+	var hl: int = _lb_highlight
+	_lb_highlight = -1
+	_render_leaderboard([], hl)                  # «загрузка…» (пусто) до ответа
 	var rows: Array = await _lb_load()
 	if lb_panel != null and lb_panel.visible:
-		_render_leaderboard(rows, highlight)
+		_render_leaderboard(rows, hl)
 
 func _build_leaderboard_panel() -> void:
 	lb_panel = Control.new()
@@ -1856,10 +1902,10 @@ func _render_leaderboard(rows: Array, highlight: int) -> void:
 		var me: bool = highlight >= 0 and int(e.get("score", -999)) == highlight
 		var r := HBoxContainer.new()
 		var n := Label.new()
-		n.text = "%d.  %s" % [rank, String(e.get("name", "?"))]
+		n.text = "%d.  %s" % [rank, str(e.get("name", "?"))]
 		n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var s := Label.new()
-		s.text = "%d · %s" % [int(e.get("score", 0)), String(e.get("date", ""))]
+		s.text = "%d · %s" % [int(e.get("score", 0)), str(e.get("date", ""))]
 		s.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		if me:
 			n.add_theme_color_override("font_color", Color("6dff8f"))
@@ -1867,6 +1913,390 @@ func _render_leaderboard(rows: Array, highlight: int) -> void:
 		r.add_child(n)
 		r.add_child(s)
 		lb_list.add_child(r)
+
+# ---------- Магазин (Фаза 6) ----------
+var shop_panel: Control = null
+var shop_list: VBoxContainer = null
+var shop_balance: Label = null
+
+func _open_shop() -> void:
+	if not GameData.prog_mech_unlocked("shop", _xp()):
+		_toast("Магазин откроется с ростом лавки (ур.4)", Color("ffcf5d"))
+		return
+	if shop_panel == null:
+		_build_shop_panel()
+	shop_panel.visible = true
+	Sfx.play("uiClick")
+	_render_shop()
+
+func _build_shop_panel() -> void:
+	shop_panel = Control.new()
+	shop_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shop_panel.visible = false
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.65)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	shop_panel.add_child(dim)
+	var card := PanelContainer.new()
+	card.anchor_left = 0.5; card.anchor_right = 0.5; card.anchor_top = 0.5; card.anchor_bottom = 0.5
+	card.offset_left = -320.0; card.offset_right = 320.0; card.offset_top = -420.0; card.offset_bottom = 420.0
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.09, 0.08, 0.13, 0.98)
+	sb.set_corner_radius_all(16); sb.set_border_width_all(2)
+	sb.border_color = Color(0.90, 0.72, 0.42)
+	sb.set_content_margin_all(18.0)
+	card.add_theme_stylebox_override("panel", sb)
+	shop_panel.add_child(card)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 10)
+	card.add_child(col)
+	var head := HBoxContainer.new()
+	var title := Label.new()
+	title.text = "🛒 ЛАВКА"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.add_theme_font_size_override("font_size", 24)
+	title.add_theme_color_override("font_color", Color("ffcf5d"))
+	head.add_child(title)
+	shop_balance = Label.new()
+	shop_balance.add_theme_font_size_override("font_size", 20)
+	shop_balance.add_theme_color_override("font_color", Color("ffd75e"))
+	head.add_child(shop_balance)
+	col.add_child(head)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(scroll)
+	shop_list = VBoxContainer.new()
+	shop_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	shop_list.add_theme_constant_override("separation", 10)
+	scroll.add_child(shop_list)
+	var close := Button.new()
+	close.text = "Закрыть"
+	close.focus_mode = Control.FOCUS_NONE
+	close.pressed.connect(func(): shop_panel.visible = false)
+	col.add_child(close)
+	add_child(shop_panel)
+
+var shop_sel: Dictionary = {}     # item_id → выбранный грейд (тир предмета)
+
+func _render_shop() -> void:
+	shop_balance.text = "🪙 %d" % PotionProfile.tips_balance()
+	for c in shop_list.get_children():
+		c.queue_free()
+	var xp: int = _xp()
+	for it in GameData.SHOP_ITEMS:
+		var id: String = String(it["id"])
+		var grades: Array = it["grades"]
+		# доступные грейды по прогрессии
+		var avail: Array = []
+		for gi in grades.size():
+			if GameData.shop_grade_unlocked(gi, xp):
+				avail.append(gi)
+		if avail.is_empty():
+			continue
+		var sel: int = int(shop_sel.get(id, avail[0]))
+		if not (sel in avail):
+			sel = int(avail[0])
+			shop_sel[id] = sel
+		var g: Dictionary = grades[sel]
+		# карточка-блок предмета
+		var block := PanelContainer.new()
+		var bsb := StyleBoxFlat.new()
+		bsb.bg_color = Color(0.12, 0.12, 0.18, 0.9)
+		bsb.set_corner_radius_all(12)
+		bsb.set_content_margin_all(12.0)
+		block.add_theme_stylebox_override("panel", bsb)
+		var hb := HBoxContainer.new()
+		hb.add_theme_constant_override("separation", 12)
+		block.add_child(hb)
+		# крупная иконка выбранного грейда
+		var ic := Label.new()
+		ic.text = String(it["icon"])
+		ic.add_theme_font_size_override("font_size", 46)
+		ic.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		hb.add_child(ic)
+		# инфо выбранного грейда
+		var vb := VBoxContainer.new()
+		vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		vb.add_theme_constant_override("separation", 3)
+		hb.add_child(vb)
+		var nm := Label.new()
+		nm.text = "%s · Тир %d" % [it["name"], sel + 1]
+		nm.add_theme_font_size_override("font_size", 17)
+		nm.add_theme_color_override("font_color", Color(0.95, 0.9, 1.0))
+		vb.add_child(nm)
+		var ds := Label.new()
+		ds.text = String(it["desc"])
+		ds.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		ds.add_theme_font_size_override("font_size", 12)
+		ds.modulate = Color(1, 1, 1, 0.55)
+		vb.add_child(ds)
+		var ef := Label.new()
+		ef.text = "Эффект: %s" % String(g["label"])
+		ef.add_theme_font_size_override("font_size", 14)
+		ef.add_theme_color_override("font_color", Color("6dff8f"))
+		vb.add_child(ef)
+		var buyrow := HBoxContainer.new()
+		buyrow.add_theme_constant_override("separation", 10)
+		var buy := Button.new()
+		buy.text = "Купить · 🪙 %d" % int(g["price"])
+		buy.focus_mode = Control.FOCUS_NONE
+		buy.pressed.connect(_buy_item.bind(id, sel, int(g["price"])))
+		buyrow.add_child(buy)
+		var have := Label.new()
+		have.text = "в сумке: %d" % PotionProfile.item_count(id, sel)
+		have.add_theme_font_size_override("font_size", 13)
+		have.modulate = Color(1, 1, 1, 0.6)
+		have.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		buyrow.add_child(have)
+		vb.add_child(buyrow)
+		# селектор тира 1/2/3 справа
+		var sel_col := VBoxContainer.new()
+		sel_col.add_theme_constant_override("separation", 4)
+		for gi in grades.size():
+			var gb := Button.new()
+			gb.text = str(gi + 1)
+			gb.custom_minimum_size = Vector2(40, 34)
+			gb.focus_mode = Control.FOCUS_NONE
+			gb.disabled = not (gi in avail)
+			if gi == sel:
+				gb.add_theme_color_override("font_color", Color("6ec3ff"))
+			gb.pressed.connect(_shop_pick_grade.bind(id, gi))
+			sel_col.add_child(gb)
+		hb.add_child(sel_col)
+		shop_list.add_child(block)
+
+func _shop_pick_grade(id: String, grade: int) -> void:
+	shop_sel[id] = grade
+	Sfx.play("tick")
+	_render_shop()
+
+func _buy_item(id: String, grade: int, price: int) -> void:
+	if PotionProfile.buy_item(id, grade, price):
+		Sfx.play("brew")
+		_render_shop()
+	else:
+		Sfx.play("bad")
+		_toast("Не хватает чаевых", Color("ff6a6a"))
+
+# Панель применения предметов в игре: показывает предметы из инвентаря, подходящие
+# текущей фазе (select — эффекты след. заказу; craft — текущему).
+var items_panel: Control = null
+var items_list: VBoxContainer = null
+
+func _open_items() -> void:
+	if not GameData.prog_mech_unlocked("shop", _xp()):
+		return
+	if items_panel == null:
+		_build_items_panel()
+	items_panel.visible = true
+	Sfx.play("uiClick")
+	_render_items()
+
+func _build_items_panel() -> void:
+	items_panel = Control.new()
+	items_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	items_panel.visible = false
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.55)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	items_panel.add_child(dim)
+	var card := PanelContainer.new()
+	card.anchor_left = 0.5; card.anchor_right = 0.5; card.anchor_top = 0.5; card.anchor_bottom = 0.5
+	card.offset_left = -320.0; card.offset_right = 320.0; card.offset_top = -420.0; card.offset_bottom = 420.0
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.06, 0.07, 0.12, 0.99)
+	sb.set_corner_radius_all(18); sb.set_border_width_all(2)
+	sb.border_color = Color(0.42, 0.55, 0.9)
+	sb.set_content_margin_all(20.0)
+	card.add_theme_stylebox_override("panel", sb)
+	items_panel.add_child(card)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 14)
+	card.add_child(col)
+	var title := Label.new()
+	title.text = "🎒 ИНВЕНТАРЬ"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 28)
+	title.add_theme_color_override("font_color", Color("6ec3ff"))
+	col.add_child(title)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	col.add_child(scroll)
+	items_list = VBoxContainer.new()
+	items_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	items_list.add_theme_constant_override("separation", 12)
+	scroll.add_child(items_list)
+	var close := Button.new()
+	close.text = "ЗАКРЫТЬ"
+	close.custom_minimum_size = Vector2(0, 52)
+	close.add_theme_font_size_override("font_size", 18)
+	close.focus_mode = Control.FOCUS_NONE
+	close.pressed.connect(func(): items_panel.visible = false)
+	col.add_child(close)
+	add_child(items_panel)
+
+func _render_items() -> void:
+	for c in items_list.get_children():
+		c.queue_free()
+	var kind: String = "select" if phase == "day" or phase == "select" else "craft"
+	var any := false
+	# показываем ВСЕ предметы в инвентаре (не только применимые сейчас); неподходящие
+	# по фазе — с задизейбленной кнопкой и подсказкой, как в браузере.
+	for it in GameData.SHOP_ITEMS:
+		var grades: Array = it["grades"]
+		for gi in grades.size():
+			var cnt: int = PotionProfile.item_count(String(it["id"]), gi)
+			if cnt <= 0:
+				continue
+			any = true
+			items_list.add_child(_item_card(it, gi, cnt, kind))
+	if not any:
+		var l := Label.new()
+		l.text = "Инвентарь пуст.\nКупи предметы в 🛒 Лавке."
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		l.add_theme_font_size_override("font_size", 17)
+		l.modulate = Color(1, 1, 1, 0.55)
+		items_list.add_child(l)
+
+# Карточка предмета инвентаря (как в браузере): крупная иконка, имя+грейд, описание,
+# строка «Эффект:» зелёным, крупная кнопка «Применить» + счётчик + подсказка по фазе.
+func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContainer:
+	var usable: bool = String(it["use"]) == kind
+	var card := PanelContainer.new()
+	var csb := StyleBoxFlat.new()
+	csb.bg_color = Color(0.10, 0.12, 0.19, 0.9)
+	csb.set_corner_radius_all(12)
+	csb.set_border_width_all(1)
+	csb.border_color = Color(0.4, 0.48, 0.72, 0.55)
+	csb.set_content_margin_all(14.0)
+	card.add_theme_stylebox_override("panel", csb)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	card.add_child(row)
+
+	# крупная иконка в скруглённой подложке
+	var icon_box := PanelContainer.new()
+	icon_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var ibsb := StyleBoxFlat.new()
+	ibsb.bg_color = Color(0.06, 0.07, 0.12, 1.0)
+	ibsb.set_corner_radius_all(12)
+	ibsb.set_content_margin_all(8.0)
+	icon_box.add_theme_stylebox_override("panel", ibsb)
+	var icon := Label.new()
+	icon.text = String(it["icon"])
+	icon.custom_minimum_size = Vector2(56, 56)
+	icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	icon.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	icon.add_theme_font_size_override("font_size", 40)
+	icon_box.add_child(icon)
+	row.add_child(icon_box)
+
+	var body := VBoxContainer.new()
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 4)
+	row.add_child(body)
+
+	# имя + грейд
+	var name_row := HBoxContainer.new()
+	name_row.add_theme_constant_override("separation", 6)
+	var nm := Label.new()
+	nm.text = String(it["name"])
+	nm.add_theme_font_size_override("font_size", 18)
+	nm.add_theme_color_override("font_color", Color(0.97, 0.97, 1.0))
+	name_row.add_child(nm)
+	var gnote := Label.new()
+	gnote.text = "· Грейд %d (%s)" % [gi + 1, String(it["grades"][gi]["label"])]
+	gnote.add_theme_font_size_override("font_size", 13)
+	gnote.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
+	gnote.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	name_row.add_child(gnote)
+	body.add_child(name_row)
+
+	# описание
+	var desc := Label.new()
+	desc.text = String(it["desc"])
+	desc.add_theme_font_size_override("font_size", 13)
+	desc.add_theme_color_override("font_color", Color(1, 1, 1, 0.72))
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(desc)
+
+	# строка эффекта — зелёным
+	var eff := Label.new()
+	eff.text = _item_effect_desc(it, gi)
+	eff.add_theme_font_size_override("font_size", 13)
+	eff.add_theme_color_override("font_color", Color("8affc0"))
+	eff.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_child(eff)
+
+	# действие: кнопка + счётчик + подсказка по фазе
+	var act := HBoxContainer.new()
+	act.add_theme_constant_override("separation", 10)
+	var use := Button.new()
+	use.text = "Применить"
+	use.custom_minimum_size = Vector2(150, 44)
+	use.add_theme_font_size_override("font_size", 16)
+	use.focus_mode = Control.FOCUS_NONE
+	use.disabled = not usable
+	if usable:
+		use.pressed.connect(_apply_item_and_close.bind(String(it["id"]), gi))
+	act.add_child(use)
+	var owned := Label.new()
+	owned.text = "×%d" % cnt
+	owned.add_theme_font_size_override("font_size", 15)
+	owned.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))
+	owned.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	act.add_child(owned)
+	if not usable:
+		var hint := Label.new()
+		hint.text = "(во время варки)" if String(it["use"]) == "craft" else "(на выбор дня)"
+		hint.add_theme_font_size_override("font_size", 13)
+		hint.add_theme_color_override("font_color", Color(1, 1, 1, 0.5))
+		hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		act.add_child(hint)
+	body.add_child(act)
+	return card
+
+# Фраза-эффект по грейду (число из параметров) — как gradeEffectDesc в браузере.
+func _item_effect_desc(it: Dictionary, gi: int) -> String:
+	var g: Dictionary = it["grades"][gi]
+	match String(it["effect"]):
+		"time", "memtime":
+			return "Эффект: +%sс к таймеру." % _num_str(float(g.get("sec", 0.0)))
+		"jigger":
+			var n: int = int(g.get("n", 1))
+			return "Эффект: отключает %d %s (не влияет на рейтинг)." % [n, "случайных регулятора" if n > 1 else "случайный регулятор"]
+		"repboost":
+			var r: int = int(g.get("rep", 0))
+			return "Эффект: за годноту+ репутация +%d, за брак −%d сверх обычного." % [r, r]
+		"nudge":
+			var c: int = int(g.get("count", 1))
+			var w: String = "все ползунки" if c >= 99 else ("%d ползунка" % c if c > 1 else "1 ползунок")
+			return "Эффект: в конце подвинет %s на деление ближе к цели." % w
+		"chip":
+			var lo: int = int(round(float(g.get("lo", 0.0)) * 100.0))
+			var hi: int = int(round(float(g.get("hi", 0.0)) * 100.0))
+			return "Эффект: итог заказа сдвигается на %s%d%%…+%d%%." % ["+" if lo >= 0 else "", lo, hi]
+		"flatbonus":
+			return "Эффект: +%d рейтинга за годноту." % int(g.get("flat", 0))
+		"rewardmult":
+			return "Эффект: +%d%% рейтинга за годноту/идеал." % int(round(float(g.get("mult", 0.0)) * 100.0))
+		"shield":
+			return "Эффект: штраф за брак уменьшается на %d%%." % int(round(float(g.get("cut", 0.0)) * 100.0))
+		"speedlock":
+			return "Эффект: гарантирует минимум %d%% бонуса за скорость." % int(round(float(g.get("lock", 0.0)) * 100.0))
+	return ""
+
+# Число без хвостового «.0» (1.0 → «1», 3.5 → «3.5»).
+func _num_str(v: float) -> String:
+	return str(int(v)) if is_equal_approx(v, float(int(v))) else str(v)
+
+func _apply_item_and_close(id: String, grade: int) -> void:
+	_use_item(id, grade)
+	items_panel.visible = false
 
 func _build_topbar() -> void:
 	topbar = PanelContainer.new()
@@ -1889,31 +2319,14 @@ func _build_topbar() -> void:
 	add_child(topbar)
 
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	row.add_theme_constant_override("separation", 12)
 	topbar.add_child(row)
 
-	tb_day = Label.new()
-	tb_day.add_theme_font_size_override("font_size", 16)
-	row.add_child(tb_day)
-	tb_streak = Label.new()
-	tb_streak.add_theme_font_size_override("font_size", 16)
-	tb_streak.modulate = Color(1.0, 0.7, 0.4)
-	row.add_child(tb_streak)
-
-	var sp_l := Control.new()
-	sp_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(sp_l)
-
-	tb_rating = Label.new()
-	tb_rating.add_theme_font_size_override("font_size", 18)
-	row.add_child(tb_rating)
-
-	var sp_r := Control.new()
-	sp_r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(sp_r)
-
-	# иконки-кнопки (Коллекция гейтится прогрессией; остальное — заглушки)
+	# крупные тач-иконки (день/серия/рейтинг переехали под прогрессию)
 	topbar_coll_btn = _topbar_icon(row, "🗂", "Коллекция", _show_collection, true)
+	_topbar_icon(row, "🛒", "Лавка", _open_shop, true)
 	_topbar_icon(row, "🏆", "Рейтинг", _open_leaderboard, true)
 	_topbar_icon(row, "👥", "Персонажи", _show_chars, true)
 	_topbar_icon(row, "⚡", "Пассивки", Callable(), false)
@@ -1923,8 +2336,8 @@ func _topbar_icon(row: HBoxContainer, glyph: String, tip: String, cb: Callable, 
 	var b := Button.new()
 	b.text = glyph
 	b.tooltip_text = tip
-	b.custom_minimum_size = Vector2(48, 40)
-	b.add_theme_font_size_override("font_size", 20)
+	b.custom_minimum_size = Vector2(66, 62)
+	b.add_theme_font_size_override("font_size", 34)
 	b.disabled = not enabled
 	if enabled and cb.is_valid():
 		b.pressed.connect(cb)
@@ -1948,6 +2361,31 @@ func _refresh_topbar() -> void:
 		_tb_rating_shown = cycle_score
 	else:
 		tb_rating.text = "Рейтинг: %d" % cycle_score
+	_refresh_cycle_stickers()
+
+# Иконки стикеров за цикл (идеал/годно/пойло/брак) + счётчики — как в браузере.
+func _refresh_cycle_stickers() -> void:
+	if _tb_stickers == null:
+		return
+	for c in _tb_stickers.get_children():
+		c.queue_free()
+	for cat in ["perfect", "good", "swill", "bad"]:
+		var chip := HBoxContainer.new()
+		chip.add_theme_constant_override("separation", 3)
+		var ic := TextureRect.new()
+		ic.custom_minimum_size = Vector2(34, 34)
+		ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		var names: Array = GameData.STICKERS.get(cat, [])
+		if not names.is_empty():
+			ic.texture = load(GameData.sticker_path(String(names[0]))) as Texture2D
+		chip.add_child(ic)
+		var l := Label.new()
+		l.text = str(int(cycle_stickers.get(cat, 0)))
+		l.add_theme_font_size_override("font_size", 20)
+		l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		chip.add_child(l)
+		_tb_stickers.add_child(chip)
 
 func _xp() -> int:
 	return int(PotionProfile.data.get("progression", {}).get("xp", 0))
@@ -1961,6 +2399,7 @@ func _start_cycle() -> void:
 	good_streak_max = 0
 	cycle_active = true
 	_tb_rating_shown = 0
+	cycle_stickers = {"perfect": 0, "good": 0, "swill": 0, "bad": 0}
 	pogrom_removed = []              # «Погром»: выбывшие возвращаются в новый цикл
 	cycle_days = GameData.prog_cycle_days(_xp())   # длина цикла по прогрессии
 	PotionProfile.reset_picks_cycle()
@@ -1982,6 +2421,9 @@ func _show_day() -> void:
 	result_panel.visible = false
 	round_ui.visible = false
 	collection_panel.visible = false
+	chars_panel.visible = false      # иначе список персонажей «висит» за карточками дня
+	char_panel.visible = false
+	account_panel.visible = false
 	day_panel.visible = true
 
 	day_header.text = "День %d / %d   ·   стадия %d" % [day_num, cycle_days, stage + 1]
@@ -2079,108 +2521,274 @@ func _npc_pool(tier: int, unlocked: Dictionary, used: Array) -> Array:
 
 const TIER_NAMES := {1: "НОВИЧОК", 2: "ЗАВСЕГДАТАЙ", 3: "ЦЕНИТЕЛЬ", 4: "ВИП-ГОСТЬ", 5: "ЛЕГЕНДА"}
 
-# Крупная карточка посетителя: круглая аватарка с тир-кольцом и свечением,
-# имя, бейдж тира, реплика. Весь прямоугольник — тач-кнопка, растянута по высоте.
-func _day_card(npc_e: Dictionary) -> Button:
+# Крупная карточка посетителя: большая круглая аватарка (поверх всего; цвет её
+# свечения = тир) и одна СПЛОШНАЯ (непрозрачная) панель с обводкой — реплика +
+# модификаторы. Тап по карточке разворачивает выбор сложности прямо здесь (без
+# отдельного окна): инфо-панель уезжает, портрет остаётся, появляется ЛИНИЯ блоков
+# УР.1–4 (см. _toggle_card / _choose_diff). Переходы — плавный кроссфейд.
+const CARD_AV := 180.0            # диаметр портрета на карточке дня
+const CARD_INFO_LEFT := 150.0     # левый край инфо-панели (слегка заходит под портрет)
+const CARD_PANEL_LMARGIN := 52.0  # левый отступ текста внутри панели — чтобы вышел из-под портрета
+const CARD_DIFF_LEFT := 198.0     # линия блоков сложности — правее портрета
+
+func _day_card(npc_e: Dictionary) -> Control:
 	var tier: int = int(npc_e.get("tier", 1))
 	var tcol: Color = GameData.TIER_COLORS.get(tier, Color.WHITE)
 
-	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(440, 150)
-	btn.size_flags_vertical = Control.SIZE_EXPAND_FILL   # делят высоту поровну
-	btn.pressed.connect(_choose_npc.bind(npc_e))
-	# индивидуальный стайлбокс с тир-каймой/акцентом слева
-	btn.add_theme_stylebox_override("normal", _card_sb(tcol, 0.55))
-	btn.add_theme_stylebox_override("hover", _card_sb(tcol, 0.95))
-	btn.add_theme_stylebox_override("pressed", _card_sb(tcol, 1.0))
+	var card := Control.new()
+	# высота карточки = диаметр портрета (+рамка) — плашки не выше аватарки
+	card.custom_minimum_size = Vector2(440, CARD_AV + 28.0)
+	card.clip_contents = false
 
-	var row := HBoxContainer.new()
-	row.set_anchors_preset(Control.PRESET_FULL_RECT)
-	row.offset_left = 18
-	row.offset_top = 14
-	row.offset_right = -18
-	row.offset_bottom = -14
-	row.add_theme_constant_override("separation", 18)
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	btn.add_child(row)
+	# невидимый тач-слой на всю карточку — разворачивает/сворачивает выбор сложности
+	var tap := Button.new()
+	tap.set_anchors_preset(Control.PRESET_FULL_RECT)
+	tap.focus_mode = Control.FOCUS_NONE
+	tap.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+	tap.add_theme_stylebox_override("hover", StyleBoxEmpty.new())
+	tap.add_theme_stylebox_override("pressed", StyleBoxEmpty.new())
+	tap.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	tap.pressed.connect(_toggle_card.bind(card))
+	card.add_child(tap)
 
-	row.add_child(_card_avatar(npc_e, 118.0))
+	# ---- инфо-панель: сплошная непрозрачная плашка с обводкой в цвет тира
+	var info := PanelContainer.new()
+	info.set_anchors_preset(Control.PRESET_FULL_RECT)
+	info.offset_left = CARD_INFO_LEFT
+	info.offset_right = -12.0
+	info.offset_top = 14.0
+	info.offset_bottom = -14.0
+	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var isb := StyleBoxFlat.new()
+	isb.bg_color = Color(0.09, 0.085, 0.13, 1.0)        # ПОЛНОСТЬЮ непрозрачно
+	isb.set_corner_radius_all(14)
+	isb.set_border_width_all(2)
+	isb.border_color = Color(tcol.r, tcol.g, tcol.b, 0.9)
+	isb.shadow_color = Color(tcol.r, tcol.g, tcol.b, 0.22)
+	isb.shadow_size = 6
+	isb.content_margin_left = CARD_PANEL_LMARGIN; isb.content_margin_right = 16.0
+	isb.content_margin_top = 12.0; isb.content_margin_bottom = 12.0
+	info.add_theme_stylebox_override("panel", isb)
+	card.add_child(info)
 
-	var col := VBoxContainer.new()
-	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 6)
-	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var icol := VBoxContainer.new()
+	icol.alignment = BoxContainer.ALIGNMENT_CENTER
+	icol.add_theme_constant_override("separation", 8)
+	icol.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	info.add_child(icol)
 
-	var badge := Label.new()
-	var graded: bool = npc_e.has("graded_from")
-	badge.text = "★ ТИР %d · %s%s" % [tier, TIER_NAMES.get(tier, ""), "  ↑ грейд выше" if graded else ""]
-	badge.add_theme_font_size_override("font_size", 14)
-	badge.add_theme_color_override("font_color", tcol)
-	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.add_child(badge)
-
-	var nm := Label.new()
-	nm.text = npc_e["name"]
-	nm.add_theme_font_size_override("font_size", 26)
-	nm.add_theme_color_override("font_color", Color(0.97, 0.96, 1.0))
-	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.add_child(nm)
+	var name_l := Label.new()
+	name_l.text = String(npc_e["name"])
+	name_l.add_theme_font_size_override("font_size", 23)
+	name_l.add_theme_color_override("font_color", Color(0.98, 0.97, 1.0))
+	name_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icol.add_child(name_l)
 
 	var flavors: Array = npc_e.get("flavors", [""])
-	var fl := Label.new()
-	fl.text = "«%s»" % flavors[0]
-	fl.add_theme_font_size_override("font_size", 15)
-	fl.modulate = Color(1, 1, 1, 0.6)
-	fl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	fl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.add_child(fl)
+	var quote_l := Label.new()
+	quote_l.text = "«%s»" % String(flavors[0])
+	quote_l.add_theme_font_size_override("font_size", 20)
+	quote_l.add_theme_color_override("font_color", Color(0.82, 0.83, 0.9))
+	quote_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	quote_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icol.add_child(quote_l)
 
-	col.add_child(_mod_badge(String(npc_e.get("id", ""))))   # плашка фокуса/модификаторов
+	for row in _mod_rows(String(npc_e.get("id", ""))):    # модификаторы — полосы во всю ширину
+		icol.add_child(row)
 
-	row.add_child(col)
-	return btn
+	# ---- линия блоков сложности (скрыта до тапа) — правее портрета
+	var diff := HBoxContainer.new()
+	diff.set_anchors_preset(Control.PRESET_FULL_RECT)
+	diff.offset_left = CARD_DIFF_LEFT
+	diff.offset_right = -12.0
+	diff.offset_top = 16.0
+	diff.offset_bottom = -16.0
+	diff.alignment = BoxContainer.ALIGNMENT_CENTER
+	diff.add_theme_constant_override("separation", 8)
+	diff.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	diff.visible = false
+	_fill_diff_group(diff, npc_e, tier, tcol)
+	card.add_child(diff)
 
-const FOCUS_IMG := {"bubbles": "bubble", "color": "color", "size": "size"}
+	# ---- портрет поверх всего (крупный), тап по нему проходит на тач-слой ниже
+	var av := _card_avatar(npc_e, CARD_AV)
+	av.anchor_left = 0.0; av.anchor_right = 0.0
+	av.anchor_top = 0.5; av.anchor_bottom = 0.5
+	av.offset_left = 6.0; av.offset_right = 6.0 + CARD_AV
+	av.offset_top = -CARD_AV * 0.5; av.offset_bottom = CARD_AV * 0.5
+	card.add_child(av)
 
-# Плашка модификаторов для карточки выбора: иконки + названия + тултипы (или «без»).
-func _mod_badge(npc_id: String) -> Control:
+	card.set_meta("info", info)
+	card.set_meta("diff", diff)
+	card.set_meta("expanded", false)
+	return card
+
+# Тап по карточке: развернуть выбор сложности (и свернуть остальные).
+func _toggle_card(card: Control) -> void:
+	var want: bool = not bool(card.get_meta("expanded", false))
+	for c in day_cards.get_children():
+		if c == card:
+			continue
+		_set_card_expanded(c, false)
+	_set_card_expanded(card, want)
+	Sfx.play("uiClick")
+
+func _set_card_expanded(card: Control, on: bool) -> void:
+	if not card.has_meta("info"):
+		return
+	if bool(card.get_meta("expanded", false)) == on:
+		return                                  # состояние не меняется — не дёргаем анимацию
+	card.set_meta("expanded", on)
+	var info := card.get_meta("info") as Control
+	var diff := card.get_meta("diff") as Control
+	_anim_swap(info if on else diff, diff if on else info)
+
+# Плавный кроссфейд двух слоёв карточки (одна инфа уезжает, другая приезжает).
+func _anim_swap(hide_n: Control, show_n: Control) -> void:
+	for n in [hide_n, show_n]:
+		if n.has_meta("swap_tw"):
+			var old := n.get_meta("swap_tw") as Tween
+			if old != null and old.is_valid():
+				old.kill()
+
+	hide_n.pivot_offset = hide_n.size * 0.5
+	var th := hide_n.create_tween()
+	hide_n.set_meta("swap_tw", th)
+	th.set_parallel(true)
+	th.tween_property(hide_n, "modulate:a", 0.0, 0.13).set_ease(Tween.EASE_IN)
+	th.tween_property(hide_n, "scale", Vector2(0.94, 0.94), 0.13).set_ease(Tween.EASE_IN)
+	th.chain().tween_callback(func(): hide_n.visible = false)
+
+	show_n.visible = true
+	show_n.modulate.a = 0.0
+	show_n.pivot_offset = show_n.size * 0.5
+	show_n.scale = Vector2(0.94, 0.94)
+	var ts := show_n.create_tween()
+	show_n.set_meta("swap_tw", ts)
+	ts.set_parallel(true)
+	ts.tween_property(show_n, "modulate:a", 1.0, 0.2).set_ease(Tween.EASE_OUT).set_delay(0.07)
+	ts.tween_property(show_n, "scale", Vector2.ONE, 0.26).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).set_delay(0.07)
+
+# Блоки сложности в ЛИНИЮ: УР.1–4 (метка / «за идеал:» / +NN), тап — сразу в раунд.
+# УР.4 — красный (⚠), гейтится репутацией (как раньше в отдельном окне выбора).
+func _fill_diff_group(diff: HBoxContainer, npc_e: Dictionary, tier: int, tcol: Color) -> void:
+	var cfg: Dictionary = GameData.npc_config(npc_e)
+	var base_reward: int = int(cfg.get("reward", 50))
+	var om: Dictionary = day_order_mods.get(String(npc_e.get("id", "")), {})
+	var focus_mult: float = GameData.FOCUS_REWARD if String(om.get("focus", "")) != "" else 1.0
+	var rep_lvl: int = PotionProfile.get_rep_level(String(npc_e.get("id", "")))
+	var l4_ok: bool = bool(npc_e.get("level4", false)) or rep_lvl >= GameData.REP_L4_UNLOCK_LEVEL
+	for lvl in [1, 2, 3, 4]:
+		var ideal: int = int(round(float(base_reward) * float(GameData.REG_DIFF_REWARD_MULT.get(lvl, 1.0)) * focus_mult))
+		var locked: bool = (lvl == 4 and not l4_ok)
+		diff.add_child(_diff_block(npc_e, lvl, tcol, ideal, locked))
+
+# Один блок сложности — узкая тач-кнопка с вертикальным текстом.
+func _diff_block(npc_e: Dictionary, lvl: int, tcol: Color, ideal: int, locked: bool) -> Button:
+	var bc: Color = Color("ff5d6a") if lvl == 4 else tcol   # УР.4 — красный
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(78, 0)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	b.focus_mode = Control.FOCUS_NONE
+	b.disabled = locked
+	var k: float = 1.0 if lvl == 4 else 0.85
+	b.add_theme_stylebox_override("normal", _diff_sb(bc, k if not locked else 0.4))
+	b.add_theme_stylebox_override("hover", _diff_sb(bc, 1.0))
+	b.add_theme_stylebox_override("pressed", _diff_sb(bc, 1.0))
+	b.add_theme_stylebox_override("disabled", _diff_sb(bc, 0.4))
+
+	var v := VBoxContainer.new()
+	v.set_anchors_preset(Control.PRESET_FULL_RECT)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_theme_constant_override("separation", 1)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tag := Label.new()
+	tag.text = "УР.%d%s" % [lvl, " ⚠" if lvl == 4 else ""]
+	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tag.add_theme_font_size_override("font_size", 19)
+	tag.add_theme_color_override("font_color", bc if not locked else Color(bc.r, bc.g, bc.b, 0.6))
+	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(tag)
+	var sub := Label.new()
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if locked:
+		sub.text = "нужна\nрепутация\nур.%d" % GameData.REP_L4_UNLOCK_LEVEL
+		sub.add_theme_font_size_override("font_size", 12)
+		sub.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
+		v.add_child(sub)
+	else:
+		sub.text = "за идеал:"
+		sub.add_theme_font_size_override("font_size", 12)
+		sub.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))
+		v.add_child(sub)
+		var val := Label.new()
+		val.text = "+%d" % ideal
+		val.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		val.add_theme_font_size_override("font_size", 21)
+		val.add_theme_color_override("font_color", Color(0.98, 0.97, 1.0))
+		val.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		v.add_child(val)
+	b.add_child(v)
+	if not locked:
+		b.pressed.connect(_choose_diff.bind(npc_e, lvl))
+	return b
+
+func _diff_sb(bc: Color, k: float) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(bc.r * 0.16, bc.g * 0.16, bc.b * 0.16, 1.0)
+	sb.set_corner_radius_all(12)
+	sb.set_border_width_all(2)
+	sb.border_color = Color(bc.r, bc.g, bc.b, k)
+	sb.content_margin_left = 6.0; sb.content_margin_right = 6.0
+	sb.content_margin_top = 8.0; sb.content_margin_bottom = 8.0
+	return sb
+
+# Выбор сложности на карточке → сразу в раунд (без отдельного экрана выбора).
+func _choose_diff(npc_e: Dictionary, lvl: int) -> void:
+	Sfx.play("cardPick")
+	npc = npc_e
+	_start_round(lvl)
+
+# Модификаторы задания — полосы во всю ширину панели (иконка + название капсом),
+# у каждого свой цвет; «без модификатора» — красным.
+func _mod_rows(npc_id: String) -> Array:
 	var om: Dictionary = day_order_mods.get(npc_id, {})
 	var focus: String = String(om.get("focus", ""))
 	var mods: Array = om.get("mods", [])
-	var box := HBoxContainer.new()
-	box.add_theme_constant_override("separation", 12)
-	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var rows: Array = []
 	if focus == "" and mods.is_empty():
-		var l := Label.new()
-		l.text = "✕ без модификатора"
-		l.add_theme_font_size_override("font_size", 13)
-		l.modulate = Color(1, 1, 1, 0.4)
-		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		box.add_child(l)
-		return box
+		rows.append(_mod_row(null, "✕", "без модификатора", Color("ff5d6a")))
+		return rows
 	if focus != "":
 		var fm: Dictionary = GameData.FOCUS_META[focus]
 		var tex := load("res://assets/ui/%s.png" % FOCUS_IMG.get(focus, "bubble")) as Texture2D
-		box.add_child(_mod_chip_item(tex, "", "фокус: %s" % fm["name"],
-			"Фокус на «%s»: эти параметры важнее в оценке, награда выше." % fm["name"], Color("6ec3ff")))
+		rows.append(_mod_row(tex, "", "фокус: %s" % fm["name"], Color("6ec3ff")))
 	for m in mods:
 		var mm: Dictionary = GameData.MOD_META[m]
-		box.add_child(_mod_chip_item(null, String(mm["icon"]), String(mm["name"]), String(mm["desc"]), Color("ffcf5d")))
-	return box
+		rows.append(_mod_row(null, String(mm["icon"]), String(mm["name"]), Color("ffcf5d")))
+	return rows
 
-# Один чип плашки: иконка (картинка или эмодзи) + название, с тултипом.
-func _mod_chip_item(tex: Texture2D, emoji: String, text: String, tooltip: String, col: Color) -> Control:
+func _mod_row(tex: Texture2D, emoji: String, text: String, col: Color) -> PanelContainer:
+	var p := PanelContainer.new()
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.04, 0.04, 0.07, 1.0)
+	sb.set_corner_radius_all(6)
+	sb.border_width_left = 4
+	sb.border_color = col
+	sb.content_margin_left = 10.0; sb.content_margin_right = 10.0
+	sb.content_margin_top = 5.0; sb.content_margin_bottom = 5.0
+	p.add_theme_stylebox_override("panel", sb)
 	var h := HBoxContainer.new()
-	h.mouse_filter = Control.MOUSE_FILTER_PASS   # hover для тултипа, но клик проходит к карточке
-	h.tooltip_text = tooltip
-	h.add_theme_constant_override("separation", 5)
+	h.add_theme_constant_override("separation", 7)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if tex != null:
 		var ir := TextureRect.new()
 		ir.texture = tex
-		ir.custom_minimum_size = Vector2(22, 22)
+		ir.custom_minimum_size = Vector2(20, 20)
 		ir.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		ir.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		ir.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2192,11 +2800,14 @@ func _mod_chip_item(tex: Texture2D, emoji: String, text: String, tooltip: String
 		h.add_child(el)
 	var l := Label.new()
 	l.text = text.to_upper()
-	l.add_theme_font_size_override("font_size", 14)
+	l.add_theme_font_size_override("font_size", 15)
 	l.add_theme_color_override("font_color", col)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	h.add_child(l)
-	return h
+	p.add_child(h)
+	return p
+
+const FOCUS_IMG := {"bubbles": "bubble", "color": "color", "size": "size"}
 
 # Стайлбокс карточки: тёмный фон, тир-кайма, толстый левый акцент (яркость каймы
 # растёт на hover/press через параметр k).
@@ -2480,10 +3091,15 @@ func _start_round(lvl: int) -> void:
 	jar.set_tilt(0.0)              # снять наклон (Сверхнова) прошлого заказа
 	ir_effect_id = ""              # эффект прошлого заказа отыграл
 	ir_effect_kind = ""
+	_auto_finish = false           # новый заказ — сбрасываем флаг «истёк таймер»
 	ir_chip.visible = false
 	order_focus = ""               # фокус/модификаторы прошлого заказа сброшены
 	order_mods = []
 	mod_chip.visible = false
+	item_fx = {}                   # эффекты предметов прошлого заказа сброшены
+	if item_pending.has("memtime"): item_fx["memtime"] = item_pending["memtime"]  # Ясность → память
+	if item_pending.has("time"): item_fx["time"] = item_pending["time"]           # Секундомер → варка
+	item_pending = {}
 	var replaying: bool = _is_replay_run   # это переигровка того же заказа?
 	_is_replay_run = false
 	if not replaying:              # свежий заказ — цепочка переигровки сброшена
@@ -2548,8 +3164,8 @@ func _start_round(lvl: int) -> void:
 	for key in ORDER:
 		value_labels[key].text = "?"
 	phase = "memorize"
-	phase_total = MEMORIZE_S
-	phase_left = MEMORIZE_S
+	phase_total = MEMORIZE_S + float(item_fx.get("memtime", 0.0))   # Тоник ясности
+	phase_left = phase_total
 	bulb_bar.set_fraction(0.0)      # лампы гаснут в начале, будут заполняться
 	Sfx.play("orderShow")           # заказ появился
 	if mech:
@@ -2576,8 +3192,8 @@ func _slide_in_stools() -> void:
 
 func _start_recreate() -> void:
 	phase = "recreate"
-	phase_total = CRAFT_S
-	phase_left = CRAFT_S
+	phase_total = CRAFT_S + float(item_fx.get("time", 0.0))   # Секундомер
+	phase_left = phase_total
 	bulb_bar.set_fraction(1.0)      # все горят, дальше гаснут по таймеру
 	# активные ползунки — в случайное; неактивные держим на цели (не участвуют)
 	var start_vals: Dictionary = _random_values()
@@ -2587,6 +3203,7 @@ func _start_recreate() -> void:
 	# теперь показываем регуляторы (стулья выезжают) и кнопку «ГОТОВО»
 	for key in ORDER:
 		slider_cols[key].visible = key in active
+		slider_cols[key].modulate = Color.WHITE      # сброс «отключения» джиггером
 	done_btn.visible = true
 	_set_sliders_interactable(true)
 	_slide_in_stools()             # стулья выезжают слева направо
@@ -2703,6 +3320,38 @@ func _load_order_mods() -> void:
 			if fk in ["color", "volume", "count", "bsize"] and fk in ORDER and not (fk in active):
 				active.append(fk)
 
+# ---------- Фаза 6: применение предметов ----------
+func _use_item(id: String, grade: int) -> void:
+	if not PotionProfile.consume_item(id, grade):
+		Sfx.play("bad")
+		return
+	var it: Dictionary = GameData.shop_item(id)
+	if it.is_empty():
+		return
+	var g: Dictionary = it["grades"][grade]
+	match String(it["effect"]):
+		"time": item_pending["time"] = float(item_pending.get("time", 0.0)) + float(g["sec"])
+		"memtime": item_pending["memtime"] = float(item_pending.get("memtime", 0.0)) + float(g["sec"])
+		"flatbonus": item_fx["flat"] = int(g["flat"])
+		"rewardmult": item_fx["mult"] = float(g["mult"])
+		"chip": item_fx["chip"] = {"lo": g["lo"], "hi": g["hi"]}
+		"shield": item_fx["shield"] = float(g["cut"])
+		"nudge": item_fx["nudge"] = int(g["count"])
+		"repboost": item_fx["rep"] = int(g["rep"])
+		"speedlock": item_fx["speedlock"] = float(g["lock"])
+		"jigger": _apply_jigger(int(g["n"]))
+	Sfx.play("uiClick")
+	_toast("%s %s применён" % [it["icon"], it["name"]], Color("6dff8f"))
+
+# «Джиггер»: отключает n случайных активных регуляторов — они больше не оцениваются.
+func _apply_jigger(n: int) -> void:
+	var pool: Array = active.duplicate(); pool.shuffle()
+	for i in mini(n, pool.size()):
+		var k: String = pool[i]
+		active.erase(k)
+		if slider_cols.has(k):
+			slider_cols[k].modulate = Color(1, 1, 1, 0.35)   # визуально «отключён»
+
 # Плашка фокуса/модификаторов заказа: иконки + названия, «висит» весь заказ.
 func _show_mod_chip() -> void:
 	var parts: Array = []
@@ -2721,6 +3370,11 @@ func _show_mod_chip() -> void:
 
 # ---------- таймеры фаз ----------
 func _process(delta: float) -> void:
+	if items_btn != null:          # «сумка» видна в игре/выборе, если магазин открыт
+		items_btn.visible = GameData.prog_mech_unlocked("shop", _xp()) and (phase == "day" or phase == "select" or phase == "memorize" or phase == "recreate")
+	# инвентарь открыт (применяем предметы) — ставим таймер/механику на паузу
+	if items_panel != null and items_panel.visible:
+		return
 	var no_timer: bool = mech != null and mech.no_timer(self)   # Тот-Кто-Ждёт: без таймеров
 	if phase == "memorize":
 		if no_timer:
@@ -2744,6 +3398,7 @@ func _process(delta: float) -> void:
 			bulb_bar.set_fraction(clampf(phase_left / phase_total, 0.0, 1.0))
 			phase_label.text = "ВОССОЗДАЙ — %dс" % int(ceil(maxf(phase_left, 0.0)))
 			if phase_left <= 0.0:
+				_auto_finish = true          # таймер истёк сам — для стикера bad7
 				_finish()
 
 # Насколько верно выставлен один ползунок (0..1) — та же формула, что в _do_finish.
@@ -2771,6 +3426,7 @@ func _on_done() -> void:
 		return
 	if mech and not mech.on_done(self):   # механика может отменить финиш (Гурман — переигровка)
 		return
+	_auto_finish = false                  # игрок нажал «Готово» сам
 	_finish()
 
 # «ГОТОВО»/таймер: банка уезжает к гостю, затем считаем результат.
@@ -2804,7 +3460,8 @@ func _enter_jar() -> void:
 # Верхние панели (топбар + стрип прогрессии) уезжают вверх на игру и приезжают
 # обратно после. hidden=true — вверх за экран; false — на место.
 func _slide_header(hidden: bool, dur: float = 0.45) -> void:
-	var dy: float = -190.0 if hidden else 0.0
+	# уводим ПОЛНОСТЬЮ за верхний край (стрип высокий) — иначе низ стрипа лезет к лампам
+	var dy: float = -(STRIP_TOP + STRIP_H + 24.0) if hidden else 0.0
 	_tween_offsets(topbar, 30.0 + dy, 30.0 + TOPBAR_H + dy, dur)
 	_tween_offsets(prog_strip, STRIP_TOP + dy, STRIP_TOP + STRIP_H + dy, dur)
 
@@ -2830,6 +3487,17 @@ func _serve_jar() -> void:
 	t.tween_callback(_do_finish)
 
 func _do_finish() -> void:
+	# Барменский глаз: подвигаем ползунки на деление ближе к цели (до подсчёта)
+	if item_fx.has("nudge"):
+		var cnt: int = int(item_fx["nudge"])
+		var keys: Array = active.duplicate(); keys.shuffle()
+		if cnt >= 99:
+			cnt = keys.size()
+		for i in mini(cnt, keys.size()):
+			var sl: TouchSlider = sliders[keys[i]]
+			var tgt: float = float(target[keys[i]])
+			if absf(sl.value - tgt) > 0.001:
+				sl.set_value_no_signal(clampf(sl.value + signf(tgt - sl.value) * sl.step, sl.min_value, sl.max_value))
 	var comps: Dictionary = {}
 	var overall: float = 0.0
 	var wsum: float = 0.0
@@ -2877,9 +3545,27 @@ func _do_finish() -> void:
 		pos_mult *= 1.6; neg_mult *= 1.6
 	if "rampage" in order_mods:
 		pos_mult *= 2.0; tip_mult *= 2.0
-	var cat: Array = GameData.STICKERS[grade]
-	var sticker_name: String = cat[randi() % GameData.BASE_STICKERS]
+	# предметы магазина: шейкер (×+% на плюс), фишка (случайно ±% на итог),
+	# трос (−штраф), соль (+flat за годноту)
+	var good_res: bool = grade == "perfect" or grade == "good"
+	var flat_bonus: int = 0
+	if item_fx.has("mult") and good_res:
+		pos_mult *= (1.0 + float(item_fx["mult"]))
+	if item_fx.has("chip"):
+		var ch: Dictionary = item_fx["chip"]
+		var f: float = float(ch["lo"]) + randf() * (float(ch["hi"]) - float(ch["lo"]))
+		pos_mult *= (1.0 + f); neg_mult *= (1.0 + f)
+	if item_fx.has("shield"):
+		neg_mult *= (1.0 - float(item_fx["shield"]))
+	if item_fx.has("flat") and good_res:
+		flat_bonus = int(item_fx["flat"])
 	var time_frac: float = clampf(1.0 - phase_left / maxf(0.001, phase_total), 0.0, 1.0)
+	# серии ДО записи результата (record_result их инкрементирует) — для особых стикеров
+	var sk0: Dictionary = PotionProfile.data["streaks"]
+	var perfect_run: int = (int(sk0.get("perfect_current", 0)) + 1) if grade == "perfect" else 0
+	var good_run: int = (int(sk0.get("goodplus_current", 0)) + 1) if good_res else 0
+	var bad_before: int = int(sk0.get("bad_current", 0))
+	var sticker_name: String = ""     # выберем после record_result (нужен рейтинг цикла)
 
 	# Ир: решаем, предложить ли переигровку ЭТОГО заказа (до записи результата,
 	# чтобы можно было откатить профиль/счётчики к состоянию «до результата»).
@@ -2900,8 +3586,14 @@ func _do_finish() -> void:
 		}
 
 	var outcome: Dictionary = PotionProfile.record_result(
-		npc["id"], tier, overall, grade, reward, sticker_name,
-		time_frac, level, order_focus, pos_mult, no_points, neg_mult, tip_mult)
+		npc["id"], tier, overall, grade, reward, "",
+		time_frac, level, order_focus, pos_mult, no_points, neg_mult, tip_mult, flat_bonus)
+
+	# особый стикер по условию (или базовый случайный) — рейтинг цикла уже известен
+	var score_after: int = cycle_score + int(outcome.get("points", 0))
+	sticker_name = _pick_sticker(grade, overall, comps, tier, time_frac, score_after,
+		perfect_run, good_run, bad_before)
+	PotionProfile.mark_sticker_seen(grade, sticker_name)
 
 	# «Последний из Ир» (УР.3+): идеал → бафф след. заказу, брак/пойло → дебафф
 	if String(npc.get("id", "")) == "last_of_ir" and level >= 3:
@@ -2923,9 +3615,77 @@ func _do_finish() -> void:
 
 	# для перехода дня/цикла
 	last_grade = grade
+	cycle_stickers[grade] = int(cycle_stickers.get(grade, 0)) + 1   # стикеры за цикл
 	cycle_score += int(outcome.get("points", 0))
 
 	_show_result(overall, comps, grade, outcome, sticker_name)
+
+# Выбор стикера: особый — ТОЛЬКО по условию (порт STICKER_SPECIALS из content.js),
+# приоритет ещё не собранным; иначе случайный из первых BASE_STICKERS «базовых».
+func _pick_sticker(grade: String, overall: float, comps: Dictionary, tier: int,
+		time_frac: float, score_after: int, perfect_run: int, good_run: int, bad_before: int) -> String:
+	var arr: Array = GameData.STICKERS[grade]
+	var special_idx: Array = _sticker_special_idx(grade, overall, comps, tier, time_frac,
+		score_after, perfect_run, good_run, bad_before)
+	# отбрасываем индексы вне диапазона (страховка, если картинок в категории меньше)
+	special_idx = special_idx.filter(func(i): return int(i) < arr.size())
+	if not special_idx.is_empty():
+		var seen: Array = PotionProfile.data["stats"]["stickers_seen"][grade]
+		var unseen: Array = special_idx.filter(func(i): return not seen.has(String(arr[i])))
+		var pool: Array = unseen if not unseen.is_empty() else special_idx
+		return String(arr[pool[randi() % pool.size()]])
+	return String(arr[randi() % GameData.BASE_STICKERS])
+
+# Индексы особых стикеров, чьё условие выполнено (см. STICKER_SPECIALS в браузере).
+# Часть условий (печать Хранителя `sealed`, форс по связям НПС) ждёт портирования
+# своих механик — помечено TODO и пока не срабатывает.
+func _sticker_special_idx(grade: String, overall: float, comps: Dictionary, tier: int,
+		time_frac: float, score_after: int, perfect_run: int, good_run: int, bad_before: int) -> Array:
+	var out: Array = []
+	var special: String = String(npc.get("special", ""))
+	var has_gradient: bool = String(npc.get("type", "")) == "gradient"
+	var ir_debuff: bool = ir_effect_kind == "debuff"
+	var sealed: bool = false     # TODO: печать Хранителя Архива не портирована
+	match grade:
+		"perfect":
+			var all_exact: bool = true
+			for v in comps.values():
+				if float(v) < 0.999:
+					all_exact = false
+					break
+			var nova_exact: bool = special == "dual_size" and comps.has("size2") \
+				and float(comps.get("size2", 0.0)) >= 0.999 and float(comps.get("volume", 1.0)) >= 0.999
+			if perfect_run >= 5 and perfect_run < 10: out.append(3)   # серия 5–9 идеалов
+			if perfect_run >= 10: out.append(4)                       # серия 10+
+			if all_exact: out.append(5)                               # все параметры ровно
+			if has_gradient: out.append(6)                            # идеал на градиенте
+			if special == "no_timer" and overall >= 0.99: out.append(7)  # Тот-Кто-Ждёт
+			if time_frac <= 1.0 / 6.0: out.append(8)                  # в первую 1/6 таймера
+			if ir_debuff: out.append(9)                               # под дебаффом Ир
+			if sealed: out.append(10)                                 # под печатью Хранителя
+			if level == 4: out.append(11)                             # на УР.4
+			if score_after >= 3500: out.append(12)                    # рейтинг цикла 3500+
+			if nova_exact: out.append(13)                             # Сверхнова: ширина И высота
+			if day_num >= cycle_days: out.append(14)                  # последний день цикла
+		"good":
+			if overall >= GameData.perfect_threshold(tier) - 0.02: out.append(3)  # почти идеал
+			if good_run >= 8: out.append(4)                           # 8+ годнот подряд
+			if time_frac >= 0.9: out.append(5)                        # в последние 10% таймера
+			if bad_before >= 2: out.append(6)                         # прервал серию 2+ браков
+			var tl: int = int((PotionProfile.data.get("tips", {}) as Dictionary).get("lifetime", 0))
+			if tl >= 1000: out.append(7)                              # 1000+ чаевых за историю
+			if tl >= 10000: out.append(8)                             # 10000+ чаевых
+		"swill":
+			if overall >= GameData.good_threshold(tier) - 0.03: out.append(3)   # почти годнота
+			if bad_before >= 2: out.append(4)                         # прервал серию 2+ браков
+		"bad":
+			if overall < 0.3: out.append(3)                           # точность < 30%
+			if level == 1: out.append(4)                              # брак на УР.1
+			if bad_before >= 2: out.append(5)                         # третий брак подряд
+			if _auto_finish: out.append(6)                            # таймер истёк сам
+			if sealed: out.append(7)                                  # брак под печатью
+			# idx 8 (bad9) — форс обиженным НПС по связям; TODO (связи-форс не портирован)
+	return out
 
 # «Дальше →» на экране результата: конец цикла → новый цикл, иначе → следующий день.
 func _result_next() -> void:
