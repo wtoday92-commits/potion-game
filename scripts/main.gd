@@ -303,21 +303,31 @@ func _tween_layer(l: TextureRect, cfg: Array, dur: float) -> void:
 	t.tween_property(l, "modulate:a", cfg[1], dur).set_trans(Tween.TRANS_SINE)
 	t.tween_property(l, "position", Vector2(0.0, cfg[2]), dur).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
-# Один фоновый слой (9:16, во весь экран, пивот по центру; позицию тви́ним под камеру).
+# Один фоновый слой: ПОКРЫВАЕТ весь реальный экран любой пропорции (кроп по краям),
+# а не фиксированные 720×1280 — иначе на высоком телефоне снизу пустая полоса.
+# Размер/пивот обновляются при ресайзе (см. _on_bg_resized). Камера тви́нит scale/position.
 func _bg_layer(path: String) -> TextureRect:
 	var t := TextureRect.new()
-	# expand_mode ДО size — иначе min size = размеру текстуры (1152x2048) и size
-	# обрежется под него (слой рисуется во всю текстуру от угла = «уезжает»).
 	t.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	t.stretch_mode = TextureRect.STRETCH_SCALE      # тот же 9:16 — без искажений
+	t.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED   # заполнить экран, обрезав лишнее
 	t.texture = load(path)
 	t.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	t.position = Vector2.ZERO
-	t.size = Vector2(720, 1280)
+	var vp := get_viewport().get_visible_rect().size
+	t.size = vp
+	t.pivot_offset = vp * 0.5
 	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	t.pivot_offset = Vector2(360, 640)
 	add_child(t)
 	return t
+
+# Фон покрывает актуальный размер вьюпорта — обновляем при смене размера окна/экрана
+# (ориентация, разворачивание в APK/браузере). scale/position камеры не трогаем.
+func _on_bg_resized() -> void:
+	var vp := get_viewport().get_visible_rect().size
+	for l in [layer_back, layer_mid, layer_front]:
+		if l != null:
+			l.size = vp
+			l.pivot_offset = vp * 0.5
 
 # ---------- построение интерфейса ----------
 func _build_ui() -> void:
@@ -330,6 +340,7 @@ func _build_ui() -> void:
 	layer_back.scale = Vector2(1.05, 1.05)
 	layer_mid.scale = Vector2(1.30, 1.30); layer_mid.modulate.a = 0.0
 	layer_front.scale = Vector2(1.60, 1.60); layer_front.modulate.a = 0.0
+	get_viewport().size_changed.connect(_on_bg_resized)   # фон следит за реальным размером экрана
 
 	# ---- UI раунда ----
 	round_ui = VBoxContainer.new()
