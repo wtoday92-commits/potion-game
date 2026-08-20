@@ -100,6 +100,9 @@ var result_detail: Label
 var result_sticker_tex: TextureRect
 var result_next_btn: Button       # «Дальше →»
 var result_replay_btn: Button     # «Переиграть» (Ир)
+var result_glow: Panel            # свечение-ореол за стикером (цвет грейда)
+var result_points_box: PanelContainer   # награда в золотой панели
+var result_breakdown_box: PanelContainer # разбивка в карточке
 
 var start_panel: Control
 var hud_tips: Label
@@ -516,53 +519,80 @@ func _build_ui() -> void:
 	# ---- экран результата (в проёме окна, прозрачный) ----
 	result_panel = _make_center_panel(true)
 	var rv := result_panel.get_node("Card/V") as VBoxContainer
-	rv.add_theme_constant_override("separation", 8)
+	rv.add_theme_constant_override("separation", 12)
 
-	# картинка-стикер (perfect/good/swill/bad)
+	# «герой»: стикер в круглом свечении-ореоле (цвет — по грейду в _show_result)
+	var hero := Control.new()
+	hero.custom_minimum_size = Vector2(230, 230)
+	hero.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	rv.add_child(hero)
+	result_glow = Panel.new()
+	result_glow.set_anchors_preset(Control.PRESET_FULL_RECT)
+	result_glow.offset_left = 24; result_glow.offset_top = 24
+	result_glow.offset_right = -24; result_glow.offset_bottom = -24
+	result_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hero.add_child(result_glow)
 	result_sticker_tex = TextureRect.new()
-	result_sticker_tex.custom_minimum_size = Vector2(150, 150)
+	result_sticker_tex.set_anchors_preset(Control.PRESET_FULL_RECT)
 	result_sticker_tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	result_sticker_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	result_sticker_tex.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	result_sticker_tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	rv.add_child(result_sticker_tex)
+	hero.add_child(result_sticker_tex)
 
-	# грейд крупно (цветом), процент отдельной строкой ещё крупнее
+	# грейд крупно (цветом) + процент
 	result_sticker = Label.new()      # грейд «ГОДНО» / «ИДЕАЛ!» и т.п.
 	result_sticker.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	result_sticker.add_theme_font_size_override("font_size", 36)
+	result_sticker.add_theme_font_size_override("font_size", 46)
 	rv.add_child(result_sticker)
 	_glow_label(result_sticker, Color("6dff8f"))
 
+	# награда — в золотой панели (крупно)
+	result_points_box = PanelContainer.new()
+	result_points_box.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	result_points_box.add_theme_stylebox_override("panel", _panel_sb(UI_GOLD, UI_PANEL, 14))
 	result_points = Label.new()       # «+128 к рейтингу» / чаевые
 	result_points.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	result_points.add_theme_font_size_override("font_size", 22)
-	rv.add_child(result_points)
+	result_points.add_theme_font_size_override("font_size", 24)
+	result_points.custom_minimum_size = Vector2(360, 0)
+	result_points_box.add_child(result_points)
+	rv.add_child(result_points_box)
 
+	# разбивка по параметрам — в карточке
+	result_breakdown_box = PanelContainer.new()
+	result_breakdown_box.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	result_breakdown_box.add_theme_stylebox_override("panel", _panel_sb(UI_BORDER, UI_PANEL, 14))
 	result_breakdown = VBoxContainer.new()   # аккуратная разбивка по параметрам
 	result_breakdown.custom_minimum_size = Vector2(360, 0)
-	result_breakdown.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	result_breakdown.add_theme_constant_override("separation", 2)
-	rv.add_child(result_breakdown)
+	result_breakdown.add_theme_constant_override("separation", 3)
+	result_breakdown_box.add_child(result_breakdown)
+	rv.add_child(result_breakdown_box)
 
 	result_detail = Label.new()       # доп. текст (итог цикла)
 	result_detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	result_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	result_detail.custom_minimum_size = Vector2(420, 0)
+	result_detail.add_theme_color_override("font_color", UI_TXT_DIM)
 	rv.add_child(result_detail)
 
 	# «Переиграть» (Ир): показывается только когда активен бафф/дебафф переигровки
 	result_replay_btn = Button.new()
-	result_replay_btn.custom_minimum_size = Vector2(360, 52)
+	result_replay_btn.custom_minimum_size = Vector2(360, 54)
 	result_replay_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	result_replay_btn.add_theme_font_size_override("font_size", FS_BODY)
+	result_replay_btn.focus_mode = Control.FOCUS_NONE
 	result_replay_btn.visible = false
 	result_replay_btn.pressed.connect(_ir_replay)
 	rv.add_child(result_replay_btn)
 
 	result_next_btn = Button.new()
 	result_next_btn.text = "Дальше →"
-	result_next_btn.custom_minimum_size = Vector2(360, 52)
+	result_next_btn.custom_minimum_size = Vector2(360, 58)
 	result_next_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	result_next_btn.add_theme_font_size_override("font_size", 20)
+	result_next_btn.focus_mode = Control.FOCUS_NONE
+	for st in ["normal", "hover", "pressed"]:
+		result_next_btn.add_theme_stylebox_override(st, _tab_sb(true))   # золотая «primary»
+	result_next_btn.add_theme_color_override("font_color", UI_GOLD)
 	result_next_btn.pressed.connect(_result_next)
 	rv.add_child(result_next_btn)
 
@@ -682,6 +712,7 @@ func _build_dev_panel() -> void:
 	v.add_child(boost)
 	# список всех гостей — по кнопке прыгаем прямо в раунд
 	var scroll := ScrollContainer.new()
+	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх кнопок/карточек
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.custom_minimum_size = Vector2(0, 560)
 	v.add_child(scroll)
@@ -823,41 +854,32 @@ func _build_start() -> void:
 	subtitle.modulate = Color(1, 1, 1, 0.5)
 	sv.add_child(subtitle)
 
-	# HUD профиля: чипы чаевые / заказы / серия
+	# HUD профиля: чипы чаевые / заказы / серия (иконки + число)
 	var hud := HBoxContainer.new()
 	hud.alignment = BoxContainer.ALIGNMENT_CENTER
-	hud.add_theme_constant_override("separation", 22)
+	hud.add_theme_constant_override("separation", 14)
 	sv.add_child(hud)
-	hud_tips = _hud_chip(hud, "🪙")
-	hud_orders = _hud_chip(hud, "📦")
-	hud_streak = _hud_chip(hud, "🔥")
-
+	hud_tips = _hud_chip(hud, "stat_tips")
+	hud_orders = _hud_chip(hud, "stat_orders")
+	hud_streak = _hud_chip(hud, "stat_streak")
 
 	var spacer := Control.new()
 	spacer.custom_minimum_size = Vector2(0, 10)
 	sv.add_child(spacer)
 
-	var play := Button.new()
-	play.text = "ИГРАТЬ"
-	play.custom_minimum_size = Vector2(440, 64)
-	play.add_theme_font_size_override("font_size", 24)
+	var play := _menu_button("ИГРАТЬ", true, 66)
 	play.pressed.connect(_start_cycle)
 	sv.add_child(play)
 
-	coll_btn = Button.new()
-	coll_btn.text = "Коллекция"
-	coll_btn.custom_minimum_size = Vector2(440, 52)
+	coll_btn = _menu_button("Коллекция")
 	coll_btn.pressed.connect(_show_collection)
 	sv.add_child(coll_btn)
 
-	var daily_btn := Button.new()      # заглушка под Фазу 2/3
-	daily_btn.text = "Ежедневный заказ  (скоро)"
-	daily_btn.custom_minimum_size = Vector2(440, 52)
+	var daily_btn := _menu_button("Ежедневный заказ  (скоро)")   # заглушка под Фазу 2/3
 	daily_btn.disabled = true
 	sv.add_child(daily_btn)
 
-	profile_btn = Button.new()
-	profile_btn.custom_minimum_size = Vector2(440, 52)
+	profile_btn = _menu_button("")
 	profile_btn.pressed.connect(_show_account)
 	sv.add_child(profile_btn)
 
@@ -909,13 +931,40 @@ func _on_sfx_drag_end(_value_changed: bool) -> void:
 	Sfx.play("tick")                 # превью громкости эффектов
 
 # Чип HUD: «эмодзи + значение», значение обновляется в _refresh_hud().
-func _hud_chip(row: HBoxContainer, icon: String) -> Label:
+func _hud_chip(row: HBoxContainer, tex_name: String) -> Label:
+	var chip := PanelContainer.new()
+	chip.add_theme_stylebox_override("panel", _panel_sb(UI_BORDER, UI_PANEL2, 12))
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 8)
+	chip.add_child(h)
+	var ic := TextureRect.new()
+	ic.texture = _ui(tex_name)
+	ic.custom_minimum_size = Vector2(32, 32)
+	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	h.add_child(ic)
 	var lbl := Label.new()
 	lbl.add_theme_font_size_override("font_size", 20)
-	lbl.text = "%s 0" % icon
-	lbl.set_meta("icon", icon)
-	row.add_child(lbl)
+	lbl.add_theme_color_override("font_color", UI_GOLD)
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lbl.text = "0"
+	h.add_child(lbl)
+	row.add_child(chip)
 	return lbl
+
+# Единая кнопка меню (primary — золотая заливка, secondary — обычная тема).
+func _menu_button(text: String, primary: bool = false, h: float = 54.0) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.custom_minimum_size = Vector2(440, h)
+	b.add_theme_font_size_override("font_size", 20 if primary else FS_BODY)
+	b.focus_mode = Control.FOCUS_NONE
+	if primary:
+		for st in ["normal", "hover", "pressed"]:
+			b.add_theme_stylebox_override(st, _tab_sb(true))
+		b.add_theme_color_override("font_color", UI_GOLD)
+	return b
 
 # ---------- экран коллекции ----------
 # Статичный каркас (заголовок, скролл, «назад») строится один раз; наполнение
@@ -1043,6 +1092,7 @@ func _build_collection() -> void:
 		coll_tab_btns.append(b)
 
 	var scroll := ScrollContainer.new()
+	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх кнопок/карточек
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	cv.add_child(scroll)
@@ -1501,6 +1551,7 @@ func _build_chars() -> void:
 	cv.add_child(title)
 	_glow_label(title, UI_GOLD)
 	var scroll := ScrollContainer.new()
+	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх кнопок/карточек
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	cv.add_child(scroll)
@@ -1572,6 +1623,7 @@ func _build_char() -> void:
 	cv.add_theme_constant_override("separation", 10)
 
 	var scroll := ScrollContainer.new()
+	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх кнопок/карточек
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	cv.add_child(scroll)
@@ -1784,6 +1836,7 @@ func _build_account() -> void:
 	cv.add_child(title)
 	_glow_label(title, UI_GOLD)
 	var scroll := ScrollContainer.new()
+	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх кнопок/карточек
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	cv.add_child(scroll)
@@ -2087,11 +2140,8 @@ func _build_leaderboard_panel() -> void:
 	lb_panel.add_child(dim)
 	var card := PanelContainer.new()
 	card.anchor_left = 0.5; card.anchor_right = 0.5; card.anchor_top = 0.5; card.anchor_bottom = 0.5
-	card.offset_left = -300.0; card.offset_right = 300.0; card.offset_top = -380.0; card.offset_bottom = 380.0
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.08, 0.08, 0.13, 0.98)
-	sb.set_corner_radius_all(16); sb.set_border_width_all(2)
-	sb.border_color = Color(0.90, 0.72, 0.42)
+	card.offset_left = -322.0; card.offset_right = 322.0; card.offset_top = -440.0; card.offset_bottom = 440.0
+	var sb := _panel_sb(UI_GOLD, UI_PANEL, 18)
 	sb.set_content_margin_all(20.0)
 	card.add_theme_stylebox_override("panel", sb)
 	lb_panel.add_child(card)
@@ -2099,24 +2149,32 @@ func _build_leaderboard_panel() -> void:
 	col.add_theme_constant_override("separation", 12)
 	card.add_child(col)
 	var title := Label.new()
-	title.text = "🏆 ГЛОБАЛЬНЫЙ РЕЙТИНГ"
+	title.text = "ГЛОБАЛЬНЫЙ РЕЙТИНГ"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 24)
-	title.add_theme_color_override("font_color", Color("ffcf5d"))
+	title.add_theme_font_size_override("font_size", FS_TITLE)
+	title.add_theme_color_override("font_color", UI_GOLD)
 	col.add_child(title)
+	_glow_label(title, UI_GOLD)
 	var scroll := ScrollContainer.new()
+	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх кнопок/карточек
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	col.add_child(scroll)
 	lb_list = VBoxContainer.new()
 	lb_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	lb_list.add_theme_constant_override("separation", 3)
+	lb_list.add_theme_constant_override("separation", 8)
 	scroll.add_child(lb_list)
 	var close := Button.new()
 	close.text = "Закрыть"
+	close.custom_minimum_size = Vector2(0, 54)
+	close.add_theme_font_size_override("font_size", FS_BODY)
 	close.focus_mode = Control.FOCUS_NONE
 	close.pressed.connect(func(): lb_panel.visible = false)
 	col.add_child(close)
 	add_child(lb_panel)
+
+# Цвета медалей топ-3.
+const LB_MEDAL := {1: Color("ffd54a"), 2: Color("cfd6e6"), 3: Color("e0954a")}
 
 func _render_leaderboard(rows: Array, highlight: int) -> void:
 	if lb_list == null:
@@ -2126,7 +2184,8 @@ func _render_leaderboard(rows: Array, highlight: int) -> void:
 	if rows.is_empty():
 		var l := Label.new()
 		l.text = "Пока пусто — стань первым!"
-		l.modulate = Color(1, 1, 1, 0.5)
+		l.add_theme_color_override("font_color", UI_TXT_DIM)
+		l.add_theme_font_size_override("font_size", FS_BODY)
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		lb_list.add_child(l)
 		return
@@ -2134,19 +2193,41 @@ func _render_leaderboard(rows: Array, highlight: int) -> void:
 	for e in rows:
 		rank += 1
 		var me: bool = highlight >= 0 and int(e.get("score", -999)) == highlight
+		var medal: Color = LB_MEDAL.get(rank, Color.TRANSPARENT)
+		var accent: Color = UI_OK if me else (medal if rank <= 3 else UI_BORDER)
+		var rowp := PanelContainer.new()
+		rowp.add_theme_stylebox_override("panel", _panel_sb(accent, UI_PANEL2 if not me else Color(UI_OK.r, UI_OK.g, UI_OK.b, 0.12), 10))
 		var r := HBoxContainer.new()
+		r.add_theme_constant_override("separation", 12)
+		rowp.add_child(r)
+		# ранг-бейдж (медаль у топ-3)
+		var rk := Label.new()
+		rk.text = "%d" % rank
+		rk.custom_minimum_size = Vector2(38, 0)
+		rk.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		rk.add_theme_font_size_override("font_size", 20)
+		rk.add_theme_color_override("font_color", medal if rank <= 3 else UI_TXT_DIM)
+		r.add_child(rk)
 		var n := Label.new()
-		n.text = "%d.  %s" % [rank, str(e.get("name", "?"))]
+		n.text = str(e.get("name", "?"))
 		n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var s := Label.new()
-		s.text = "%d · %s" % [int(e.get("score", 0)), str(e.get("date", ""))]
-		s.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		if me:
-			n.add_theme_color_override("font_color", Color("6dff8f"))
-			s.add_theme_color_override("font_color", Color("6dff8f"))
+		n.add_theme_font_size_override("font_size", FS_BODY)
+		n.add_theme_color_override("font_color", UI_OK if me else UI_TXT)
 		r.add_child(n)
+		var dt := Label.new()
+		dt.text = str(e.get("date", ""))
+		dt.add_theme_font_size_override("font_size", FS_SMALL)
+		dt.add_theme_color_override("font_color", UI_TXT_DIM)
+		dt.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		r.add_child(dt)
+		var s := Label.new()
+		s.text = str(int(e.get("score", 0)))
+		s.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		s.custom_minimum_size = Vector2(80, 0)
+		s.add_theme_font_size_override("font_size", 20)
+		s.add_theme_color_override("font_color", UI_GOLD)
 		r.add_child(s)
-		lb_list.add_child(r)
+		lb_list.add_child(rowp)
 
 # ---------- Магазин (Фаза 6) ----------
 var shop_panel: Control = null
@@ -2198,6 +2279,7 @@ func _build_shop_panel() -> void:
 	head.add_child(shop_balance)
 	col.add_child(head)
 	var scroll := ScrollContainer.new()
+	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх кнопок/карточек
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.add_child(scroll)
 	shop_list = VBoxContainer.new()
@@ -2336,11 +2418,8 @@ func _build_items_panel() -> void:
 	items_panel.add_child(dim)
 	var card := PanelContainer.new()
 	card.anchor_left = 0.5; card.anchor_right = 0.5; card.anchor_top = 0.5; card.anchor_bottom = 0.5
-	card.offset_left = -320.0; card.offset_right = 320.0; card.offset_top = -420.0; card.offset_bottom = 420.0
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.07, 0.12, 0.99)
-	sb.set_corner_radius_all(18); sb.set_border_width_all(2)
-	sb.border_color = Color(0.42, 0.55, 0.9)
+	card.offset_left = -322.0; card.offset_right = 322.0; card.offset_top = -430.0; card.offset_bottom = 430.0
+	var sb := _panel_sb(UI_BORDER, UI_PANEL, 18)
 	sb.set_content_margin_all(20.0)
 	card.add_theme_stylebox_override("panel", sb)
 	items_panel.add_child(card)
@@ -2348,12 +2427,14 @@ func _build_items_panel() -> void:
 	col.add_theme_constant_override("separation", 14)
 	card.add_child(col)
 	var title := Label.new()
-	title.text = "🎒 ИНВЕНТАРЬ"
+	title.text = "ИНВЕНТАРЬ"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 28)
-	title.add_theme_color_override("font_color", Color("6ec3ff"))
+	title.add_theme_font_size_override("font_size", FS_TITLE)
+	title.add_theme_color_override("font_color", UI_GOLD)
 	col.add_child(title)
+	_glow_label(title, UI_GOLD)
 	var scroll := ScrollContainer.new()
+	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх кнопок/карточек
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	col.add_child(scroll)
@@ -2418,13 +2499,8 @@ func _item_icon_node(it: Dictionary, sz: float, emoji_fs: int) -> Control:
 func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContainer:
 	var usable: bool = String(it["use"]) == kind
 	var card := PanelContainer.new()
-	var csb := StyleBoxFlat.new()
-	csb.bg_color = Color(0.10, 0.12, 0.19, 0.9)
-	csb.set_corner_radius_all(12)
-	csb.set_border_width_all(1)
-	csb.border_color = Color(0.4, 0.48, 0.72, 0.55)
-	csb.set_content_margin_all(14.0)
-	card.add_theme_stylebox_override("panel", csb)
+	# применимый сейчас — золотая рамка, иначе обычная
+	card.add_theme_stylebox_override("panel", _panel_sb(UI_GOLD if usable else UI_BORDER, UI_PANEL, 12))
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
@@ -2434,7 +2510,7 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	var icon_box := PanelContainer.new()
 	icon_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var ibsb := StyleBoxFlat.new()
-	ibsb.bg_color = Color(0.06, 0.07, 0.12, 1.0)
+	ibsb.bg_color = UI_PANEL2
 	ibsb.set_corner_radius_all(12)
 	ibsb.set_content_margin_all(8.0)
 	icon_box.add_theme_stylebox_override("panel", ibsb)
@@ -3195,8 +3271,9 @@ func _show_cycle_end() -> void:
 	phase = "cycle_end"
 	round_ui.visible = false
 	result_sticker_tex.visible = false
-	result_points.visible = false          # у итога цикла нет очков-за-заказ/разбивки
-	result_breakdown.visible = false
+	result_glow.visible = false
+	result_points_box.visible = false      # у итога цикла нет очков-за-заказ/разбивки
+	result_breakdown_box.visible = false
 	result_sticker.text = "Цикл пройден!"
 	result_sticker.add_theme_color_override("font_color", Color("6dff8f"))
 	# отправляем рейтинг цикла в глобальный топ (онлайн если в аккаунте + локально)
@@ -3261,11 +3338,11 @@ func _refresh_hud() -> void:
 	var t: Dictionary = PotionProfile.data.get("tips", {})
 	var st: Dictionary = PotionProfile.data.get("stats", {})
 	var sk: Dictionary = PotionProfile.data.get("streaks", {})
-	# чаевые видны только после открытия механики (Ур.4)
-	hud_tips.visible = GameData.prog_mech_unlocked("tips", xp)
-	hud_tips.text = "%s %d" % [hud_tips.get_meta("icon"), int(t.get("balance", 0))]
-	hud_orders.text = "%s %d" % [hud_orders.get_meta("icon"), int(st.get("total_orders", 0))]
-	hud_streak.text = "%s %d" % [hud_streak.get_meta("icon"), int(sk.get("goodplus_current", 0))]
+	# чаевые видны только после открытия механики (Ур.4) — прячем весь чип
+	hud_tips.get_parent().get_parent().visible = GameData.prog_mech_unlocked("tips", xp)
+	hud_tips.text = str(int(t.get("balance", 0)))
+	hud_orders.text = str(int(st.get("total_orders", 0)))
+	hud_streak.text = str(int(sk.get("goodplus_current", 0)))
 	# коллекция открывается прогрессией (Ур.1) — не прячем, а дизейблим с подписью
 	var coll_ok: bool = GameData.prog_mech_unlocked("collection", xp)
 	coll_btn.disabled = not coll_ok
@@ -3991,6 +4068,16 @@ func _show_result(overall: float, comps: Dictionary, grade: String, outcome: Dic
 	var stex := load(GameData.sticker_path(sticker_name)) as Texture2D
 	result_sticker_tex.texture = stex
 	result_sticker_tex.visible = stex != null
+	# круглое свечение-ореол за стикером в цвет грейда
+	var gsb := StyleBoxFlat.new()
+	gsb.bg_color = Color(gcol.r, gcol.g, gcol.b, 0.16)
+	gsb.set_corner_radius_all(200)
+	gsb.shadow_color = Color(gcol.r, gcol.g, gcol.b, 0.55)
+	gsb.shadow_size = 26
+	result_glow.add_theme_stylebox_override("panel", gsb)
+	result_glow.visible = stex != null
+	result_points_box.visible = true
+	result_breakdown_box.visible = true
 	result_sticker.text = "%s   %d%%" % [GRADE_LABEL.get(grade, "БРАК"), int(round(overall * 100.0))]
 	result_sticker.add_theme_color_override("font_color", gcol)
 	result_sticker.add_theme_color_override("font_outline_color", Color(gcol.r, gcol.g, gcol.b, 0.5))
@@ -4062,6 +4149,7 @@ func _show_result(overall: float, comps: Dictionary, grade: String, outcome: Dic
 	Juice.fade_in(result_panel)
 	if result_sticker_tex.visible:
 		Juice.pop.call_deferred(result_sticker_tex)
+	Juice.pop.call_deferred(result_points_box)
 	if grade == "perfect" or grade == "good":
 		_confetti_at.call_deferred(result_sticker_tex, gcol)
 
