@@ -9,11 +9,15 @@ class_name JarStage
 const JAR_W := 308.0
 const JAR_H := 530.0
 const BASE_FRAC := 0.92         # доля высоты банки до основания (== pivot в potion_jar)
-# Экранный Y основания банки («стол») — как ДОЛЯ высоты экрана (664/1280), чтобы
-# банка стояла на столе на любом экране/пропорции (фон покрывает по высоте).
-const TABLE_SCREEN_FRAC := 0.519
+# Экранный Y основания банки («стол») — через ту же cover-трансформацию фона (9:16),
+# что и в main._bg_metrics, чтобы банка стояла на столе при ЛЮБОЙ пропорции.
+const BG_ASPECT := 1152.0 / 2048.0
+const TABLE_UV_Y := 0.519             # линия стола в UV арта (664/1280)
 func _table_screen_y() -> float:
-	return get_viewport_rect().size.y * TABLE_SCREEN_FRAC
+	var vp := get_viewport_rect().size
+	var disp_h: float = (vp.x / BG_ASPECT) if (vp.x / vp.y > BG_ASPECT) else vp.y
+	var off_y: float = (vp.y - disp_h) * 0.5
+	return off_y + TABLE_UV_Y * disp_h
 
 var jar: Control
 

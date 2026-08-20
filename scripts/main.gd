@@ -103,6 +103,8 @@ var result_replay_btn: Button     # «Переиграть» (Ир)
 var result_glow: Panel            # свечение-ореол за стикером (цвет грейда)
 var result_points_box: PanelContainer   # награда в золотой панели
 var result_breakdown_box: PanelContainer # разбивка в карточке
+var result_info: VBoxContainer    # зона окна: стикер/грейд/награда/разбивка
+var result_actions: VBoxContainer # зона стены: крупные кнопки
 
 var start_panel: Control
 var hud_tips: Label
@@ -189,7 +191,7 @@ const CONTENT_TOP := 284.0       # верх контента экранов — 
 
 # Три параллакс-слоя по Z: задний (космос) → средний (стена с окном) →
 # передний (стол+пол). Окно среднего слоя прозрачно — сквозь него виден космос.
-const WINDOW_UV := Rect2(0.188, 0.164, 0.624, 0.375)   # проём окна в UV (0..1)
+const WINDOW_UV := Rect2(0.045, 0.221, 0.910, 0.564)   # проём окна в UV арта (0..1): y 0.221..0.785
 var layer_back: TextureRect      # космос (дальний)
 var layer_mid: TextureRect       # стена с окном
 var layer_front: TextureRect     # стол + пол (ближний)
@@ -328,6 +330,42 @@ func _on_bg_resized() -> void:
 		if l != null:
 			l.size = vp
 			l.pivot_offset = vp * 0.5
+	_layout_result()
+
+# Экранные метрики фона (cover 9:16): прямоугольник проёма окна и Y линии стола —
+# чтобы привязывать игровой UI к арту на ЛЮБОЙ пропорции (телефон/комп/APK).
+const BG_ASPECT := 1152.0 / 2048.0   # 9:16
+const TABLE_UV_Y := 0.519            # линия стола в UV арта (664/1280)
+func _bg_metrics() -> Dictionary:
+	var vp := get_viewport().get_visible_rect().size
+	var disp_h: float = (vp.x / BG_ASPECT) if (vp.x / vp.y > BG_ASPECT) else vp.y
+	var disp_w: float = disp_h * BG_ASPECT
+	var off := Vector2((vp.x - disp_w) * 0.5, (vp.y - disp_h) * 0.5)
+	var win := Rect2(off.x + WINDOW_UV.position.x * disp_w, off.y + WINDOW_UV.position.y * disp_h,
+		WINDOW_UV.size.x * disp_w, WINDOW_UV.size.y * disp_h)
+	return {"vp": vp, "win": win, "table_y": off.y + TABLE_UV_Y * disp_h}
+
+# Разложить экран результата по зонам арта: инфо — в проёме окна, кнопки — на стене.
+func _layout_result() -> void:
+	if result_info == null:
+		return
+	var m := _bg_metrics()
+	var win: Rect2 = m["win"]
+	var vp: Vector2 = m["vp"]
+	var table_y: float = m["table_y"]
+	var pad := 18.0
+	var win_bottom: float = win.position.y + win.size.y
+	# инфо — в верхней части проёма окна (стикер/грейд/награда/разбивка)
+	result_info.offset_left = win.position.x + pad
+	result_info.offset_top = win.position.y + pad
+	result_info.offset_right = win.position.x + win.size.x - pad
+	result_info.offset_bottom = win_bottom - 8.0
+	# кнопки — НИЖЕ низа окна (на «стене»), по центру, фикс. ширина
+	var cx := vp.x * 0.5
+	result_actions.offset_left = cx - 236.0
+	result_actions.offset_right = cx + 236.0
+	result_actions.offset_top = maxf(win_bottom, table_y) + 12.0
+	result_actions.offset_bottom = vp.y - 20.0
 
 # ---------- построение интерфейса ----------
 func _build_ui() -> void:
@@ -536,24 +574,22 @@ func _build_ui() -> void:
 
 	# ---- экран результата: инфо — в проёме окна, кнопки — ниже, на «стене», крупные ----
 	result_panel = _make_center_panel(true)
-	# ЗОНА ОКНА (проём): стикер + грейд + награда + разбивка + текст
-	var rv := VBoxContainer.new()
-	rv.set_anchors_preset(Control.PRESET_FULL_RECT)
-	rv.anchor_left = 0.06; rv.anchor_right = 0.94
-	rv.anchor_top = 0.20; rv.anchor_bottom = 0.60
-	rv.alignment = BoxContainer.ALIGNMENT_CENTER
-	rv.add_theme_constant_override("separation", 10)
-	rv.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	result_panel.add_child(rv)
-	# ЗОНА КНОПОК (ниже окна, на стене) — крупные тач-цели
-	var ract := VBoxContainer.new()
-	ract.set_anchors_preset(Control.PRESET_FULL_RECT)
-	ract.anchor_left = 0.5; ract.anchor_right = 0.5
-	ract.offset_left = -234.0; ract.offset_right = 234.0
-	ract.anchor_top = 0.72; ract.anchor_bottom = 0.98
-	ract.alignment = BoxContainer.ALIGNMENT_CENTER
-	ract.add_theme_constant_override("separation", 12)
-	result_panel.add_child(ract)
+	# ЗОНА ОКНА (проём) и ЗОНА КНОПОК (ниже, на стене) — позиции считает _layout_result()
+	# по реальному экранному прямоугольнику окна/линии стола (см. _bg_metrics), чтобы
+	# совпадать с артом на любой пропорции (телефон/комп/APK).
+	result_info = VBoxContainer.new()
+	result_info.set_anchors_preset(Control.PRESET_TOP_LEFT)   # абсолютные offset'ы
+	result_info.alignment = BoxContainer.ALIGNMENT_CENTER
+	result_info.add_theme_constant_override("separation", 10)
+	result_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	result_panel.add_child(result_info)
+	result_actions = VBoxContainer.new()
+	result_actions.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	result_actions.alignment = BoxContainer.ALIGNMENT_CENTER
+	result_actions.add_theme_constant_override("separation", 12)
+	result_panel.add_child(result_actions)
+	var rv := result_info
+	var ract := result_actions
 
 	# «герой»: стикер в круглом свечении-ореоле (цвет — по грейду в _show_result)
 	var hero := Control.new()
@@ -3306,6 +3342,7 @@ func _show_cycle_end() -> void:
 
 	phase = "cycle_end"
 	round_ui.visible = false
+	_layout_result()
 	result_sticker_tex.visible = false
 	result_glow.visible = false
 	result_points_box.visible = false      # у итога цикла нет очков-за-заказ/разбивки
@@ -4094,6 +4131,7 @@ const GRADE_COLOR := {
 func _show_result(overall: float, comps: Dictionary, grade: String, outcome: Dictionary, sticker_name: String) -> void:
 	phase = "result"
 	round_ui.visible = false
+	_layout_result()          # разложить зоны под текущий размер экрана
 	var gcol: Color = GRADE_COLOR.get(grade, Color.WHITE)
 	# звук по грейду: идеал/годно — позитив, пойло/брак — неудача
 	Sfx.play("perfect" if grade == "perfect" else "good" if grade == "good" else "bad")
