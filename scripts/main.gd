@@ -626,8 +626,13 @@ func _build_ui() -> void:
 
 	# ---- кнопка «сумка» (слева снизу): применить предметы в игре (Фаза 6) ----
 	items_btn = Button.new()
-	items_btn.text = "🎒"
-	items_btn.add_theme_font_size_override("font_size", 40)
+	var bag_tex := load("res://assets/ui/nav_bag.png") as Texture2D
+	if bag_tex != null:
+		items_btn.icon = bag_tex
+		items_btn.expand_icon = true
+	else:
+		items_btn.text = "🎒"
+		items_btn.add_theme_font_size_override("font_size", 40)
 	items_btn.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	items_btn.offset_left = 14.0
 	items_btn.offset_top = -98.0
@@ -915,30 +920,124 @@ func _hud_chip(row: HBoxContainer, icon: String) -> Label:
 # ---------- экран коллекции ----------
 # Статичный каркас (заголовок, скролл, «назад») строится один раз; наполнение
 # (статы/альбом/список NPC) пересобирается каждый показ из живого профиля.
+# ============================================================
+# Дизайн-система (ядро) — единые роли цветов, размеры и панели.
+# Применяется в переверстанной Коллекции; далее раскатываем на остальные экраны.
+# ============================================================
+const UI_GOLD := Color("ffcf5d")          # акцент: заголовки, числа, валюта
+const UI_GOLD_DIM := Color(0.95, 0.82, 0.5)
+const UI_TXT := Color(0.95, 0.95, 1.0)     # основной текст
+const UI_TXT_DIM := Color(1, 1, 1, 0.62)   # подписи
+const UI_PANEL := Color(0.11, 0.12, 0.19, 0.96)  # карточка
+const UI_PANEL2 := Color(0.07, 0.08, 0.13, 1.0)  # вложенная/фон-ячейка
+const UI_BORDER := Color(0.34, 0.32, 0.5, 0.55)  # обводка панели
+const UI_OK := Color("6dff8f")             # успех
+const UI_BAD := Color("ff5d6a")            # штраф/провал
+const FS_TITLE := 30
+const FS_H := 22
+const FS_BODY := 16
+const FS_SMALL := 13
+
+# Единый стайлбокс карточки-панели (скругление + тонкая обводка + мягкая тень).
+func _panel_sb(accent: Color = UI_BORDER, bg: Color = UI_PANEL, radius: int = 16) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.set_corner_radius_all(radius)
+	sb.set_border_width_all(1)
+	sb.border_color = accent
+	sb.shadow_color = Color(0, 0, 0, 0.35)
+	sb.shadow_size = 6
+	sb.set_content_margin_all(14.0)
+	return sb
+
+# Плитка статистики: иконка сверху, крупное число золотом, подпись снизу.
+func _stat_tile(tex: Texture2D, number: String, label: String, accent: Color = UI_BORDER) -> PanelContainer:
+	var p := PanelContainer.new()
+	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	p.add_theme_stylebox_override("panel", _panel_sb(accent))
+	var v := VBoxContainer.new()
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_theme_constant_override("separation", 4)
+	p.add_child(v)
+	if tex != null:
+		var ir := TextureRect.new()
+		ir.texture = tex
+		ir.custom_minimum_size = Vector2(52, 52)
+		ir.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		ir.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		ir.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		v.add_child(ir)
+	var num := Label.new()
+	num.text = number
+	num.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	num.add_theme_font_size_override("font_size", 30)
+	num.add_theme_color_override("font_color", UI_GOLD)
+	v.add_child(num)
+	var lbl := Label.new()
+	lbl.text = label
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lbl.add_theme_font_size_override("font_size", FS_SMALL)
+	lbl.add_theme_color_override("font_color", UI_TXT_DIM)
+	v.add_child(lbl)
+	return p
+
+# Стилизованный заголовок секции коллекции (золото, крупно).
+func _coll_section(text: String) -> void:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_size_override("font_size", FS_H)
+	l.add_theme_color_override("font_color", UI_GOLD)
+	collection_list.add_child(l)
+
+# Подсказки-условия выпадения стикеров (для закрытых ячеек альбома).
+const STICKER_HINTS := {
+	"perfect4": "серия 5+ идеалов подряд", "perfect5": "серия 10+ идеалов подряд",
+	"perfect6": "все параметры ровно в цель", "perfect7": "идеал на градиенте",
+	"perfect8": "идеал у Того-Кто-Ждёт", "perfect9": "идеал под дебаффом Ир",
+	"perfect10": "идеал под печатью Хранителя", "perfect11": "идеал на УР.4",
+	"perfect12": "рейтинг цикла 3500+", "perfect13": "Сверхнова: точная ширина и высота",
+	"perfect14": "идеал в последний день цикла",
+	"good4": "почти идеал (меньше 2%)", "good5": "8+ заказов подряд без брака",
+	"good6": "годнота в последние 10% таймера", "good7": "прервал серию из 2+ браков",
+	"good8": "1000+ чаевых за всё время", "good9": "10000+ чаевых за всё время",
+	"swill4": "почти дотянул до годноты", "swill5": "прервал серию из 2+ браков",
+	"bad4": "точность ниже 30%", "bad5": "брак на УР.1", "bad6": "третий брак подряд",
+	"bad7": "таймер истёк сам", "bad8": "брак под печатью Хранителя",
+	"bad9": "обиженный связями гость",
+}
+
 func _build_collection() -> void:
 	collection_panel = _make_center_panel()
+	# коллекция — на ВЕСЬ экран (топбар на ней скрыт), а не в окне с CONTENT_TOP
+	var ccard := collection_panel.get_node("Card") as PanelContainer
+	ccard.offset_top = PANEL_INSET
 	var cv := collection_panel.get_node("Card/V") as VBoxContainer
 	cv.add_theme_constant_override("separation", 10)
 
 	var title := Label.new()
-	title.text = "🗂 Коллекция"
+	title.text = "КОЛЛЕКЦИЯ"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 28)
+	title.add_theme_font_size_override("font_size", FS_TITLE)
+	title.add_theme_color_override("font_color", UI_GOLD)
 	cv.add_child(title)
+	_glow_label(title, UI_GOLD)
 
-	# вкладки (как в вебе: разделы, а не одна простыня)
+	# вкладки-пилюли (сегмент-контрол): активная — золото, остальные — приглушены
 	var tabrow := HBoxContainer.new()
-	tabrow.alignment = BoxContainer.ALIGNMENT_CENTER
-	tabrow.add_theme_constant_override("separation", 6)
+	tabrow.add_theme_constant_override("separation", 8)
 	cv.add_child(tabrow)
 	coll_tab_btns.clear()
 	for tab in [["stats", "Статистика"], ["ribbon", "Лента"], ["stickers", "Стикеры"], ["ach", "Ачивки"]]:
 		var b := Button.new()
 		b.text = tab[1]
-		b.custom_minimum_size = Vector2(0, 54)
-		b.add_theme_font_size_override("font_size", 18)
+		b.custom_minimum_size = Vector2(0, 50)
+		b.add_theme_font_size_override("font_size", FS_BODY)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.focus_mode = Control.FOCUS_NONE
 		b.set_meta("tab", tab[0])
+		for st in ["normal", "hover", "pressed"]:
+			b.add_theme_stylebox_override(st, _tab_sb(false))
 		b.pressed.connect(_set_collection_tab.bind(tab[0]))
 		tabrow.add_child(b)
 		coll_tab_btns.append(b)
@@ -950,14 +1049,26 @@ func _build_collection() -> void:
 
 	collection_list = VBoxContainer.new()
 	collection_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	collection_list.add_theme_constant_override("separation", 8)
+	collection_list.add_theme_constant_override("separation", 12)
 	scroll.add_child(collection_list)
 
 	var back := Button.new()
 	back.text = "← Назад"
-	back.custom_minimum_size = Vector2(0, 52)
+	back.custom_minimum_size = Vector2(0, 54)
+	back.add_theme_font_size_override("font_size", FS_BODY)
+	back.focus_mode = Control.FOCUS_NONE
 	back.pressed.connect(_close_collection)
 	cv.add_child(back)
+
+# Стайлбокс вкладки-пилюли (активная — золото-заливка + золотая кайма).
+func _tab_sb(active: bool) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(UI_GOLD.r, UI_GOLD.g, UI_GOLD.b, 0.18) if active else UI_PANEL2
+	sb.set_corner_radius_all(12)
+	sb.set_border_width_all(2 if active else 1)
+	sb.border_color = UI_GOLD if active else UI_BORDER
+	sb.set_content_margin_all(8.0)
+	return sb
 
 func _show_collection() -> void:
 	phase = "collection"
@@ -984,8 +1095,11 @@ func _close_collection() -> void:
 
 func _set_collection_tab(tab: String) -> void:
 	collection_tab = tab
-	for b in coll_tab_btns:          # активная вкладка ярче
-		b.modulate = Color(1, 1, 1, 1) if b.get_meta("tab") == tab else Color(1, 1, 1, 0.5)
+	for b in coll_tab_btns:          # активная вкладка — золотой стиль + золотой текст
+		var on: bool = b.get_meta("tab") == tab
+		for st in ["normal", "hover", "pressed"]:
+			b.add_theme_stylebox_override(st, _tab_sb(on))
+		b.add_theme_color_override("font_color", UI_GOLD if on else UI_TXT_DIM)
 	_populate_collection()
 
 func _populate_collection() -> void:
@@ -1003,23 +1117,59 @@ func _fill_stats_tab() -> void:
 	var tips: Dictionary = PotionProfile.data.get("tips", {})
 	var sk: Dictionary = PotionProfile.data.get("streaks", {})
 	var life: Dictionary = st.get("stickers_lifetime", {})
-	_coll_header("Всего")
-	_coll_line("Заказов: %d" % int(st.get("total_orders", 0)))
-	_coll_line("Чаевых за всё время: %d" % int(tips.get("lifetime", 0)))
-	_coll_line("Встречено посетителей: %d / %d" % [PotionProfile.data.get("progression", {}).get("met_npcs", []).size(), GameData.NPCS.size()])
-	_coll_header("Серии")
-	_coll_line("Лучшая серия идеалов: %d" % int(sk.get("perfect_best", 0)))
-	_coll_line("Лучшая серия без брака: %d" % int(sk.get("goodplus_best", 0)))
-	_coll_header("Смеси по грейдам")
+	var met: int = (PotionProfile.data.get("progression", {}).get("met_npcs", []) as Array).size()
+
+	_coll_section("Всего")
+	var g1 := _stat_grid(2)
+	g1.add_child(_stat_tile(_ui("stat_orders"), str(int(st.get("total_orders", 0))), "Заказов"))
+	g1.add_child(_stat_tile(_ui("stat_tips"), str(int(tips.get("lifetime", 0))), "Чаевых всего", UI_GOLD))
+	g1.add_child(_stat_tile(_ui("stat_visitors"), "%d/%d" % [met, GameData.NPCS.size()], "Посетителей"))
+	g1.add_child(_stat_tile(_ui("stat_cycles"), str(int(st.get("cycles_completed", 0))), "Циклов пройдено"))
+	collection_list.add_child(g1)
+
+	_coll_section("Лучшие серии")
+	var g2 := _stat_grid(2)
+	g2.add_child(_stat_tile(_ui("stat_streak"), str(int(sk.get("perfect_best", 0))), "Идеалов подряд", UI_GOLD))
+	g2.add_child(_stat_tile(_ui("stat_shield"), str(int(sk.get("goodplus_best", 0))), "Без брака подряд", UI_OK))
+	collection_list.add_child(g2)
+
+	_coll_section("Смеси по грейдам")
+	var g3 := _stat_grid(4)
+	var gcol := {"perfect": UI_GOLD, "good": UI_OK, "swill": Color("ffa24d"), "bad": UI_BAD}
 	for cat in ["perfect", "good", "swill", "bad"]:
-		_coll_line("%s: %d" % [GRADE_LABEL.get(cat, cat), int(life.get(cat, 0))])
+		var thumb := load(GameData.sticker_path(String(GameData.STICKERS[cat][0]))) as Texture2D
+		g3.add_child(_stat_tile(thumb, str(int(life.get(cat, 0))), GRADE_LABEL.get(cat, cat), gcol[cat]))
+	collection_list.add_child(g3)
+
+# Сетка плиток статистики (равные колонки, единые отступы).
+func _stat_grid(cols: int) -> GridContainer:
+	var g := GridContainer.new()
+	g.columns = cols
+	g.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	g.add_theme_constant_override("h_separation", 12)
+	g.add_theme_constant_override("v_separation", 12)
+	return g
+
+# Быстрая загрузка текстуры из assets/ui (null-безопасно).
+func _ui(name: String) -> Texture2D:
+	return load("res://assets/ui/%s.png" % name) as Texture2D
 
 func _fill_stickers_tab() -> void:
 	var seen: Dictionary = PotionProfile.data.get("stats", {}).get("stickers_seen", {})
+	var tot: int = 0
+	var have: int = 0
+	for cat in ["perfect", "good", "swill", "bad"]:
+		tot += (GameData.STICKERS[cat] as Array).size()
+		have += mini((seen.get(cat, []) as Array).size(), (GameData.STICKERS[cat] as Array).size())
+	_coll_section("Собрано  %d / %d" % [have, tot])
 	for cat in ["perfect", "good", "swill", "bad"]:
 		var all: Array = GameData.STICKERS[cat]
 		var got: Array = seen.get(cat, [])
-		_coll_header("%s — %d/%d" % [GRADE_LABEL.get(cat, cat), got.size(), all.size()])
+		var sub := Label.new()
+		sub.text = "%s   ·   %d/%d" % [GRADE_LABEL.get(cat, cat), mini(got.size(), all.size()), all.size()]
+		sub.add_theme_font_size_override("font_size", FS_BODY)
+		sub.add_theme_color_override("font_color", UI_TXT_DIM)
+		collection_list.add_child(sub)
 		_sticker_grid(all, got)
 
 # ---------- вкладка «Ачивки» (общие ачивки) ----------
@@ -1031,16 +1181,9 @@ func _fill_ach_tab() -> void:
 			for th in (a["t"] as Array):
 				if val >= int(th):
 					opened += 1
-	var head := Label.new()
-	head.text = "Открыто ступеней: %d / %d" % [opened, GameData.ach_total_tiers()]
-	head.add_theme_font_size_override("font_size", 18)
-	head.add_theme_color_override("font_color", Color(0.95, 0.82, 0.5))
-	collection_list.add_child(head)
+	_coll_section("Открыто ступеней  %d / %d" % [opened, GameData.ach_total_tiers()])
 
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 10)
+	var grid := _stat_grid(2)
 	for a in GameData.GENERAL_ACHIEVEMENTS:
 		grid.add_child(_ach_card(a))
 	collection_list.add_child(grid)
@@ -1074,16 +1217,10 @@ func _ach_card(a: Dictionary) -> Control:
 		if val >= int(th): filled += 1
 	var unlocked: bool = filled > 0
 
+	var accent: Color = Color(UI_GOLD.r, UI_GOLD.g, UI_GOLD.b, 0.85) if unlocked else UI_BORDER
 	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.09, 0.10, 0.16, 0.95)
-	sb.set_corner_radius_all(12)
-	sb.set_border_width_all(2)
-	sb.border_color = Color("ffb14d") if unlocked else Color(0.3, 0.32, 0.42, 0.6)
-	sb.content_margin_left = 12.0; sb.content_margin_right = 12.0
-	sb.content_margin_top = 12.0; sb.content_margin_bottom = 12.0
-	card.add_theme_stylebox_override("panel", sb)
+	card.add_theme_stylebox_override("panel", _panel_sb(accent))
 
 	var col := VBoxContainer.new()
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -1091,20 +1228,21 @@ func _ach_card(a: Dictionary) -> Control:
 	card.add_child(col)
 
 	var ic := TextureRect.new()
-	ic.custom_minimum_size = Vector2(64, 64)
+	ic.custom_minimum_size = Vector2(60, 60)
 	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	ic.texture = load(GameData.ach_icon_path(a["img"])) as Texture2D
 	if not unlocked:
-		ic.modulate = Color(1, 1, 1, 0.35)
+		ic.modulate = Color(1, 1, 1, 0.30)
 	col.add_child(ic)
 
 	var nm := Label.new()
 	nm.text = a["name"] if unlocked else "???"
 	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	nm.add_theme_font_size_override("font_size", 15)
-	nm.modulate = Color(1, 1, 1, 1) if unlocked else Color(1, 1, 1, 0.45)
+	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	nm.add_theme_font_size_override("font_size", FS_SMALL + 1)
+	nm.add_theme_color_override("font_color", UI_GOLD if unlocked else UI_TXT_DIM)
 	col.add_child(nm)
 
 	# точки-ступени
@@ -1113,23 +1251,42 @@ func _ach_card(a: Dictionary) -> Control:
 	dots.add_theme_constant_override("separation", 4)
 	for i in n_tiers:
 		var d := Panel.new()
-		d.custom_minimum_size = Vector2(16, 16)
+		d.custom_minimum_size = Vector2(14, 14)
 		var dsb := StyleBoxFlat.new()
-		dsb.set_corner_radius_all(8)
-		dsb.bg_color = Color("ffb14d") if i < filled else Color(1, 1, 1, 0.12)
+		dsb.set_corner_radius_all(7)
+		dsb.bg_color = UI_GOLD if i < filled else Color(1, 1, 1, 0.12)
 		d.add_theme_stylebox_override("panel", dsb)
 		dots.add_child(d)
 	col.add_child(dots)
 
-	# прогресс до следующей ступени
+	# прогресс-бар до следующей ступени + подпись val/next
 	if not manual and filled < thresholds.size():
+		var prev: int = int(thresholds[filled - 1]) if filled > 0 else 0
+		var next: int = int(thresholds[filled])
+		var frac: float = clampf(float(val - prev) / maxf(1.0, float(next - prev)), 0.0, 1.0)
+		col.add_child(_mini_bar(frac, UI_GOLD))
 		var pr := Label.new()
-		pr.text = "%d / %d" % [val, int(thresholds[filled])]
+		pr.text = "%d / %d" % [val, next]
 		pr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		pr.add_theme_font_size_override("font_size", 13)
-		pr.modulate = Color(1, 1, 1, 0.6)
+		pr.add_theme_font_size_override("font_size", FS_SMALL)
+		pr.add_theme_color_override("font_color", UI_TXT_DIM)
 		col.add_child(pr)
 	return card
+
+# Тонкий прогресс-бар (капсула фон + заливка), доля 0..1.
+func _mini_bar(frac: float, col: Color, h: float = 8.0) -> ProgressBar:
+	var bar := ProgressBar.new()
+	bar.min_value = 0.0; bar.max_value = 1.0; bar.value = clampf(frac, 0.0, 1.0)
+	bar.show_percentage = false
+	bar.custom_minimum_size = Vector2(0, h)
+	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(1, 1, 1, 0.10); bg.set_corner_radius_all(int(h * 0.5))
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = col; fill.set_corner_radius_all(int(h * 0.5))
+	bar.add_theme_stylebox_override("background", bg)
+	bar.add_theme_stylebox_override("fill", fill)
+	return bar
 
 func _coll_header(text: String) -> void:
 	var l := Label.new()
@@ -1154,36 +1311,55 @@ func _sticker_grid(all: Array, got: Array) -> void:
 	grid.add_theme_constant_override("h_separation", 8)
 	grid.add_theme_constant_override("v_separation", 8)
 	for name in all:
+		var cell := PanelContainer.new()
+		cell.custom_minimum_size = Vector2(104, 104)
+		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		if got.has(name):
+			cell.add_theme_stylebox_override("panel", _panel_sb(Color(UI_GOLD.r, UI_GOLD.g, UI_GOLD.b, 0.4), UI_PANEL2, 12))
 			var tr := TextureRect.new()
-			tr.custom_minimum_size = Vector2(104, 104)
-			tr.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 			tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 			tr.texture = load(GameData.sticker_path(name)) as Texture2D
-			grid.add_child(tr)
+			cell.add_child(tr)
 		else:
-			var slot := Panel.new()
-			slot.custom_minimum_size = Vector2(104, 104)
-			slot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			var sb := StyleBoxFlat.new()
-			sb.bg_color = Color(1, 1, 1, 0.05)
-			sb.set_corner_radius_all(10)
-			slot.add_theme_stylebox_override("panel", sb)
-			grid.add_child(slot)
+			cell.add_theme_stylebox_override("panel", _panel_sb(UI_BORDER, Color(0.05, 0.05, 0.09, 0.7), 12))
+			cell.tooltip_text = String(STICKER_HINTS.get(name, "выпадает случайно за этот грейд"))
+			var lock := Label.new()
+			lock.text = "🔒"
+			lock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			lock.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			lock.add_theme_font_size_override("font_size", 34)
+			lock.modulate = Color(1, 1, 1, 0.28)
+			cell.add_child(lock)
+		grid.add_child(cell)
 	collection_list.add_child(grid)
 
 # ---------- вкладка «Лента идеальных» ----------
 func _fill_ribbon_tab() -> void:
 	var rb: Dictionary = PotionProfile.data.get("perfect_ribbon", {"count": 0.0, "platinum_count": 0})
 	var count: float = float(rb.get("count", 0.0))
+	var full: float = float(GameData.RIBBON_FULL)
 	var plat: int = int(rb.get("platinum_count", 0))
-	_coll_header("Лента идеальных — %.1f / %d" % [count, int(GameData.RIBBON_FULL)])
-	_ribbon_grid(count, int(GameData.RIBBON_FULL))
-	_coll_line("Идеалы на высоких тирах и сложностях заполняют ленту быстрее.")
+	_coll_section("Лента идеалов  %.1f / %d" % [count, int(full)])
+	col_add_mini_bar(count / maxf(1.0, full), 18.0)     # крупная полоса заполнения
+	_ribbon_grid(count, int(full))
+	_coll_hint("Идеалы на высоких тирах и сложностях заполняют ленту быстрее.")
 	if plat > 0:
-		_coll_header("Платиновых лент: %d" % plat)
+		_coll_section("Платиновых лент: %d" % plat)
 		_plat_row(plat)
+
+# добавить прогресс-бар прямо в список коллекции
+func col_add_mini_bar(frac: float, h: float) -> void:
+	collection_list.add_child(_mini_bar(frac, UI_GOLD, h))
+
+# приглушённая подпись-подсказка в коллекции
+func _coll_hint(text: String) -> void:
+	var l := Label.new()
+	l.text = text
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.add_theme_font_size_override("font_size", FS_SMALL)
+	l.add_theme_color_override("font_color", UI_TXT_DIM)
+	collection_list.add_child(l)
 
 # Сетка ленты: заполненные слоты — иконкой идеала, текущий — приглушённо (дробно).
 func _ribbon_grid(count: float, total: int) -> void:
@@ -1251,8 +1427,13 @@ func _npc_row(npc_e: Dictionary) -> void:
 	var tcol: Color = GameData.TIER_COLORS.get(tier, Color.WHITE)
 
 	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(0, 108)
+	btn.custom_minimum_size = Vector2(0, 104)
 	btn.disabled = not met
+	btn.focus_mode = Control.FOCUS_NONE
+	var accent: Color = Color(tcol.r, tcol.g, tcol.b, 0.5) if met else UI_BORDER
+	for st in ["normal", "hover", "pressed", "disabled"]:
+		btn.add_theme_stylebox_override(st, _panel_sb(accent, UI_PANEL if met else Color(0.07, 0.07, 0.11, 0.85)))
+	btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	if met:
 		btn.pressed.connect(_show_char.bind(npc_e))
 
@@ -1308,25 +1489,30 @@ func _npc_row(npc_e: Dictionary) -> void:
 # ---------- экран «Персонажи» (список гостей) ----------
 func _build_chars() -> void:
 	chars_panel = _make_center_panel()
+	# на ВЕСЬ экран (топбар скрыт), а не окном снизу
+	(chars_panel.get_node("Card") as PanelContainer).offset_top = PANEL_INSET
 	var cv := chars_panel.get_node("Card/V") as VBoxContainer
-	cv.add_theme_constant_override("separation", 10)
+	cv.add_theme_constant_override("separation", 12)
 	var title := Label.new()
-	title.text = "Персонажи"
+	title.text = "ПЕРСОНАЖИ"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 28)
+	title.add_theme_font_size_override("font_size", FS_TITLE)
+	title.add_theme_color_override("font_color", UI_GOLD)
 	cv.add_child(title)
-	_glow_label(title, Color("6ec3ff"))
+	_glow_label(title, UI_GOLD)
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	cv.add_child(scroll)
 	chars_list = VBoxContainer.new()
 	chars_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	chars_list.add_theme_constant_override("separation", 8)
+	chars_list.add_theme_constant_override("separation", 10)
 	scroll.add_child(chars_list)
 	var back := Button.new()
 	back.text = "← Назад"
-	back.custom_minimum_size = Vector2(0, 52)
+	back.custom_minimum_size = Vector2(0, 54)
+	back.add_theme_font_size_override("font_size", FS_BODY)
+	back.focus_mode = Control.FOCUS_NONE
 	back.pressed.connect(_close_overlay)
 	cv.add_child(back)
 
@@ -1574,27 +1760,75 @@ func _char_header(text: String, tcol: Color) -> void:
 # ---------- экран профиля/аккаунта ----------
 func _build_account() -> void:
 	account_panel = _make_center_panel()
-	var cv := account_panel.get_node("Card/V") as VBoxContainer
-	cv.add_theme_constant_override("separation", 10)
+	# затемнение фона — компактная карточка читается как модальный лист
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.55)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	account_panel.add_child(dim)
+	account_panel.move_child(dim, 0)
+	# карточку — компактной и по центру экрана (а не «прибитой» вниз)
+	var card := account_panel.get_node("Card") as PanelContainer
+	card.anchor_left = 0.5; card.anchor_right = 0.5; card.anchor_top = 0.5; card.anchor_bottom = 0.5
+	card.offset_left = -322.0; card.offset_right = 322.0
+	card.offset_top = -440.0; card.offset_bottom = 440.0
+	card.add_theme_stylebox_override("panel", _panel_sb(UI_BORDER, UI_PANEL, 18))
+	var cv := card.get_node("V") as VBoxContainer
+	cv.alignment = BoxContainer.ALIGNMENT_BEGIN
+	cv.add_theme_constant_override("separation", 12)
 	var title := Label.new()
-	title.text = "Профиль"
+	title.text = "ПРОФИЛЬ"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 28)
+	title.add_theme_font_size_override("font_size", FS_TITLE)
+	title.add_theme_color_override("font_color", UI_GOLD)
 	cv.add_child(title)
-	_glow_label(title, Color("6ec3ff"))
+	_glow_label(title, UI_GOLD)
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	cv.add_child(scroll)
 	account_list = VBoxContainer.new()
 	account_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	account_list.add_theme_constant_override("separation", 10)
+	account_list.add_theme_constant_override("separation", 12)
 	scroll.add_child(account_list)
 	var back := Button.new()
 	back.text = "← Меню"
-	back.custom_minimum_size = Vector2(0, 52)
+	back.custom_minimum_size = Vector2(0, 54)
+	back.add_theme_font_size_override("font_size", FS_BODY)
+	back.focus_mode = Control.FOCUS_NONE
 	back.pressed.connect(_show_start)
 	cv.add_child(back)
+
+# Шапка профиля: крупная иконка + ник (золото) + статус.
+func _acc_header(status: String, status_col: Color) -> void:
+	var head := PanelContainer.new()
+	head.add_theme_stylebox_override("panel", _panel_sb(status_col, UI_PANEL2, 14))
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 14)
+	head.add_child(h)
+	var ic := TextureRect.new()
+	ic.texture = _ui("nav_profile")
+	ic.custom_minimum_size = Vector2(64, 64)
+	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	h.add_child(ic)
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_theme_constant_override("separation", 2)
+	var nick := Label.new()
+	nick.text = PotionAuth.get_nickname()
+	nick.add_theme_font_size_override("font_size", FS_H)
+	nick.add_theme_color_override("font_color", UI_GOLD)
+	v.add_child(nick)
+	var stl := Label.new()
+	stl.text = status
+	stl.add_theme_font_size_override("font_size", FS_SMALL)
+	stl.add_theme_color_override("font_color", status_col)
+	v.add_child(stl)
+	h.add_child(v)
+	account_list.add_child(head)
 
 func _show_account() -> void:
 	phase = "account"
@@ -1612,19 +1846,19 @@ func _populate_account() -> void:
 	for c in account_list.get_children():
 		c.queue_free()
 	if PotionAuth.is_logged_in():
-		_acc_line("Вошёл: %s" % PotionAuth.get_nickname(), Color("6dff8f"), 22)
-		_acc_line("Прогресс синхронизируется между устройствами.", Color(1, 1, 1, 0.7))
+		_acc_header("В аккаунте · синхронизация между устройствами", UI_OK)
 		account_list.add_child(_acc_nick_row())
 		var out := Button.new()
 		out.text = "Выйти"
-		out.custom_minimum_size = Vector2(0, 48)
+		out.custom_minimum_size = Vector2(0, 50)
+		out.add_theme_font_size_override("font_size", FS_BODY)
+		out.focus_mode = Control.FOCUS_NONE
 		out.pressed.connect(_acc_logout)
 		account_list.add_child(out)
 		return
 
 	# --- гость ---
-	_acc_line("Гость: %s" % PotionAuth.get_nickname(), Color("ffcf5d"), 22)
-	_acc_line("Прогресс сохраняется на этом устройстве.", Color(1, 1, 1, 0.7))
+	_acc_header("Гость · прогресс на этом устройстве", UI_GOLD)
 	account_list.add_child(_acc_nick_row())
 
 	var rem := CheckBox.new()
@@ -2007,13 +2241,11 @@ func _render_shop() -> void:
 		bsb.set_content_margin_all(12.0)
 		block.add_theme_stylebox_override("panel", bsb)
 		var hb := HBoxContainer.new()
-		hb.add_theme_constant_override("separation", 12)
+		hb.add_theme_constant_override("separation", 20)
 		block.add_child(hb)
-		# крупная иконка выбранного грейда
-		var ic := Label.new()
-		ic.text = String(it["icon"])
-		ic.add_theme_font_size_override("font_size", 46)
-		ic.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		# крупная иконка предмета (×2, картинка item_<id>.png, фолбэк — эмодзи)
+		var ic := _item_icon_node(it, 120.0, 64)
+		ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		hb.add_child(ic)
 		# инфо выбранного грейда
 		var vb := VBoxContainer.new()
@@ -2161,6 +2393,26 @@ func _render_items() -> void:
 		l.modulate = Color(1, 1, 1, 0.55)
 		items_list.add_child(l)
 
+# Иконка предмета: картинка item_<id>.png, если есть; иначе эмодзи-фолбэк.
+func _item_icon_node(it: Dictionary, sz: float, emoji_fs: int) -> Control:
+	var tex := load("res://assets/ui/item_%s.png" % String(it.get("id", ""))) as Texture2D
+	if tex != null:
+		var ir := TextureRect.new()
+		ir.texture = tex
+		ir.custom_minimum_size = Vector2(sz, sz)
+		ir.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		ir.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		ir.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		return ir
+	var l := Label.new()
+	l.text = String(it.get("icon", "❓"))
+	l.custom_minimum_size = Vector2(sz, sz)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.add_theme_font_size_override("font_size", emoji_fs)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
 # Карточка предмета инвентаря (как в браузере): крупная иконка, имя+грейд, описание,
 # строка «Эффект:» зелёным, крупная кнопка «Применить» + счётчик + подсказка по фазе.
 func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContainer:
@@ -2186,13 +2438,7 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	ibsb.set_corner_radius_all(12)
 	ibsb.set_content_margin_all(8.0)
 	icon_box.add_theme_stylebox_override("panel", ibsb)
-	var icon := Label.new()
-	icon.text = String(it["icon"])
-	icon.custom_minimum_size = Vector2(56, 56)
-	icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	icon.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	icon.add_theme_font_size_override("font_size", 40)
-	icon_box.add_child(icon)
+	icon_box.add_child(_item_icon_node(it, 56.0, 40))
 	row.add_child(icon_box)
 
 	var body := VBoxContainer.new()
@@ -2325,20 +2571,29 @@ func _build_topbar() -> void:
 	topbar.add_child(row)
 
 	# крупные тач-иконки (день/серия/рейтинг переехали под прогрессию)
-	topbar_coll_btn = _topbar_icon(row, "🗂", "Коллекция", _show_collection, true)
-	_topbar_icon(row, "🛒", "Лавка", _open_shop, true)
-	_topbar_icon(row, "🏆", "Рейтинг", _open_leaderboard, true)
-	_topbar_icon(row, "👥", "Персонажи", _show_chars, true)
-	_topbar_icon(row, "⚡", "Пассивки", Callable(), false)
-	_topbar_icon(row, "👤", "Профиль", _show_account, true)
+	topbar_coll_btn = _topbar_icon(row, "nav_collection", "🗂", "Коллекция", _show_collection, true)
+	_topbar_icon(row, "nav_shop", "🛒", "Лавка", _open_shop, true)
+	_topbar_icon(row, "nav_leaderboard", "🏆", "Рейтинг", _open_leaderboard, true)
+	_topbar_icon(row, "nav_characters", "👥", "Персонажи", _show_chars, true)
+	_topbar_icon(row, "nav_skills", "⚡", "Пассивки", Callable(), false)
+	_topbar_icon(row, "nav_profile", "👤", "Профиль", _show_account, true)
 
-func _topbar_icon(row: HBoxContainer, glyph: String, tip: String, cb: Callable, enabled: bool) -> Button:
+# Кнопка топбара: картинка nav_<name>.png (масштабируется, дизейбл дим-ит её),
+# фолбэк — эмодзи-глиф, если картинки нет.
+func _topbar_icon(row: HBoxContainer, icon_name: String, glyph: String, tip: String, cb: Callable, enabled: bool) -> Button:
 	var b := Button.new()
-	b.text = glyph
 	b.tooltip_text = tip
-	b.custom_minimum_size = Vector2(66, 62)
-	b.add_theme_font_size_override("font_size", 34)
+	b.custom_minimum_size = Vector2(74, 66)
+	b.focus_mode = Control.FOCUS_NONE
 	b.disabled = not enabled
+	var tex := load("res://assets/ui/%s.png" % icon_name) as Texture2D
+	if tex != null:
+		b.icon = tex
+		b.expand_icon = true                       # масштабировать под кнопку
+		b.add_theme_color_override("icon_disabled_color", Color(1, 1, 1, 0.35))
+	else:
+		b.text = glyph
+		b.add_theme_font_size_override("font_size", 34)
 	if enabled and cb.is_valid():
 		b.pressed.connect(cb)
 	row.add_child(b)
@@ -2768,7 +3023,9 @@ func _mod_rows(npc_id: String) -> Array:
 		rows.append(_mod_row(tex, "", "фокус: %s" % fm["name"], Color("6ec3ff")))
 	for m in mods:
 		var mm: Dictionary = GameData.MOD_META[m]
-		rows.append(_mod_row(null, String(mm["icon"]), String(mm["name"]), Color("ffcf5d")))
+		# картинка mod_<key>.png (иконка вместо эмодзи), фолбэк — эмодзи из MOD_META
+		var mtex := load("res://assets/ui/mod_%s.png" % m) as Texture2D
+		rows.append(_mod_row(mtex, String(mm["icon"]), String(mm["name"]), Color("ffcf5d")))
 	return rows
 
 func _mod_row(tex: Texture2D, emoji: String, text: String, col: Color) -> PanelContainer:

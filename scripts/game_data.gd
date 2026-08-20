@@ -245,7 +245,7 @@ func npc_config(npc: Dictionary) -> Dictionary:
 const BASE_STICKERS := 3
 const STICKERS := {
 	"perfect": ["perfect1", "perfect2", "perfect3", "perfect4", "perfect5", "perfect6", "perfect7", "perfect8", "perfect9", "perfect10", "perfect11", "perfect12", "perfect13", "perfect14", "perfect15"],
-	"good": ["good1", "good2", "good3", "good4", "good5", "good6", "good7"],   # good8/good9 (стикеры за чаевые) — ждут ассетов
+	"good": ["good1", "good2", "good3", "good4", "good5", "good6", "good7", "good8", "good9"],
 	"swill": ["swill1", "swill2", "swill3", "swill4", "swill5"],
 	"bad": ["bad1", "bad2", "bad3", "bad4", "bad5", "bad6", "bad7", "bad8", "bad9"],
 }
