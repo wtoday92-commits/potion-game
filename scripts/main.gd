@@ -385,20 +385,23 @@ func _build_ui() -> void:
 	jar_stage.set_jar(jar)
 
 	var sliders_row := HBoxContainer.new()
-	sliders_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	sliders_row.add_theme_constant_override("separation", 8)   # плотнее — до 7 колонок влезает
+	sliders_row.add_theme_constant_override("separation", 6)
+	sliders_row.size_flags_vertical = Control.SIZE_SHRINK_END   # прижат к низу (зона «под столом»)
 	round_ui.add_child(sliders_row)
 
 	for key in ORDER:
 		var p: Dictionary = PARAMS[key]
 		var col := VBoxContainer.new()
 		col.alignment = BoxContainer.ALIGNMENT_CENTER
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL   # колонки делят ширину поровну
+		col.add_theme_constant_override("separation", 4)
 		sliders_row.add_child(col)
 		slider_cols[key] = col
 
 		var name_lbl := Label.new()
 		name_lbl.text = p["label"]
 		name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		name_lbl.add_theme_font_size_override("font_size", 15)
 		col.add_child(name_lbl)
 
 		var s := TouchSlider.new()
@@ -407,7 +410,7 @@ func _build_ui() -> void:
 		s.step = p["step"]
 		s.value = p["min"]
 		s.hue_track = key == "color" or key == "colorB"   # спектр/спектр Б — радужный градиент
-		s.custom_minimum_size = Vector2(70, 300)   # уже — чтобы 7 колонок влезли в кадр
+		s.custom_minimum_size = Vector2(84, 330)   # выше + крупная тач-цель; по центру своей доли
 		s.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		s.value_changed.connect(_on_slider_changed.bind(key))
 		col.add_child(s)
@@ -420,9 +423,13 @@ func _build_ui() -> void:
 
 	done_btn = Button.new()
 	done_btn.text = "ГОТОВО!"
-	done_btn.custom_minimum_size = Vector2(300, 56)
-	done_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER   # компактная, по центру
-	done_btn.add_theme_font_size_override("font_size", 22)
+	done_btn.custom_minimum_size = Vector2(460, 76)   # крупная тач-цель у самого низа
+	done_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	done_btn.add_theme_font_size_override("font_size", 26)
+	done_btn.focus_mode = Control.FOCUS_NONE
+	for st in ["normal", "hover", "pressed"]:
+		done_btn.add_theme_stylebox_override(st, _tab_sb(true))
+	done_btn.add_theme_color_override("font_color", UI_GOLD)
 	done_btn.pressed.connect(_on_done)
 	round_ui.add_child(done_btn)
 
@@ -527,10 +534,26 @@ func _build_ui() -> void:
 		sv.add_child(b)
 		diff_btns[lvl] = b
 
-	# ---- экран результата (в проёме окна, прозрачный) ----
+	# ---- экран результата: инфо — в проёме окна, кнопки — ниже, на «стене», крупные ----
 	result_panel = _make_center_panel(true)
-	var rv := result_panel.get_node("Card/V") as VBoxContainer
-	rv.add_theme_constant_override("separation", 12)
+	# ЗОНА ОКНА (проём): стикер + грейд + награда + разбивка + текст
+	var rv := VBoxContainer.new()
+	rv.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rv.anchor_left = 0.06; rv.anchor_right = 0.94
+	rv.anchor_top = 0.20; rv.anchor_bottom = 0.60
+	rv.alignment = BoxContainer.ALIGNMENT_CENTER
+	rv.add_theme_constant_override("separation", 10)
+	rv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	result_panel.add_child(rv)
+	# ЗОНА КНОПОК (ниже окна, на стене) — крупные тач-цели
+	var ract := VBoxContainer.new()
+	ract.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ract.anchor_left = 0.5; ract.anchor_right = 0.5
+	ract.offset_left = -234.0; ract.offset_right = 234.0
+	ract.anchor_top = 0.72; ract.anchor_bottom = 0.98
+	ract.alignment = BoxContainer.ALIGNMENT_CENTER
+	ract.add_theme_constant_override("separation", 12)
+	result_panel.add_child(ract)
 
 	# «герой»: стикер в круглом свечении-ореоле (цвет — по грейду в _show_result)
 	var hero := Control.new()
@@ -587,32 +610,34 @@ func _build_ui() -> void:
 
 	# «Переиграть» (Ир): показывается только когда активен бафф/дебафф переигровки
 	result_replay_btn = Button.new()
-	result_replay_btn.custom_minimum_size = Vector2(360, 54)
+	result_replay_btn.custom_minimum_size = Vector2(468, 62)
 	result_replay_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	result_replay_btn.add_theme_font_size_override("font_size", FS_BODY)
+	result_replay_btn.add_theme_font_size_override("font_size", 19)
 	result_replay_btn.focus_mode = Control.FOCUS_NONE
 	result_replay_btn.visible = false
 	result_replay_btn.pressed.connect(_ir_replay)
-	rv.add_child(result_replay_btn)
+	ract.add_child(result_replay_btn)
 
 	result_next_btn = Button.new()
 	result_next_btn.text = "Дальше →"
-	result_next_btn.custom_minimum_size = Vector2(360, 58)
+	result_next_btn.custom_minimum_size = Vector2(468, 82)   # крупная primary у стены
 	result_next_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	result_next_btn.add_theme_font_size_override("font_size", 20)
+	result_next_btn.add_theme_font_size_override("font_size", 26)
 	result_next_btn.focus_mode = Control.FOCUS_NONE
 	for st in ["normal", "hover", "pressed"]:
 		result_next_btn.add_theme_stylebox_override(st, _tab_sb(true))   # золотая «primary»
 	result_next_btn.add_theme_color_override("font_color", UI_GOLD)
 	result_next_btn.pressed.connect(_result_next)
-	rv.add_child(result_next_btn)
+	ract.add_child(result_next_btn)
 
 	var res_menu := Button.new()
 	res_menu.text = "← В меню"
-	res_menu.custom_minimum_size = Vector2(360, 44)
+	res_menu.custom_minimum_size = Vector2(468, 60)
 	res_menu.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	res_menu.add_theme_font_size_override("font_size", FS_BODY)
+	res_menu.focus_mode = Control.FOCUS_NONE
 	res_menu.pressed.connect(_show_start)
-	rv.add_child(res_menu)
+	ract.add_child(res_menu)
 
 	# ---- стартовый экран (главное меню + HUD профиля) ----
 	_build_start()

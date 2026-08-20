@@ -9,9 +9,11 @@ class_name JarStage
 const JAR_W := 308.0
 const JAR_H := 530.0
 const BASE_FRAC := 0.92         # доля высоты банки до основания (== pivot в potion_jar)
-# Экранный Y основания банки («стол»). Поднят — стойка выше, снизу больше места
-# под регуляторы. Синхронизирован с offset передней стойки в SCENE_STATES["play"].
-const TABLE_SCREEN_Y := 664.0
+# Экранный Y основания банки («стол») — как ДОЛЯ высоты экрана (664/1280), чтобы
+# банка стояла на столе на любом экране/пропорции (фон покрывает по высоте).
+const TABLE_SCREEN_FRAC := 0.519
+func _table_screen_y() -> float:
+	return get_viewport_rect().size.y * TABLE_SCREEN_FRAC
 
 var jar: Control
 
@@ -26,7 +28,7 @@ func set_jar(j: Control) -> void:
 
 # Локальный Y верха стойки (перевод из экранного в координаты сцены).
 func _base_local() -> float:
-	return TABLE_SCREEN_Y - global_position.y
+	return _table_screen_y() - global_position.y
 
 # Публично: линия стола в локальных координатах (низ «стекла окна»).
 func table_line() -> float:
