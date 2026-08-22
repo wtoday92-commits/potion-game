@@ -13,7 +13,11 @@ const N_COLOR := 5      # оттенков металла
 
 var shape: int = GEAR
 var tint: int = 0
+var tex: Texture2D = null         # Навигатор: картинка-деталь (вместо кода-формы)
+var tex_id: int = -1              # индекс детали (= сигнатура при tex-режиме)
 var home_zone: Rect2 = Rect2()   # зона «обитания» (доли слоя) — для дрейфа на УР.4
+var blob_scale: float = 1.0      # масштаб сгустка Векса (размер = ползунок bsize)
+var blob_col: Color = Color(0.55, 0.6, 0.72)   # цвет сгустка Векса (= цвет зелья)
 var _drag: bool = false
 var _drag_snd_t: int = 0
 var _palette := [
@@ -37,13 +41,32 @@ func set_kind(k: int) -> void:
 	shape = k
 	queue_redraw()
 
+# Векс: размер сгустка (доля ползунка bsize) и цвет (= цвет зелья).
+func set_blob_visual(scale: float, col: Color) -> void:
+	blob_scale = clampf(scale, 0.45, 1.35)
+	blob_col = col
+	queue_redraw()
+
 func set_signature(sh: int, ti: int) -> void:
 	shape = sh
 	tint = ti
 	queue_redraw()
 
+# Навигатор: деталь-картинка. id — индекс в наборе (служит сигнатурой).
+func set_texture_part(t: Texture2D, id: int) -> void:
+	tex = t
+	tex_id = id
+	queue_redraw()
+
+# Задать размер детали (Навигатор делает их крупнее для читаемости на телефоне).
+func set_part_size(px: float) -> void:
+	size = Vector2(px, px)
+	custom_minimum_size = size
+	pivot_offset = size * 0.5
+	queue_redraw()
+
 func sig() -> int:
-	return shape * 10 + tint
+	return tex_id if tex_id >= 0 else shape * 10 + tint
 
 func is_dragging() -> bool:
 	return _drag
@@ -53,10 +76,13 @@ func center() -> Vector2:
 
 func _cols() -> Array:
 	if shape == BLOB:
-		return [Color(0.12, 0.13, 0.17, 0.95), Color(0.55, 0.6, 0.72, 0.7)]
+		return [blob_col, blob_col.darkened(0.4)]
 	return _palette[tint % _palette.size()]
 
 func _draw() -> void:
+	if tex != null:                       # Навигатор: рисуем картинку-деталь во весь контрол
+		draw_texture_rect(tex, Rect2(Vector2.ZERO, size), false)
+		return
 	var ctr := size * 0.5
 	var mc: Array = _cols()
 	var col: Color = mc[0]
@@ -64,9 +90,18 @@ func _draw() -> void:
 	var R := 19.0
 	match shape:
 		BLOB:
-			draw_circle(ctr, R - 1.0, col)
-			draw_arc(ctr, R - 1.0, 0.0, TAU, 32, edge, 2.0, true)
-			draw_circle(ctr - Vector2(5, 6), 4.5, Color(1, 1, 1, 0.35))
+			# копия вида жидкого сгустка из liquid.gdshader: яркая заливка, подтень
+			# к низу-справа, светлый ободок, крупный мягкий блик + глянцевая точка.
+			var br: float = 19.0 * blob_scale
+			var fillc := Color(minf(1.0, col.r * 1.55 + 0.14), minf(1.0, col.g * 1.55 + 0.14), minf(1.0, col.b * 1.55 + 0.14))
+			draw_circle(ctr, br + 1.0, Color(col.r * 0.25, col.g * 0.25, col.b * 0.25, 0.55))   # тёмная окаёмка
+			draw_circle(ctr, br, fillc)                                                          # тело («пузырь»)
+			draw_circle(ctr + Vector2(br * 0.26, br * 0.30), br * 0.70, Color(fillc.darkened(0.30), 0.5))  # объёмная подтень
+			draw_arc(ctr, br * 0.82, 0.0, TAU, 30, Color(1, 1, 1, 0.22), maxf(1.5, br * 0.12), true)       # светлый ободок
+			var hl := ctr + Vector2(-br * 0.32, -br * 0.40)                                       # крупный блик
+			var hlc := Color(minf(1.0, fillc.r * 1.45 + 0.4), minf(1.0, fillc.g * 1.45 + 0.4), minf(1.0, fillc.b * 1.45 + 0.4), 0.5)
+			draw_circle(hl, br * 0.48, hlc)
+			draw_circle(hl, br * 0.16, Color(1, 1, 1, 0.85))                                      # глянцевая точка
 		GEAR:
 			for i in 10:
 				var a := TAU * float(i) / 10.0

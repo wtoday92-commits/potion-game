@@ -269,9 +269,16 @@ class ArchivistMech extends NpcMech:
 			return
 		var m: Dictionary = g._bg_metrics()
 		var win: Rect2 = m["win"]
+		var table_y: float = m["table_y"]
+		# верх дождя — сразу под надписью фазы (ВОССОЗДАЙ/ЗАПОМНИ), а не с середины окна
+		var top_y: float = win.position.y
+		if g.phase_label != null and is_instance_valid(g.phase_label):
+			top_y = g.phase_label.global_position.y + g.phase_label.size.y + 6.0
+		# от надписи ВНИЗ до линии стола: дождь мешает видеть банку, но не лезет на
+		# стойку/ползунки/текст (верх плавно появляется, низ тает — см. MatrixRain)
 		rain.set_anchors_preset(Control.PRESET_TOP_LEFT)
-		rain.position = win.position
-		rain.size = win.size
+		rain.position = Vector2(win.position.x, top_y)
+		rain.size = Vector2(win.size.x, maxf(40.0, table_y - top_y))
 
 	func craft_start(g) -> void:
 		g_ref = g
@@ -665,127 +672,130 @@ class JanitorMech extends NpcMech:
 		return "🧽 Уборщик: +%d%% рейтинга за чистоту" % int(round(50.0 * final_clean))
 
 # ============================================================
-# Маркетолог с безлюдного спутника: обычные ползунки прячутся; хаос-панель из ~10
-# случайных контролов, где для каждого параметра работает РОВНО ОДИН, остальные —
-# обманки. +50% времени. Скоринг обычный (банка — единственный фидбэк).
-# Порт LEVEL4_FX.marketer.
+# Маркетолог с безлюдного спутника: ползунки ОБЫЧНЫЕ (штатная прогрессия). Фишка —
+# полноэкранные МИНИИГРЫ, которые вылезают 1/2/3 раза за заказ (по УР). Пока таймер
+# заказа на них идёт ×0.2 (виден только он сверху). Капча: верно → буст рейтинга,
+# неверно → штраф + сбивается случайный ползунок. Этап 1: реализована капча.
 # ============================================================
 class MarketerMech extends NpcMech:
+	const MG_COUNT := {1: 1, 2: 1, 3: 2, 4: 2}
 	var g_ref
-	var panel: PanelContainer = null
+	var active_game: Control = null
+	var mg_bonus: float = 1.0
+	var schedule: Array = []            # пороги elapsed (доли phase_total), по возрастанию
+	var used_types: Dictionary = {}     # тип миниигры -> сколько раз был (повтор не >1)
 
 	func craft_start(g) -> void:
 		g_ref = g
-		g.phase_total *= 1.5
-		g.phase_left *= 1.5
+		var cnt: int = int(MG_COUNT.get(g.level, 1))
+		# доп.время НЕ добавляем: на время миниигры таймер и так ×0.2 (почти пауза)
+		schedule.clear()
+		var slots: Array = {1: [0.45], 2: [0.36, 0.68]}.get(cnt, [0.45])
+		for s in slots:
+			schedule.append(float(s))
+
+	func process(g, _delta: float) -> void:
+		if active_game != null:
+			if is_instance_valid(active_game):
+				active_game.set_timer(g.phase_left)
+			return
+		if schedule.is_empty():
+			return
+		var elapsed_frac: float = 1.0 - clampf(g.phase_left / maxf(0.001, g.phase_total), 0.0, 1.0)
+		if elapsed_frac >= float(schedule[0]):
+			schedule.remove_at(0)
+			_launch(g)
+
+	# выбрать тип миниигры: меньше всего использованный (повтор не более 1 раза за заказ)
+	func _pick_type() -> String:
+		var pool: Array = ["captcha", "ad", "puzzle"]
+		pool.shuffle()
+		pool.sort_custom(func(a, b): return int(used_types.get(a, 0)) < int(used_types.get(b, 0)))
+		return pool[0]
+
+	# запуск миниигры (в КОРЕНЬ main — round_ui это VBox), таймер заказа ×0.2, UI скрыт
+	func _launch(g) -> void:
+		g.timer_rate = 0.2
 		for k in g.active:
-			g.slider_cols[k].visible = false
-		# спеки: по одному реальному контролу на активный параметр + обманки до ~10
-		var specs: Array = []
-		for k in g.active:
-			specs.append({"real": true, "key": k, "type": _rand_type()})
-		var decoys: int = maxi(6, 10 - g.active.size())
-		for i in decoys:
-			specs.append({"real": false, "key": "", "type": _rand_type()})
-		specs.shuffle()
-		# панель с сеткой контролов
-		panel = PanelContainer.new()
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(0.12, 0.11, 0.09, 0.92)
-		sb.set_corner_radius_all(12)
-		sb.set_content_margin_all(10.0)
-		panel.add_theme_stylebox_override("panel", sb)
-		var grid := GridContainer.new()
-		grid.columns = 3
-		grid.add_theme_constant_override("h_separation", 10)
-		grid.add_theme_constant_override("v_separation", 10)
-		panel.add_child(grid)
-		for spec in specs:
-			grid.add_child(_make_ctrl(spec))
-		g.round_ui.add_child(panel)
-		g.round_ui.move_child(panel, g.done_btn.get_index())
-
-	func _rand_type() -> String:
-		return ["stepper", "slider"][randi() % 2]
-
-	# ячейка фиксированного размера с контролом; реальный пишет в слайдер, обманка — no-op
-	func _make_ctrl(spec: Dictionary) -> Control:
-		var cell := Control.new()
-		cell.custom_minimum_size = Vector2(120, 120)
-		var real: bool = spec["real"]
-		var key: String = spec["key"]
-		if spec["type"] == "slider":
-			var hs := HSlider.new()
-			hs.set_anchors_preset(Control.PRESET_VCENTER_WIDE)
-			hs.offset_left = 6.0
-			hs.offset_right = -6.0
-			if real:
-				var s = g_ref.sliders[key]
-				hs.min_value = s.min_value
-				hs.max_value = s.max_value
-				hs.step = s.step
-				hs.value = s.value
-				hs.value_changed.connect(_on_real_val.bind(key))
-			else:
-				hs.min_value = 0.0
-				hs.max_value = 100.0
-				hs.value = randf() * 100.0
-				hs.value_changed.connect(_on_decoy)
-			cell.add_child(hs)
+			if g.slider_cols.has(k):
+				g.slider_cols[k].visible = false
+		g.done_btn.visible = false
+		var t: String = _pick_type()
+		used_types[t] = int(used_types.get(t, 0)) + 1
+		var game: Control
+		if t == "ad":
+			game = AdGame.new()
+			game.finished.connect(_on_ad_done)
+		elif t == "puzzle":
+			game = PuzzleGame.new()
+			game.finished.connect(_on_puzzle_done)
 		else:
-			var box := VBoxContainer.new()
-			box.set_anchors_preset(Control.PRESET_FULL_RECT)
-			box.alignment = BoxContainer.ALIGNMENT_CENTER
-			var up := _mk_btn("▲")
-			var dn := _mk_btn("▼")
-			if real:
-				up.pressed.connect(_on_real_step.bind(key, 1))
-				dn.pressed.connect(_on_real_step.bind(key, -1))
-			else:
-				up.pressed.connect(_on_decoy_btn)
-				dn.pressed.connect(_on_decoy_btn)
-			box.add_child(up)
-			box.add_child(dn)
-			cell.add_child(box)
-		return cell
+			game = CaptchaGame.new()
+			game.finished.connect(_on_captcha_done)
+		g.add_child(game)                    # прямо в main (Control на весь экран)
+		game.setup(g.level)
+		game.set_timer(g.phase_left)
+		active_game = game
 
-	func _mk_btn(txt: String) -> Button:
-		var b := Button.new()
-		b.text = txt
-		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(100, 48)
-		b.add_theme_font_size_override("font_size", 24)
-		return b
-
-	func _on_real_val(v: float, key: String) -> void:
-		g_ref.sliders[key].set_value_no_signal(v)
-		g_ref._on_slider_changed(v, key)
-
-	func _on_real_step(key: String, dir: int) -> void:
-		var s = g_ref.sliders[key]
-		var v: float = clampf(s.value + dir * s.step, s.min_value, s.max_value)
-		if not is_equal_approx(v, s.value):
-			s.set_value_no_signal(v)
-			g_ref._on_slider_changed(v, key)
+	func _on_captcha_done(ok: bool, acc: float) -> void:
+		var g = g_ref
+		if ok:
+			mg_bonus *= 1.15                       # верно → буст рейтинга
 		else:
-			Sfx.play("tick")
+			mg_bonus *= 0.82                       # неверно → штраф
+			_knock_slider(g)                       # и сбиваем случайный ползунок
+		# короткое сообщение «на сколько % закрыл», затем следующий шаг
+		if active_game != null and is_instance_valid(active_game):
+			active_game.show_result(int(round(acc * 100.0)), ok)
+		g.get_tree().create_timer(1.3).timeout.connect(func(): _close_game(g))
 
-	func _on_decoy(_v: float) -> void:
-		Sfx.play("uiClick")
+	# реклама: баффа/штрафа нет, просто закрыли и продолжили
+	func _on_ad_done(_ok: bool, _acc: float) -> void:
+		_close_game(g_ref)
 
-	func _on_decoy_btn() -> void:
-		Sfx.play("uiClick")
+	# пазл: множитель по точности (0.85..1.15) + сообщение с процентом
+	func _on_puzzle_done(_ok: bool, acc: float) -> void:
+		var g = g_ref
+		mg_bonus *= (0.85 + 0.30 * clampf(acc, 0.0, 1.0))
+		if active_game != null and is_instance_valid(active_game):
+			active_game.show_result(int(round(acc * 100.0)), acc >= 0.9)
+		g.get_tree().create_timer(1.3).timeout.connect(func(): _close_game(g))
 
-	func stop(g) -> void:
-		if panel != null and is_instance_valid(panel):
-			panel.queue_free()
-		panel = null
+	# сбить случайный активный ползунок в неверное значение
+	func _knock_slider(g) -> void:
+		if g.active.is_empty():
+			return
+		var k: String = g.active[randi() % g.active.size()]
+		var s = g.sliders[k]
+		var nv: float = randf_range(s.min_value, s.max_value)
+		s.set_value_no_signal(nv)
+		g._on_slider_changed(nv, k)
+
+	func _close_game(g) -> void:
+		if active_game != null and is_instance_valid(active_game):
+			active_game.queue_free()
+		active_game = null
+		g.timer_rate = 1.0
 		for k in g.active:
 			if g.slider_cols.has(k):
 				g.slider_cols[k].visible = true
+		g.done_btn.visible = true
+
+	func score_bonus(_g) -> float:
+		return mg_bonus
+
+	func stop(g) -> void:
+		if active_game != null and is_instance_valid(active_game):
+			active_game.queue_free()
+		active_game = null
+		if g != null:
+			g.timer_rate = 1.0
+			for k in g.active:
+				if g.slider_cols.has(k):
+					g.slider_cols[k].visible = true
 
 	func result_note(_g) -> String:
-		return "📰 Маркетолог: настоящий регулятор — один из многих"
+		return "📰 Маркетолог: миниигры-капчи между настройкой (×%.2f рейтинг)" % mg_bonus
 
 # ============================================================
 # Диджей Пульсар: механики-игры нет — на его заказ идёт бит (синтезируется, без
@@ -1045,13 +1055,24 @@ class SwarmMech extends NpcMech:
 	const ZX1 := 0.70
 	const ZY0 := 0.42
 	const ZY1 := 0.82
-	# зоны «обитания» деталей (доли слоя): стол снизу + левая/правая стена — всё ВНЕ
-	# зоны банки, ВНЕ окна (верх-центр) и ВНЕ ползунков (ниже jar_stage).
+	# зоны «обитания» деталей (доли слоя): стол снизу + стены + НАД банкой (верх окна).
+	# Всё ВНЕ зоны сбора — детали летают в т.ч. над сосудом, не только по бокам.
 	var ZONES := [
-		Rect2(0.08, 0.83, 0.84, 0.11),   # стол (нижняя полоса)
-		Rect2(0.02, 0.30, 0.14, 0.52),   # левая стена
-		Rect2(0.84, 0.30, 0.14, 0.52),   # правая стена
+		Rect2(0.06, 0.83, 0.88, 0.11),   # стол (нижняя полоса)
+		Rect2(0.02, 0.40, 0.13, 0.40),   # левая стена
+		Rect2(0.85, 0.40, 0.13, 0.40),   # правая стена
+		Rect2(0.14, 0.235, 0.72, 0.10),  # НАД банкой (верх окна)
 	]
+	# набор картинок-деталей (биомех-слаймы, стиль игры). Индекс = сигнатура.
+	const SWARM_FILES := [
+		"swarm_00_magenta.png", "swarm_01_lime.png", "swarm_02_cyan.png", "swarm_03_orange.png",
+		"swarm_04_violet.png", "swarm_05_yellow.png", "swarm_06_red.png", "swarm_07_turquoise.png",
+		"swarm_08_royalblue.png", "swarm_09_coral.png", "swarm_10_amber.png", "swarm_11_rust.png",
+		"swarm_12_silver.png", "swarm_13_cream.png", "swarm_14_charcoal.png",
+	]
+	const S_MEM := 74.0     # размер детали-образца внутри банки
+	const S_FLY := 92.0     # размер летающих деталей (крупно — читаемо на телефоне)
+	var _texs: Array = []
 	var g_ref
 	var layer: Control = null           # разлетевшиеся детали на «ВОССОЗДАЙ»
 	var mem_parts: Array = []
@@ -1065,22 +1086,29 @@ class SwarmMech extends NpcMech:
 	func setup(g) -> void:
 		g.active.erase("count")          # «сгустки» и «размер» — это детали, не ползунки
 		g.active.erase("bsize")
+		g.active.erase("volume")         # банка ВСЕГДА крупная (иначе детали не влезают)
 		g.sliders["count"].min_value = 0.0   # разрешаем 0 сгустков (иначе банка держит 1)
 
-	func _all_sigs() -> Array:
-		var a: Array = []
-		for sh in DragPart.N_SHAPE:
-			for ti in DragPart.N_COLOR:
-				a.append(sh * 10 + ti)
-		return a
+	func _load_texs() -> void:
+		if not _texs.is_empty():
+			return
+		for f in SWARM_FILES:
+			_texs.append(load("res://assets/swarm/" + f))
+
+	# банку — в максимальный объём (детали крупные, должны помещаться и читаться)
+	func _force_big_jar(g) -> void:
+		g.target["volume"] = float(g.PARAMS["volume"]["max"])
+		g.sliders["volume"].set_value_no_signal(g.target["volume"])
 
 	func memorize_start(g) -> void:
 		g_ref = g
-		n_target = clampi(int(g.target["count"]), 3, 7)
+		_load_texs()
+		n_target = clampi(int(g.target["count"]), 3, 6)
+		_force_big_jar(g)                          # банка максимальная — детали помещаются
 		g.target["count"] = 0                      # жидких сгустков нет — «начинка» = детали
 		g.sliders["count"].set_value_no_signal(0.0)
 		g._apply_to_jar(g.target)                  # перерисовать банку без сгустков
-		var pool := _all_sigs(); pool.shuffle()
+		var pool: Array = range(_texs.size()); pool.shuffle()
 		targets = pool.slice(0, n_target)
 		# цели показываем ВНУТРИ банки — вешаем в качающийся узел (sway), чтобы детали
 		# качались вместе с сосудом и стояли в жидкости (вразброс, не рядами)
@@ -1090,18 +1118,18 @@ class SwarmMech extends NpcMech:
 		var placed: Array = []
 		for i in n_target:
 			var mp := DragPart.new()
-			mp.set_signature(int(targets[i]) / 10, int(targets[i]) % 10)
 			holder.add_child(mp)                           # _ready() ставит size/STOP
+			mp.set_part_size(S_MEM)
+			mp.set_texture_part(_texs[int(targets[i])], int(targets[i]))
 			mp.mouse_filter = Control.MOUSE_FILTER_IGNORE  # образец не таскаем (после _ready)
-			mp.scale = Vector2(0.8, 0.8)                   # чуть мельче — «сгустки» в горле
 			# rejection sampling в зоне жидкости (доли от размера банки)
 			var best := Vector2(0.49 * jw, 0.62 * jh)
-			for _attempt in 14:
-				var cand := Vector2(randf_range(0.33, 0.65) * jw, randf_range(0.44, 0.84) * jh)
+			for _attempt in 18:
+				var cand := Vector2(randf_range(0.30, 0.68) * jw, randf_range(0.42, 0.84) * jh)
 				best = cand
 				var ok := true
 				for pp in placed:
-					if cand.distance_to(pp) < 40.0:
+					if cand.distance_to(pp) < S_MEM * 0.9:
 						ok = false
 						break
 				if ok:
@@ -1114,6 +1142,7 @@ class SwarmMech extends NpcMech:
 		g_ref = g
 		g.phase_total += 3.0
 		g.phase_left += 3.0
+		_force_big_jar(g)                           # банка максимальная
 		g.target["count"] = 0                       # никаких жидких сгустков — «начинка» = детали
 		g.sliders["count"].set_value_no_signal(0.0)
 		g._apply_to_jar(g._current_values())        # перерисовать банку пустой (без сгустков)
@@ -1127,45 +1156,58 @@ class SwarmMech extends NpcMech:
 			tw.tween_property(mp, "position", mp.position + dir * sz.length(), 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
 			tw.tween_callback(mp.queue_free)
 		mem_parts.clear()
-		# 2) из-за краёв влетают десятки деталей: цели + обманки, почти все уникальны
+		# 2) влетают детали: все цели + обманки (все уникальны, максимум = число картинок)
 		layer = Control.new()
 		layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		layer.set_anchors_preset(Control.PRESET_FULL_RECT)
 		g.jar_stage.add_child(layer)
-		var decoys := _all_sigs()
-		decoys.shuffle()
 		var pool: Array = targets.duplicate()          # все цели по одному разу
-		var want: int = clampi(n_target + 12, 16, 24)  # «несколько десятков» разных
-		for s in decoys:
+		var extras: Array = range(_texs.size()); extras.shuffle()
+		var want: int = clampi(n_target + 8, 12, _texs.size())   # крупные детали → не «десятки»
+		for s in extras:
 			if pool.size() >= want:
 				break
 			if not (s in targets):
 				pool.append(s)
 		pool.shuffle()
+		var placed: Array = []                         # центры уже размещённых (анти-наложение)
 		for i in pool.size():
 			var part := DragPart.new()
-			part.set_signature(int(pool[i]) / 10, int(pool[i]) % 10)
+			layer.add_child(part)
+			part.set_part_size(S_FLY)
+			part.set_texture_part(_texs[int(pool[i])], int(pool[i]))
 			var zone: Rect2 = ZONES[i % ZONES.size()]
 			part.home_zone = zone
+			# позиция в зоне без наложения на уже поставленные детали
 			var dst := _rand_in_zone(zone, sz)
+			for _attempt in 22:
+				var cand := _rand_in_zone(zone, sz)
+				dst = cand
+				var ok := true
+				for pc in placed:
+					if cand.distance_to(pc) < S_FLY * 0.95:
+						ok = false
+						break
+				if ok:
+					break
+			placed.append(dst)
 			var start := dst
-			if zone.position.x < 0.2: start.x = -80.0          # влетает слева
-			elif zone.position.x > 0.7: start.x = sz.x + 80.0  # справа
-			else: start.y = sz.y + 90.0                        # снизу (стол)
+			if zone.position.x < 0.2: start.x = -110.0            # влетает слева
+			elif zone.position.x > 0.7: start.x = sz.x + 110.0    # справа
+			elif zone.position.y < 0.3: start.y = -110.0          # НАД банкой → сверху
+			else: start.y = sz.y + 120.0                          # снизу (стол)
 			part.position = start - part.size * 0.5
-			layer.add_child(part)
 			part.dropped.connect(_on_dropped)
 			parts.append(part)
 			var tw2: Tween = part.create_tween()
-			tw2.tween_interval(0.02 * float(i))
-			tw2.tween_property(part, "position", dst - part.size * 0.5, 0.45).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		# УР.4: детали дрейфуют по своим зонам, как мухи (сложнее поймать)
-		if g.level == 4:
-			drift_timer = Timer.new()
-			drift_timer.wait_time = 0.62
-			drift_timer.timeout.connect(_drift)
-			layer.add_child(drift_timer)
-			drift_timer.start()
+			tw2.tween_interval(0.06 * float(i))                   # с интервалами, не все разом
+			tw2.tween_property(part, "position", dst - part.size * 0.5, 0.5).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		# детали слегка «летают» по своим зонам (на УР.4 — активнее)
+		drift_timer = Timer.new()
+		drift_timer.wait_time = 0.9
+		drift_timer.timeout.connect(_drift)
+		layer.add_child(drift_timer)
+		drift_timer.start()
 
 	# случайная точка-ЦЕНТР детали в зоне (доли → пиксели слоя)
 	func _rand_in_zone(zone: Rect2, sz: Vector2) -> Vector2:
@@ -1173,21 +1215,23 @@ class SwarmMech extends NpcMech:
 		var fy: float = zone.position.y + randf() * zone.size.y
 		return Vector2(fx * sz.x, fy * sz.y)
 
-	# УР.4: мелкими шагами гоняем непойманные детали внутри их зоны (плавно тви́ном)
+	# детали «летают» — мелкими шагами гоняем непойманные внутри их зоны (плавно тви́ном).
+	# На УР.4 шаг больше (сложнее поймать).
 	func _drift() -> void:
 		if layer == null or layer.size.x <= 0.0:
 			return
 		var sz: Vector2 = layer.size
+		var amp: float = 32.0 if (g_ref != null and g_ref.level == 4) else 16.0
 		for p in parts:
 			if p.is_dragging() or _inside(p):
 				continue
 			var z: Rect2 = p.home_zone
 			var cur: Vector2 = p.center()
-			var nc := cur + Vector2(randf_range(-24.0, 24.0), randf_range(-24.0, 24.0))
+			var nc := cur + Vector2(randf_range(-amp, amp), randf_range(-amp, amp))
 			nc.x = clampf(nc.x, z.position.x * sz.x, (z.position.x + z.size.x) * sz.x)
 			nc.y = clampf(nc.y, z.position.y * sz.y, (z.position.y + z.size.y) * sz.y)
 			var tw: Tween = p.create_tween()
-			tw.tween_property(p, "position", nc - p.size * 0.5, 0.5).set_trans(Tween.TRANS_SINE)
+			tw.tween_property(p, "position", nc - p.size * 0.5, 0.7).set_trans(Tween.TRANS_SINE)
 
 	func _inside(part) -> bool:
 		if layer == null or layer.size.x <= 0.0:
@@ -1235,8 +1279,10 @@ class SwarmMech extends NpcMech:
 		# 0.55·(цвет/накал/объём) + 0.45·(верно собранные детали)
 		return 0.55 * g._current_overall() + 0.45 * final_acc
 
-	func stop(_g) -> void:
+	func stop(g) -> void:
 		drift_timer = null
+		if g != null and g.sliders.has("count"):
+			g.sliders["count"].min_value = 1.0     # вернуть штатный минимум сгустков
 		for p in served:
 			if is_instance_valid(p):
 				p.queue_free()
@@ -1598,57 +1644,137 @@ class VexMech extends NpcMech:
 	var target_nodes: Array = []
 	var final_pos: float = 0.0
 
-	# Векс (порт браузера): нет объёма/счётчика-ползунка. Спектр + Накал, а сгустки
-	# (3/4/5/5 по УР) раскладываются по сетке ВНУТРИ банки; на УР.4 добавляется размер
-	# сгустка (bsize остаётся в active). Число сгустков — по уровню, не случайное.
+	# Векс (порт браузера): нет объёма/счётчика-ползунка. Сгустки (3/4/5/5 по УР)
+	# раскладываются по сетке ВНУТРИ жидкости банки; сетка растёт по уровню. На УР.3+
+	# в игре ползунок «Размер» (bsize), на УР.4 — «Накал» (sat). Доска висит в
+	# качающемся узле банки (sway) → живёт и качается ВНУТРИ сосуда.
 	const VEX_COUNTS := {1: 3, 2: 4, 3: 5, 4: 5}
+	const VEX_GRID := {1: Vector2i(2, 2), 2: Vector2i(2, 3), 3: Vector2i(3, 3), 4: Vector2i(3, 4)}
+	# UV-границы интерьера/уровня жидкости (зеркало констант potion_jar).
+	const IL := 0.240
+	const IR := 0.746
+	const IB := 0.953
+	const IT := 0.150
+	const JAR_FILL := 0.78
 
 	func setup(g) -> void:
 		g.active.erase("count")          # счёт задаётся раскладкой
 		g.active.erase("volume")         # размера банки у Векса нет
 
+	# Зона жидкости в ЛОКАЛЬНЫХ координатах банки (px) — сюда вписываем сетку, чтобы
+	# она ВСЕГДА была внутри зелья (узлы = центры ячеек, с отступом от стенок/поверхности).
+	func _liquid_area(g) -> Rect2:
+		var jw: float = g.jar.size.x
+		var jh: float = g.jar.size.y
+		var liq_top: float = IB - (IB - IT) * JAR_FILL
+		var x0: float = IL + 0.05
+		var x1: float = IR - 0.05
+		var y0: float = liq_top + 0.05
+		var y1: float = IB - 0.05
+		return Rect2(Vector2(x0 * jw, y0 * jh), Vector2((x1 - x0) * jw, (y1 - y0) * jh))
+
 	func memorize_start(g) -> void:
 		g_ref = g
+		# доска — в качающемся узле банки: живёт и качается ВНУТРИ сосуда
 		board = VexBoard.new()
-		g.jar_stage.add_child(board)
-		board.build(_jar_body(g))
-		var k: int = int(VEX_COUNTS.get(g.level, 3))
-		g.target["count"] = k                       # для скоринга (доля верных позиций)
-		# банка-контейнер: показываем цвет/накал, но БЕЗ своих внутренних сгустков —
-		# видимые сгустки это фигурки на сетке
-		var disp: Dictionary = g.target.duplicate()
-		disp["count"] = 0
-		g._apply_to_jar(disp)
+		g.jar.inner_holder().add_child(board)
+		var grid: Vector2i = VEX_GRID.get(g.level, Vector2i(3, 3))
+		board.build(_liquid_area(g), grid.x, grid.y)
+		var k: int = mini(int(VEX_COUNTS.get(g.level, 3)), board.nodes.size())
+		# банка МАКСИМАЛЬНОГО размера: сетка/пузыри крупнее → удобно тянуть пальцем
+		# (объём не оценивается — он вырезан из active в setup)
+		g.target["volume"] = float(g.PARAMS["volume"]["max"])
+		g.sliders["volume"].set_value_no_signal(g.target["volume"])
+		# банка без своих жидких сгустков (count=0 везде) — «начинка» = сгустки на сетке.
+		# ВАЖНО: у слайдера count min=1 → set_value(0) клампится до 1 и в воссоздании
+		# банка рисует 1 лишний сгусток. Временно опускаем min до 0 (вернём в stop()).
+		g.sliders["count"].min_value = 0.0
+		g.target["count"] = 0
+		g.sliders["count"].set_value_no_signal(0.0)
+		g._apply_to_jar(g.target)
 		var idx: Array = range(board.nodes.size())
 		idx.shuffle()
 		target_nodes = idx.slice(0, k)
+		var t_col: Color = _potion_color(g.target)
+		var t_scale: float = _blob_scale(g.target)
 		for ti in target_nodes:
 			var b := DragPart.new()
 			board.add_child(b)
 			b.set_kind(DragPart.BLOB)
+			b.set_blob_visual(t_scale, t_col)              # показываем цвет+размер цели
 			b.mouse_filter = Control.MOUSE_FILTER_IGNORE   # на показе не таскаем
 			b.position = board.nodes[ti] - b.size * 0.5
 			b.dropped.connect(_on_drop)
 			blobs.append(b)
 
-	# Прямоугольник тела банки (стекло) в координатах сцены — для сетки/раскладки.
-	func _jar_body(g) -> Rect2:
-		var jr: Rect2 = g.jar_stage.jar_rect()
-		return Rect2(jr.position + Vector2(jr.size.x * 0.16, jr.size.y * 0.24),
-			Vector2(jr.size.x * 0.68, jr.size.y * 0.58))
+	# Цвет сгустка = цвет зелья (спектр/накал). На УР.1 даёт «Спектру» видимый эффект.
+	func _potion_color(vals) -> Color:
+		var hue: float = float(vals.get("color", 120.0))
+		var s: float = 0.72
+		if g_ref != null and ("sat" in g_ref.active):
+			s = clampf(0.30 + (float(vals.get("sat", 72.0)) / 100.0) * 0.70, 0.18, 1.0)
+		return Color.from_hsv(fposmod(hue, 360.0) / 360.0, s, 0.95)
+
+	# Масштаб сгустка = ползунок «Размер» (bsize), если он активен (УР.3+); иначе 1.0.
+	func _blob_scale(vals) -> float:
+		if g_ref == null or not ("bsize" in g_ref.active):
+			return 1.0
+		var f: float = clampf((float(vals.get("bsize", 55.0)) - 10.0) / 90.0, 0.0, 1.0)
+		return 0.62 + 0.7 * f
+
+	# Стартовые узлы фазы «ВОССОЗДАЙ»: перемешанные, по возможности не совпадающие с
+	# целевым набором (иначе нечего перекладывать).
+	func _start_nodes(k: int) -> Array:
+		var all_idx: Array = range(board.nodes.size())
+		var best: Array = []
+		for _try in 8:
+			all_idx.shuffle()
+			best = all_idx.slice(0, k)
+			var same := true
+			for i in best:
+				if not (i in target_nodes):
+					same = false
+					break
+			if not same:
+				break
+		return best
 
 	func craft_start(g) -> void:
-		# рассыпаем сгустки (сверху тела банки, не на узлах) и разрешаем таскать
-		var a: Rect2 = board._area
-		for b in blobs:
+		board.set_hot(-1)
+		# после «ЗАПОМНИ» сгустки БЫСТРО перепрыгивают на другие узлы (не рассыпаются),
+		# игрок перекладывает их обратно на верные позиции
+		var starts: Array = _start_nodes(blobs.size())
+		var col: Color = _potion_color(g._current_values())
+		var sc: float = _blob_scale(g._current_values())
+		for j in blobs.size():
+			var b = blobs[j]
 			b.mouse_filter = Control.MOUSE_FILTER_STOP
-			b.position = a.position + Vector2(randf_range(0.1, 0.9) * a.size.x, randf_range(0.0, 0.22) * a.size.y) - b.size * 0.5
+			b.set_blob_visual(sc, col)
+			var dst: Vector2 = board.nodes[starts[j]] - b.size * 0.5
+			var tw: Tween = b.create_tween()
+			tw.tween_interval(0.04 * float(j))
+			tw.tween_property(b, "position", dst, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+	# живой цвет/размер сгустков от текущих ползунков + подсветка ближайшего узла
+	func process(g, _delta: float) -> void:
+		if board == null or not is_instance_valid(board):
+			return
+		var vals: Dictionary = g._current_values()
+		var col: Color = _potion_color(vals)
+		var sc: float = _blob_scale(vals)
+		var hi: int = -1
+		for b in blobs:
+			b.set_blob_visual(sc, col)
+			if b.is_dragging():
+				hi = board.nearest_index(b.center())
+		board.set_hot(hi)
 
 	func _on_drop(part) -> void:
 		var i: int = board.nearest_index(part.center())
 		if i >= 0:
 			part.position = board.nodes[i] - part.size * 0.5   # «примагничивание» к узлу
 			Sfx.play("blobSnap")
+		board.set_hot(-1)
 
 	func _position_score() -> float:
 		if target_nodes.is_empty():
@@ -1664,7 +1790,9 @@ class VexMech extends NpcMech:
 		final_pos = _position_score()     # кэшируем до stop() (board освободится)
 		return 0.6 * g._current_overall() + 0.4 * final_pos
 
-	func stop(_g) -> void:
+	func stop(g) -> void:
+		if g != null and g.sliders.has("count"):
+			g.sliders["count"].min_value = 1.0        # вернуть штатный минимум
 		if board != null and is_instance_valid(board):
 			board.queue_free()
 		board = null
