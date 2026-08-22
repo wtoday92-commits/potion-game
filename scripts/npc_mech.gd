@@ -255,10 +255,23 @@ class ArchivistMech extends NpcMech:
 	var acc: float = 0.0
 	var rain: MatrixRain = null
 
-	# фирменный дождь глифов — уже в фазе показа (мешает разглядеть смесь)
+	# фирменный дождь глифов — уже в фазе показа (мешает разглядеть смесь).
+	# Кладём поверх всего, но ограничиваем прямоугольником ОКНА: покрывает банку и
+	# упирается в подоконник (уходит «за стол»), не залезая на регуляторы.
 	func memorize_start(g) -> void:
+		g_ref = g
 		rain = MatrixRain.new()
-		g.jar_stage.add_child(rain)          # поверх банки, на всю область сцены
+		g.add_child(rain)
+		_place_rain(g)
+
+	func _place_rain(g) -> void:
+		if rain == null or not is_instance_valid(rain):
+			return
+		var m: Dictionary = g._bg_metrics()
+		var win: Rect2 = m["win"]
+		rain.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		rain.position = win.position
+		rain.size = win.size
 
 	func craft_start(g) -> void:
 		g_ref = g
@@ -268,6 +281,7 @@ class ArchivistMech extends NpcMech:
 		last_correct = ""
 		if rain == null:                     # страховка, если показ был пропущен
 			memorize_start(g)
+		_place_rain(g)                       # переразместить под текущий размер экрана
 		_reseal(true)
 
 	func process(_g, delta: float) -> void:
@@ -1584,19 +1598,27 @@ class VexMech extends NpcMech:
 	var target_nodes: Array = []
 	var final_pos: float = 0.0
 
+	# Векс (порт браузера): нет объёма/счётчика-ползунка. Спектр + Накал, а сгустки
+	# (3/4/5/5 по УР) раскладываются по сетке ВНУТРИ банки; на УР.4 добавляется размер
+	# сгустка (bsize остаётся в active). Число сгустков — по уровню, не случайное.
+	const VEX_COUNTS := {1: 3, 2: 4, 3: 5, 4: 5}
+
 	func setup(g) -> void:
-		g.active.erase("count")          # счёт задаётся раскладкой, не ползунком
+		g.active.erase("count")          # счёт задаётся раскладкой
+		g.active.erase("volume")         # размера банки у Векса нет
 
 	func memorize_start(g) -> void:
 		g_ref = g
 		board = VexBoard.new()
 		g.jar_stage.add_child(board)
-		board.build(g.jar_stage.size)
-		var k: int = clampi(int(g.target["count"]), 1, 6)
-		g.target["count"] = k
-		g.sliders["count"].set_value_no_signal(float(k))
-		g._apply_to_jar(g.target)        # банка показывает k сгустков (согласовано)
-		# целевые узлы (случайные k из 9) — их и надо запомнить
+		board.build(_jar_body(g))
+		var k: int = int(VEX_COUNTS.get(g.level, 3))
+		g.target["count"] = k                       # для скоринга (доля верных позиций)
+		# банка-контейнер: показываем цвет/накал, но БЕЗ своих внутренних сгустков —
+		# видимые сгустки это фигурки на сетке
+		var disp: Dictionary = g.target.duplicate()
+		disp["count"] = 0
+		g._apply_to_jar(disp)
 		var idx: Array = range(board.nodes.size())
 		idx.shuffle()
 		target_nodes = idx.slice(0, k)
@@ -1609,12 +1631,18 @@ class VexMech extends NpcMech:
 			b.dropped.connect(_on_drop)
 			blobs.append(b)
 
+	# Прямоугольник тела банки (стекло) в координатах сцены — для сетки/раскладки.
+	func _jar_body(g) -> Rect2:
+		var jr: Rect2 = g.jar_stage.jar_rect()
+		return Rect2(jr.position + Vector2(jr.size.x * 0.16, jr.size.y * 0.24),
+			Vector2(jr.size.x * 0.68, jr.size.y * 0.58))
+
 	func craft_start(g) -> void:
-		g.sliders["count"].set_value_no_signal(float(target_nodes.size()))
-		# рассыпаем сгустки (сверху, не на узлах) и разрешаем таскать
+		# рассыпаем сгустки (сверху тела банки, не на узлах) и разрешаем таскать
+		var a: Rect2 = board._area
 		for b in blobs:
 			b.mouse_filter = Control.MOUSE_FILTER_STOP
-			b.position = Vector2(randf_range(0.10, 0.90) * board.size.x, randf_range(0.08, 0.30) * board.size.y) - b.size * 0.5
+			b.position = a.position + Vector2(randf_range(0.1, 0.9) * a.size.x, randf_range(0.0, 0.22) * a.size.y) - b.size * 0.5
 
 	func _on_drop(part) -> void:
 		var i: int = board.nearest_index(part.center())
