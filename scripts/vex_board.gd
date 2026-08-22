@@ -9,14 +9,17 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 
-# sz — размер области сцены (jar_stage.size); узлы в центральной зоне банки
-func build(sz: Vector2) -> void:
+# area — прямоугольник ТЕЛА банки (в локальных координатах сцены); сетка 3×3
+# внутри стекла банки, с отступами от стенок.
+var _area: Rect2 = Rect2()
+func build(area: Rect2) -> void:
+	_area = area
 	nodes.clear()
-	var xs := [0.36, 0.50, 0.64]
-	var ys := [0.46, 0.62, 0.78]
+	var xs := [0.24, 0.5, 0.76]
+	var ys := [0.22, 0.5, 0.78]
 	for y in ys:
 		for x in xs:
-			nodes.append(Vector2(x * sz.x, y * sz.y))
+			nodes.append(area.position + Vector2(x * area.size.x, y * area.size.y))
 	queue_redraw()
 
 func nearest_index(p: Vector2) -> int:
