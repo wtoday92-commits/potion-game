@@ -220,10 +220,14 @@ var tb_day: Label
 var tb_rating: Label
 var tb_streak: Label
 var _tb_stickers: HBoxContainer   # иконки стикеров за цикл (под прогрессией)
+var _tb_info: HBoxContainer        # строка день/серия/рейтинг/стикеры
+var _tb_info_spacer: Control       # распорка между рейтингом и стикерами
+var _sticker_icon_size: float = 34.0
 var cycle_stickers: Dictionary = {"perfect": 0, "good": 0, "swill": 0, "bad": 0}
 var topbar_coll_btn: Button      # иконка коллекции (гейт прогрессией)
 var _topbar_nav: Array = []      # все nav-иконки (для гейтинга дейлика)
 var settings_btn: Button = null  # кнопка настроек (язык/громкость)
+var nav_lb_btn: Button = null    # кнопка лидерборда (в дейлике остаётся)
 var settings_panel: Control = null
 var _tb_rating_shown: int = 0    # для count-up рейтинга
 
@@ -910,6 +914,7 @@ func _build_prog_strip() -> void:
 	var info := HBoxContainer.new()
 	info.add_theme_constant_override("separation", 12)
 	vb.add_child(info)
+	_tb_info = info
 	tb_day = Label.new()
 	tb_day.add_theme_font_size_override("font_size", 22)
 	info.add_child(tb_day)
@@ -923,6 +928,7 @@ func _build_prog_strip() -> void:
 	var sp := Control.new()
 	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info.add_child(sp)
+	_tb_info_spacer = sp
 	# иконки стикеров за цикл (идеал/годно/пойло/брак) с счётчиками
 	_tb_stickers = HBoxContainer.new()
 	_tb_stickers.add_theme_constant_override("separation", 9)
@@ -2189,14 +2195,15 @@ var lb_list: VBoxContainer = null
 # Загрузка: онлайн-топ (Supabase) читаем ВСЕГДА, когда настроен бэкенд (чтение
 # публичное — даже гостю); иначе локальный список.
 func _lb_load() -> Array:
+	var mode: String = "daily" if daily_mode else "arcade"
 	if PotionAuth.configured():
-		var rows: Array = await PotionAuth.leaderboard_load("arcade")
+		var rows: Array = await PotionAuth.leaderboard_load(mode)
 		if not rows.is_empty():
 			var out: Array = []
 			for r in rows:
 				out.append({"name": str(r.get("name", "?")), "score": int(r.get("score", 0)), "date": _lb_date(str(r.get("created_at", "")))})
 			return out
-	return PotionProfile.lb_local_all()
+	return [] if daily_mode else PotionProfile.lb_local_all()   # дейлик — только онлайн-топ дня
 
 func _lb_date(created: String) -> String:
 	if created.length() >= 10:
@@ -2748,7 +2755,8 @@ func _build_topbar() -> void:
 	topbar_coll_btn = _topbar_icon(row, "nav_collection", "🗂", "Коллекция", _show_collection, true)
 	_topbar_nav.append(topbar_coll_btn)
 	_topbar_nav.append(_topbar_icon(row, "nav_shop", "🛒", "Лавка", _open_shop, true))
-	_topbar_nav.append(_topbar_icon(row, "nav_leaderboard", "🏆", "Рейтинг", _open_leaderboard, true))
+	nav_lb_btn = _topbar_icon(row, "nav_leaderboard", "🏆", "Рейтинг", _open_leaderboard, true)
+	_topbar_nav.append(nav_lb_btn)
 	_topbar_nav.append(_topbar_icon(row, "nav_characters", "👥", "Персонажи", _show_chars, true))
 	_topbar_nav.append(_topbar_icon(row, "nav_skills", "⚡", "Пассивки", Callable(), false))
 	_topbar_nav.append(_topbar_icon(row, "nav_profile", "👤", "Профиль", _show_account, true))
@@ -2783,17 +2791,23 @@ func _set_topbar(on: bool) -> void:
 		prog_widget.refresh()
 
 func _refresh_topbar() -> void:
-	# Дейлик: прячем всё, кроме рейтинга и настроек
+	# Дейлик: на барах остаются только рейтинг (по центру), стикеры, лидерборд и настройки
 	for b in _topbar_nav:
 		if is_instance_valid(b):
-			b.visible = not daily_mode
+			b.visible = (not daily_mode) or (b == nav_lb_btn)
 	prog_widget.visible = not daily_mode
 	tb_streak.visible = not daily_mode
+	tb_day.visible = not daily_mode
 	if _tb_stickers != null:
-		_tb_stickers.visible = not daily_mode
-	tb_day.visible = true
+		_tb_stickers.visible = true
+	# в дейлике рейтинг по центру: строку тянем по центру, спейсеры прячем
+	if _tb_info_spacer != null:
+		_tb_info_spacer.visible = not daily_mode
+	_tb_info.alignment = BoxContainer.ALIGNMENT_CENTER if daily_mode else BoxContainer.ALIGNMENT_BEGIN
+	tb_rating.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER if daily_mode else HORIZONTAL_ALIGNMENT_LEFT
+	_sticker_icon_size = 48.0 if daily_mode else 34.0       # в дейлике крупнее
 	var sk: Dictionary = PotionProfile.data.get("streaks", {})
-	tb_day.text = "День %d / %d" % [day_num, cycle_days] if daily_mode else "День %d / %d   ·   ст.%d" % [day_num, cycle_days, stage + 1]
+	tb_day.text = "День %d / %d   ·   ст.%d" % [day_num, cycle_days, stage + 1]
 	tb_streak.text = "🔥 %d" % int(sk.get("goodplus_current", 0))
 	topbar_coll_btn.disabled = not GameData.prog_mech_unlocked("collection", _xp())
 	if cycle_score != _tb_rating_shown:
@@ -2813,7 +2827,7 @@ func _refresh_cycle_stickers() -> void:
 		var chip := HBoxContainer.new()
 		chip.add_theme_constant_override("separation", 3)
 		var ic := TextureRect.new()
-		ic.custom_minimum_size = Vector2(34, 34)
+		ic.custom_minimum_size = Vector2(_sticker_icon_size, _sticker_icon_size)
 		ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		var names: Array = GameData.STICKERS.get(cat, [])
@@ -2822,7 +2836,7 @@ func _refresh_cycle_stickers() -> void:
 		chip.add_child(ic)
 		var l := Label.new()
 		l.text = str(int(cycle_stickers.get(cat, 0)))
-		l.add_theme_font_size_override("font_size", 20)
+		l.add_theme_font_size_override("font_size", 26 if _sticker_icon_size >= 44.0 else 20)
 		l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		chip.add_child(l)
 		_tb_stickers.add_child(chip)
@@ -4388,7 +4402,7 @@ func _show_mod_chip() -> void:
 # ---------- таймеры фаз ----------
 func _process(delta: float) -> void:
 	if items_btn != null:          # «сумка» видна в игре/выборе, если магазин открыт
-		items_btn.visible = GameData.prog_mech_unlocked("shop", _xp()) and (phase == "day" or phase == "select" or phase == "memorize" or phase == "recreate")
+		items_btn.visible = not daily_mode and GameData.prog_mech_unlocked("shop", _xp()) and (phase == "day" or phase == "select" or phase == "memorize" or phase == "recreate")
 	# инвентарь открыт (применяем предметы) — ставим таймер/механику на паузу
 	if items_panel != null and items_panel.visible:
 		return
