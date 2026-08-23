@@ -2243,14 +2243,21 @@ func _build_day() -> void:
 	var dv := day_panel.get_node("Card/V") as VBoxContainer
 	dv.add_theme_constant_override("separation", 12)
 
-	# карточки фиксированной высоты (= размер аватарки), центрируем по вертикали
+	# карточки в прокрутке — чтобы при 4 картах умещались, а умения/«Меню» не уезжали
+	var day_scroll := ScrollContainer.new()
+	day_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	day_scroll.scroll_deadzone = 14
+	day_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	day_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dv.add_child(day_scroll)
 	day_cards = VBoxContainer.new()
 	day_cards.add_theme_constant_override("separation", 18)
 	day_cards.alignment = BoxContainer.ALIGNMENT_CENTER
+	day_cards.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	day_cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	dv.add_child(day_cards)
+	day_scroll.add_child(day_cards)
 
-	_build_skill_dock(dv)          # Фаза 7: панель умений (под карточками дня)
+	_build_skill_dock(dv)          # Фаза 7: панель умений (закреплена под прокруткой)
 
 	# day_header скрыт в шапке экрана — держим ссылку живой (день виден в топбаре)
 	day_header = Label.new()
