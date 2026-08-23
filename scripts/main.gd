@@ -915,13 +915,14 @@ func _build_prog_strip() -> void:
 	prog_strip.offset_bottom = STRIP_TOP + STRIP_H
 	prog_strip.visible = false
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.04, 0.05, 0.08, 1.0)
+	sb.bg_color = Color(0.04, 0.05, 0.08, 1.0)   # текстура добавляется ниже
 	sb.set_corner_radius_all(10)
 	sb.set_border_width_all(1)
 	sb.border_color = Color(0.35, 0.30, 0.5, 0.6)
 	sb.content_margin_left = 14.0; sb.content_margin_right = 14.0
 	sb.content_margin_top = 8.0; sb.content_margin_bottom = 8.0
 	prog_strip.add_theme_stylebox_override("panel", sb)
+	_panel_texture(prog_strip, "tex_hull", 0.18)
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 4)
 	prog_strip.add_child(vb)
@@ -1059,6 +1060,7 @@ func _hud_chip(row: HBoxContainer, tex_name: String) -> Label:
 	chip.add_theme_stylebox_override("panel", _panel_sb(UI_BORDER, UI_PANEL2, 14))
 	chip.custom_minimum_size = Vector2(0, 70)
 	chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_panel_texture(chip, "tex_halftone", 0.20)
 	var h := HBoxContainer.new()
 	h.alignment = BoxContainer.ALIGNMENT_CENTER
 	h.add_theme_constant_override("separation", 10)
@@ -1096,6 +1098,7 @@ func _menu_tile(text: String, icon_name: String, primary: bool = false) -> Butto
 		tsb.shadow_size = 10
 	for st in ["normal", "hover", "pressed"]:
 		b.add_theme_stylebox_override(st, tsb)
+	_panel_texture(b, "tex_stars" if primary else "", 0.20)
 	var v := VBoxContainer.new()
 	v.set_anchors_preset(Control.PRESET_FULL_RECT)
 	v.offset_left = 10; v.offset_right = -10; v.offset_top = 10; v.offset_bottom = -10
@@ -1170,6 +1173,38 @@ const FS_H := 25
 const FS_BODY := 19
 const FS_SMALL := 16
 
+# ---------- текстурные подложки (космо-бар, комикс-стиль) ----------
+# Ненавязчивая текстура под панелями/кнопками: не мешает читать текст (низкая альфа),
+# но убирает «плоскую черноту». Набор раскидан по экранам детерминированно.
+const UI_TEXTURES := [
+	"tex_halftone", "tex_wood", "tex_hull", "tex_stars", "tex_leather",
+	"tex_nebula", "tex_bubbles", "tex_circuit", "tex_speed", "tex_bottles",
+]
+
+# Вставляет текстуру-подложку ПЕРВЫМ ребёнком панели (PanelContainer растягивает
+# всех детей на свой прямоугольник, поэтому контент ляжет поверх текстуры).
+func _panel_texture(panel: Control, tex_name: String = "", alpha: float = 0.22) -> void:
+	var name_use: String = tex_name
+	if name_use == "":
+		name_use = String(UI_TEXTURES[abs(hash(panel.get_instance_id())) % UI_TEXTURES.size()])
+	var t := load("res://assets/ui/tex/%s.png" % name_use) as Texture2D
+	if t == null:
+		return
+	panel.clip_contents = true
+	var tr := TextureRect.new()
+	tr.texture = t
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tr.modulate = Color(1, 1, 1, alpha)
+	if panel is PanelContainer:
+		panel.add_child(tr)
+		panel.move_child(tr, 0)
+	else:
+		tr.set_anchors_preset(Control.PRESET_FULL_RECT)
+		panel.add_child(tr)
+		panel.move_child(tr, 0)
+
 # Единый стайлбокс карточки-панели (скругление + тонкая обводка + мягкая тень).
 func _panel_sb(accent: Color = UI_BORDER, bg: Color = UI_PANEL, radius: int = 16) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
@@ -1187,6 +1222,7 @@ func _stat_tile(tex: Texture2D, number: String, label: String, accent: Color = U
 	var p := PanelContainer.new()
 	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	p.add_theme_stylebox_override("panel", _panel_sb(accent))
+	_panel_texture(p, "", 0.18)
 	var v := VBoxContainer.new()
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
 	v.add_theme_constant_override("separation", 4)
@@ -1460,6 +1496,7 @@ func _ach_card(a: Dictionary) -> Control:
 	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.add_theme_stylebox_override("panel", _panel_sb(accent))
+	_panel_texture(card, "", 0.18)
 
 	var col := VBoxContainer.new()
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -2346,6 +2383,8 @@ func _make_center_panel(transparent: bool = false) -> Control:
 	sb.content_margin_top = 20.0
 	sb.content_margin_bottom = 20.0
 	card.add_theme_stylebox_override("panel", sb)
+	if not transparent:
+		_panel_texture(card, "", 0.16)      # ненавязчивая фактура вместо плоской черноты
 	root.add_child(card)
 	var v := VBoxContainer.new()
 	v.name = "V"
@@ -2809,6 +2848,7 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	var card := PanelContainer.new()
 	# применимый сейчас — золотая рамка, иначе обычная
 	card.add_theme_stylebox_override("panel", _panel_sb(UI_GOLD if usable else UI_BORDER, UI_PANEL, 12))
+	_panel_texture(card, "tex_bottles", 0.18)
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
@@ -2937,7 +2977,7 @@ func _build_topbar() -> void:
 	topbar.offset_bottom = 30.0 + TOPBAR_H
 	topbar.visible = false
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.04, 0.05, 0.08, 1.0)
+	sb.bg_color = Color(0.04, 0.05, 0.08, 1.0)   # текстура добавляется ниже
 	sb.set_corner_radius_all(10)
 	sb.set_border_width_all(1)
 	sb.border_color = Color(0.35, 0.30, 0.5, 0.6)
@@ -2946,6 +2986,7 @@ func _build_topbar() -> void:
 	sb.content_margin_top = 6.0
 	sb.content_margin_bottom = 6.0
 	topbar.add_theme_stylebox_override("panel", sb)
+	_panel_texture(topbar, "tex_hull", 0.18)
 	add_child(topbar)
 
 	var row := HBoxContainer.new()
