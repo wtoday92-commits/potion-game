@@ -1060,7 +1060,7 @@ func _hud_chip(row: HBoxContainer, tex_name: String) -> Label:
 	chip.add_theme_stylebox_override("panel", _panel_sb(UI_BORDER, UI_PANEL2, 14))
 	chip.custom_minimum_size = Vector2(0, 70)
 	chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_panel_texture(chip, "tex_steel", 0.20)
+	_panel_texture(chip, "tex_halftone", 0.20)
 	var h := HBoxContainer.new()
 	h.alignment = BoxContainer.ALIGNMENT_CENTER
 	h.add_theme_constant_override("separation", 10)
@@ -1088,8 +1088,17 @@ func _menu_tile(text: String, icon_name: String, primary: bool = false) -> Butto
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.focus_mode = Control.FOCUS_NONE
 	b.clip_contents = true
+	var tsb := StyleBoxFlat.new()
+	tsb.bg_color = Color(0.20, 0.15, 0.05, 1.0) if primary else UI_PANEL
+	tsb.set_corner_radius_all(16)
+	tsb.set_border_width_all(3 if primary else 2)
+	tsb.border_color = UI_GOLD if primary else UI_BORDER
+	if primary:
+		tsb.shadow_color = Color(UI_GOLD.r, UI_GOLD.g, UI_GOLD.b, 0.35)
+		tsb.shadow_size = 10
 	for st in ["normal", "hover", "pressed"]:
-		b.add_theme_stylebox_override(st, _btn_plate(primary))
+		b.add_theme_stylebox_override(st, tsb)
+	_panel_texture(b, "tex_stars" if primary else "", 0.20)
 	var v := VBoxContainer.new()
 	v.set_anchors_preset(Control.PRESET_FULL_RECT)
 	v.offset_left = 10; v.offset_right = -10; v.offset_top = 10; v.offset_bottom = -10
@@ -1137,9 +1146,9 @@ func _menu_button(text: String, primary: bool = false, h: float = 66.0, icon_nam
 			ir.offset_top = 9.0
 			ir.offset_bottom = -9.0
 			b.add_child(ir)
-	for st in ["normal", "hover", "pressed"]:
-		b.add_theme_stylebox_override(st, _btn_plate(primary))
 	if primary:
+		for st in ["normal", "hover", "pressed"]:
+			b.add_theme_stylebox_override(st, _tab_sb(true))
 		b.add_theme_color_override("font_color", UI_GOLD)
 	return b
 
@@ -1164,24 +1173,13 @@ const FS_H := 25
 const FS_BODY := 19
 const FS_SMALL := 16
 
-# Кнопка-плашка (9-patch из сгенерированного арта): золотая — акцентная.
-func _btn_plate(gold: bool = false) -> StyleBoxTexture:
-	var sb := StyleBoxTexture.new()
-	sb.texture = load("res://assets/ui/%s.png" % ("btn_gold" if gold else "btn_normal")) as Texture2D
-	sb.texture_margin_left = 64.0
-	sb.texture_margin_right = 64.0
-	sb.texture_margin_top = 52.0
-	sb.texture_margin_bottom = 52.0
-	sb.content_margin_left = 22.0
-	sb.content_margin_right = 22.0
-	sb.content_margin_top = 12.0
-	sb.content_margin_bottom = 12.0
-	return sb
-
 # ---------- текстурные подложки (космо-бар, комикс-стиль) ----------
 # Ненавязчивая текстура под панелями/кнопками: не мешает читать текст (низкая альфа),
 # но убирает «плоскую черноту». Набор раскидан по экранам детерминированно.
-const UI_TEXTURES := ["tex_bar", "tex_hull", "tex_wall", "tex_paper", "tex_leather", "tex_steel"]
+const UI_TEXTURES := [
+	"tex_halftone", "tex_wood", "tex_hull", "tex_stars", "tex_leather",
+	"tex_nebula", "tex_bubbles", "tex_circuit", "tex_speed", "tex_bottles",
+]
 
 # Вставляет текстуру-подложку ПЕРВЫМ ребёнком панели (PanelContainer растягивает
 # всех детей на свой прямоугольник, поэтому контент ляжет поверх текстуры).
@@ -2850,7 +2848,7 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	var card := PanelContainer.new()
 	# применимый сейчас — золотая рамка, иначе обычная
 	card.add_theme_stylebox_override("panel", _panel_sb(UI_GOLD if usable else UI_BORDER, UI_PANEL, 12))
-	_panel_texture(card, "tex_paper", 0.16)
+	_panel_texture(card, "tex_bottles", 0.18)
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)

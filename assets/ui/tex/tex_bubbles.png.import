@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://uyhi3mrgw2vd"
-path="res://.godot/imported/btn_gold.png-031758660f14894bf1cc3412b9feea42.ctex"
+uid="uid://ecd3qyfy4pwq"
+path="res://.godot/imported/tex_bubbles.png-f8924131019ec154254a3334982de90f.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/ui/btn_gold.png"
-dest_files=["res://.godot/imported/btn_gold.png-031758660f14894bf1cc3412b9feea42.ctex"]
+source_file="res://assets/ui/tex/tex_bubbles.png"
+dest_files=["res://.godot/imported/tex_bubbles.png-f8924131019ec154254a3334982de90f.ctex"]
 
 [params]
 
