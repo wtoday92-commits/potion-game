@@ -961,7 +961,8 @@ func _build_start() -> void:
 	var title := Label.new()
 	title.text = "ЗЕЛЬЕВАРНЯ"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 44)
+	title.add_theme_font_size_override("font_size", 46)
+	_title_font(title)
 	sv.add_child(title)
 	_glow_label(title, Color("c07bff"))
 
@@ -985,19 +986,19 @@ func _build_start() -> void:
 	spacer.custom_minimum_size = Vector2(0, 10)
 	sv.add_child(spacer)
 
-	var play := _menu_button("ИГРАТЬ", true, 96)
+	var play := _menu_button("ИГРАТЬ", true, 78, "nav_play")
 	play.pressed.connect(_start_cycle)
 	sv.add_child(play)
 
-	coll_btn = _menu_button("Коллекция", false, 76, "nav_collection")
+	coll_btn = _menu_button("Коллекция", false, 66, "nav_collection")
 	coll_btn.pressed.connect(_show_collection)
 	sv.add_child(coll_btn)
 
-	var daily_btn := _menu_button("Ежедневный заказ", false, 76, "nav_leaderboard")
+	var daily_btn := _menu_button("Ежедневный заказ", false, 66, "2ru_daily")
 	daily_btn.pressed.connect(_open_daily_diff)
 	sv.add_child(daily_btn)
 
-	profile_btn = _menu_button("", false, 76, "nav_profile")
+	profile_btn = _menu_button("", false, 66, "nav_profile")
 	profile_btn.pressed.connect(_show_account)
 	sv.add_child(profile_btn)
 
@@ -1013,7 +1014,7 @@ func _audio_row(sv: VBoxContainer, label_text: String, is_music: bool) -> void:
 	# непрозрачная подложка: на контрастном фоне подписи иначе не читаются
 	var card := PanelContainer.new()
 	card.add_theme_stylebox_override("panel", _panel_sb(UI_BORDER, UI_PANEL2, 14))
-	card.custom_minimum_size = Vector2(440, 76)
+	card.custom_minimum_size = Vector2(440, 66)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	card.add_child(row)
@@ -1057,7 +1058,7 @@ func _on_sfx_drag_end(_value_changed: bool) -> void:
 func _hud_chip(row: HBoxContainer, tex_name: String) -> Label:
 	var chip := PanelContainer.new()
 	chip.add_theme_stylebox_override("panel", _panel_sb(UI_BORDER, UI_PANEL2, 14))
-	chip.custom_minimum_size = Vector2(0, 78)
+	chip.custom_minimum_size = Vector2(0, 70)
 	chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var h := HBoxContainer.new()
 	h.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -1080,18 +1081,28 @@ func _hud_chip(row: HBoxContainer, tex_name: String) -> Label:
 	return lbl
 
 # Единая кнопка меню (primary — золотая заливка, secondary — обычная тема).
-func _menu_button(text: String, primary: bool = false, h: float = 76.0, icon_name: String = "") -> Button:
+func _menu_button(text: String, primary: bool = false, h: float = 66.0, icon_name: String = "") -> Button:
 	var b := Button.new()
 	b.text = text
 	b.custom_minimum_size = Vector2(440, h)
-	b.add_theme_font_size_override("font_size", 30 if primary else 24)
+	b.add_theme_font_size_override("font_size", 32 if primary else 26)
 	b.add_theme_constant_override("h_separation", 16)
 	b.focus_mode = Control.FOCUS_NONE
 	if icon_name != "":
 		var t := _ui(icon_name)
 		if t != null:
-			b.icon = t
-			b.expand_icon = false
+			# иконка отдельным слоем фикс. размера (Button.icon рисует PNG 1:1 → гиганты)
+			var ir := TextureRect.new()
+			ir.texture = t
+			ir.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			ir.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			ir.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			ir.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+			ir.offset_left = 16.0
+			ir.offset_right = 16.0 + (h - 18.0)
+			ir.offset_top = 9.0
+			ir.offset_bottom = -9.0
+			b.add_child(ir)
 	if primary:
 		for st in ["normal", "hover", "pressed"]:
 			b.add_theme_stylebox_override(st, _tab_sb(true))
@@ -1331,6 +1342,12 @@ func _stat_grid(cols: int) -> GridContainer:
 	g.add_theme_constant_override("h_separation", 12)
 	g.add_theme_constant_override("v_separation", 12)
 	return g
+
+# Заголовочный шрифт (Russo One) — для крупных заголовков/названий.
+const FONT_TITLE := preload("res://assets/fonts/RussoOne-Regular.ttf")
+func _title_font(l: Label) -> Label:
+	l.add_theme_font_override("font", FONT_TITLE)
+	return l
 
 # Быстрая загрузка текстуры из assets/ui (null-безопасно).
 func _ui(name: String) -> Texture2D:
