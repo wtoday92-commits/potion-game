@@ -64,6 +64,7 @@ static func make(id: String) -> NpcMech:
 		"apothecary_mo": return ApothecaryMech.new()
 		"janitor": return JanitorMech.new()
 		"marketer": return MarketerMech.new()
+		"nebula_chef": return ChefMech.new()
 		"dj_pulsar": return DjMech.new()
 		"drone": return DroneMech.new()
 		"perfumer": return PerfumerMech.new()
@@ -1992,3 +1993,157 @@ class PlasmaMech extends NpcMech:
 
 	func result_note(_g) -> String:
 		return "🍸 Бармен: сгустки летают — лови скорость"
+
+# ============================================================
+# Шеф туманности (nebula_chef): «Книга рецептов». Вместо запоминания банки на ЗАПОМНИ
+# показывают карточки ИНГРЕДИЕНТОВ (жидкость [+добавка] [+продукт] по уровню). На
+# ВОССОЗДАЙ рядом — кнопка «Рецепты»: открывает книгу со ВСЕМИ ингредиентами и их
+# значениями (категории-вкладки). Игрок находит показанные и выставляет ползунки.
+# Категории→параметры: жидкость=цвет+накал, добавка=объём, продукт=размер+сгустки.
+# УР.4: фазы ЗАПОМНИ нет; сверху — название коктейля из слогов ингредиентов (в книге
+# у каждого написан слог; длина слога = категория: жидк.2 / добавка3 / продукт4).
+# ============================================================
+class ChefMech extends NpcMech:
+	var g_ref
+	var liquid: Dictionary = {}
+	var addon: Dictionary = {}
+	var product: Dictionary = {}
+	var book: RecipeBook = null
+	var book_btn: Button = null
+	var name_lbl: Label = null
+	var cards: Control = null
+
+	func setup(g) -> void:
+		g_ref = g
+		var a: Array = ["color", "sat"]
+		if g.level >= 2:
+			a.append("volume")
+		if g.level >= 3:
+			a.append("count"); a.append("bsize")
+		g.active = a
+		liquid = RecipeBook.LIQUIDS[randi() % RecipeBook.LIQUIDS.size()]
+		addon = RecipeBook.ADDONS[randi() % RecipeBook.ADDONS.size()] if g.level >= 2 else {}
+		product = RecipeBook.PRODUCTS[randi() % RecipeBook.PRODUCTS.size()] if g.level >= 3 else {}
+
+	func skip_memorize(g) -> bool:
+		return g.level == 4
+
+	# записать значения ингредиентов в target активных параметров (после генерации target)
+	func _apply_target(g) -> void:
+		g.target["color"] = liquid["hue"]
+		g.target["sat"] = liquid["sat"]
+		if not addon.is_empty():
+			g.target["volume"] = addon["vol"]
+		if not product.is_empty():
+			g.target["bsize"] = product["bsize"]
+			g.target["count"] = int(product["count"])
+
+	func memorize_start(g) -> void:
+		g_ref = g
+		_apply_target(g)
+		g.jar.visible = false                     # вместо банки — карточки ингредиентов
+		_show_cards(g)
+
+	func _show_cards(g) -> void:
+		cards = CenterContainer.new()
+		cards.set_anchors_preset(Control.PRESET_FULL_RECT)
+		cards.offset_bottom = -220.0              # по зоне банки (выше стола/ползунков)
+		cards.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		g.add_child(cards)
+		var hb := HBoxContainer.new()
+		hb.add_theme_constant_override("separation", 16)
+		cards.add_child(hb)
+		var list: Array = [liquid]
+		if not addon.is_empty(): list.append(addon)
+		if not product.is_empty(): list.append(product)
+		for it in list:
+			hb.add_child(_ingredient_card(it))
+
+	func _ingredient_card(it: Dictionary) -> Control:
+		var p := Panel.new()
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.20, 0.14, 0.10)
+		sb.border_color = Color(0.85, 0.62, 0.32)
+		sb.set_border_width_all(3)
+		sb.set_corner_radius_all(14)
+		p.add_theme_stylebox_override("panel", sb)
+		p.custom_minimum_size = Vector2(150, 190)
+		var vb := VBoxContainer.new()
+		vb.set_anchors_preset(Control.PRESET_FULL_RECT)
+		vb.offset_left = 8; vb.offset_right = -8; vb.offset_top = 8; vb.offset_bottom = -8
+		vb.add_theme_constant_override("separation", 6)
+		p.add_child(vb)
+		var icon := TextureRect.new()
+		icon.texture = load(it["icon"])
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		icon.custom_minimum_size = Vector2(0, 130)
+		vb.add_child(icon)
+		var nm := Label.new()
+		nm.text = it["name"]
+		nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		nm.add_theme_font_size_override("font_size", 22)
+		nm.add_theme_color_override("font_color", Color(0.98, 0.92, 0.78))
+		vb.add_child(nm)
+		return p
+
+	func craft_start(g) -> void:
+		g_ref = g
+		_apply_target(g)
+		if cards != null and is_instance_valid(cards):
+			cards.queue_free()
+			cards = null
+		g.jar.visible = true
+		# кнопка «Рецепты»
+		book_btn = Button.new()
+		book_btn.text = "📖 Рецепты"
+		book_btn.focus_mode = Control.FOCUS_NONE
+		book_btn.add_theme_font_size_override("font_size", 20)
+		book_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		book_btn.offset_left = -168.0; book_btn.offset_right = -12.0
+		book_btn.offset_top = 96.0; book_btn.offset_bottom = 140.0
+		book_btn.pressed.connect(_open_book)
+		g.add_child(book_btn)
+		# УР.4: название коктейля из слогов (порядок перемешан)
+		if g.level == 4:
+			var parts: Array = [liquid["syl"]]
+			if not addon.is_empty(): parts.append(addon["syl"])
+			if not product.is_empty(): parts.append(product["syl"])
+			parts.shuffle()
+			name_lbl = Label.new()
+			name_lbl.text = "🍸 " + "-".join(parts)
+			name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			name_lbl.add_theme_font_size_override("font_size", 30)
+			name_lbl.add_theme_color_override("font_color", Color(1.0, 0.82, 0.4))
+			name_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+			name_lbl.add_theme_constant_override("outline_size", 6)
+			name_lbl.set_anchors_preset(Control.PRESET_TOP_WIDE)
+			name_lbl.offset_top = 150.0; name_lbl.offset_bottom = 190.0
+			g.add_child(name_lbl)
+
+	func _cats(g) -> Array:
+		var c: Array = [RecipeBook.CAT_LIQ]
+		if g.level >= 2: c.append(RecipeBook.CAT_ADD)
+		if g.level >= 3: c.append(RecipeBook.CAT_PROD)
+		return c
+
+	func _open_book() -> void:
+		var g = g_ref
+		if book != null and is_instance_valid(book):
+			return
+		book = RecipeBook.new()
+		g.add_child(book)
+		book.closed.connect(func(): book = null)
+		book.open(g.level, _cats(g))
+
+	func stop(g) -> void:
+		for n in [book, book_btn, name_lbl, cards]:
+			if n != null and is_instance_valid(n):
+				n.queue_free()
+		book = null; book_btn = null; name_lbl = null; cards = null
+		if g != null and is_instance_valid(g.jar):
+			g.jar.visible = true
+
+	func result_note(_g) -> String:
+		return "🦑 Шеф: собрано по книге рецептов"
