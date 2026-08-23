@@ -57,7 +57,15 @@ var _scroll: ScrollContainer
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	# сами тянемся на вьюпорт (у корня main анкеры не дают полный размер — как в минииграх)
+	set_anchors_preset(Control.PRESET_TOP_LEFT)
+	position = Vector2.ZERO
+	size = get_viewport_rect().size
+
+func _process(_delta: float) -> void:
+	var vp: Vector2 = get_viewport_rect().size
+	if not size.is_equal_approx(vp):
+		size = vp
 
 func open(level: int, cats: Array) -> void:
 	_level = level
