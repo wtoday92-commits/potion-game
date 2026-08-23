@@ -773,6 +773,19 @@ func _build_ui() -> void:
 	add_child(items_btn)
 	# рамкой служит сам бар-арт (bar_frame) — отдельная металлическая рамка не нужна
 
+func _dev_reset() -> void:
+	PotionProfile.reset()                        # профиль → пустой (с нуля)
+	if PotionAuth.is_logged_in():
+		PotionAuth.push_profile()                # затираем и облачную копию
+	# сбрасываем состояние сессии
+	daily_mode = false; daily_diff = ""; _daily_backup = {}; _daily_end = false
+	banned_npcs = {}; guaranteed_npc = ""
+	cycle_active = false; cycle_score = 0; _tb_rating_shown = 0
+	stage = 0; day_num = 1; perfect_streak_max = 0; good_streak_max = 0
+	_dev_close()
+	_show_start()
+	_toast("☢ Профиль сброшен — начинаем с нуля", Color("ff9a6a"))
+
 func _dev_boost() -> void:
 	PotionProfile.dev_boost()
 	_refresh_hud()
@@ -808,6 +821,11 @@ func _build_dev_panel() -> void:
 	boost.text = "💰 BOOST (опыт/чаевые/реп)"
 	boost.pressed.connect(_dev_boost)
 	v.add_child(boost)
+	var reset := Button.new()
+	reset.text = "☢ ПОЛНЫЙ СБРОС (с нуля)"
+	reset.add_theme_color_override("font_color", Color("ff6a6a"))
+	reset.pressed.connect(_dev_reset)
+	v.add_child(reset)
 	# список всех гостей — по кнопке прыгаем прямо в раунд
 	var scroll := ScrollContainer.new()
 	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх кнопок/карточек
