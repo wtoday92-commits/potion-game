@@ -69,6 +69,13 @@ var npc: Dictionary = {}
 var order_focus: String = ""     # фокус-заказ ("bubbles"/"color"/"size"/"") — Фаза 3
 var order_mods: Array = []       # поведенческие модификаторы заказа (timer/duck/rampage)
 var day_order_mods: Dictionary = {}   # id гостя дня → {"focus":..., "mods":[...]} (для карточек выбора)
+# Фаза 7: умения игрока (работают на экране дня, тратят заряды)
+var guaranteed_npc: String = ""       # 👀 «Кто там?» — гость, гарантированно придёт
+var banned_npcs: Dictionary = {}      # 🚫 «Не пускать» — id забанены до конца цикла
+var skill_dock: HBoxContainer = null
+var skill_btns: Dictionary = {}       # id умения → Button
+var skill_pips: Array = []            # ColorRect-индикаторы зарядов
+var skill_overlay: Control = null     # окно выбора гостя (who/ban)
 var item_fx: Dictionary = {}          # эффекты применённых предметов на ТЕКУЩИЙ заказ
 var item_pending: Dictionary = {}     # эффекты «на следующий заказ» (Секундомер/Ясность)
 var pogrom_removed: Array = []   # id гостей, выбывших из цикла из-за «Погрома»
@@ -2144,6 +2151,8 @@ func _build_day() -> void:
 	day_cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	dv.add_child(day_cards)
 
+	_build_skill_dock(dv)          # Фаза 7: панель умений (под карточками дня)
+
 	# day_header скрыт в шапке экрана — держим ссылку живой (день виден в топбаре)
 	day_header = Label.new()
 	day_header.visible = false
@@ -2804,6 +2813,8 @@ func _start_cycle() -> void:
 	_tb_rating_shown = 0
 	cycle_stickers = {"perfect": 0, "good": 0, "swill": 0, "bad": 0}
 	pogrom_removed = []              # «Погром»: выбывшие возвращаются в новый цикл
+	banned_npcs = {}                # 🚫 баны умения сбрасываются на новый цикл
+	guaranteed_npc = ""
 	cycle_days = GameData.prog_cycle_days(_xp())   # длина цикла по прогрессии
 	PotionProfile.reset_picks_cycle()
 	_new_day()
@@ -2811,6 +2822,7 @@ func _start_cycle() -> void:
 # Новый день: фиксируем тройку посетителей и показываем экран выбора.
 func _new_day() -> void:
 	day_choices = _pick_day_npcs()
+	_apply_guaranteed()             # 👀 форс-включение гарантированного гостя
 	# заранее бросаем фокус/модификаторы каждому гостю дня — чтобы показать на карточке
 	day_order_mods = {}
 	for e in day_choices:
@@ -2837,6 +2849,275 @@ func _show_day() -> void:
 	_set_topbar(true)
 	_scene_state("menu")
 	Juice.stagger_fade(day_cards.get_children())   # карточки влетают по очереди
+	_refresh_skill_dock()
+
+# ---------- Фаза 7: умения игрока (панель на экране дня) ----------
+const SKILL_DEFS := [
+	{"id": "who",     "icon": "👀", "flag": "skill_1", "title": "Кто там? — выбранный гость придёт в ближайших днях"},
+	{"id": "ban",     "icon": "🚫", "flag": "skill_2", "title": "Не пускать — до 3 гостей не придут до конца цикла"},
+	{"id": "refresh", "icon": "🔄", "flag": "skill_3", "title": "Вам уже пора — обновить всех гостей дня"},
+	{"id": "grade",   "icon": "🔁", "flag": "skill_4", "title": "Повторите! — случайному гостю дня грейд выше"},
+]
+var _pick_mode: String = ""
+var _pick_sel: Dictionary = {}
+var _pick_max: int = 1
+
+func _npc_by_id(id: String) -> Dictionary:
+	for n in GameData.NPCS:
+		if String(n.get("id", "")) == id:
+			return n
+	return {}
+
+func _build_skill_dock(parent: Node) -> void:
+	var wrap := HBoxContainer.new()
+	wrap.alignment = BoxContainer.ALIGNMENT_CENTER
+	wrap.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	wrap.add_theme_constant_override("separation", 10)
+	parent.add_child(wrap)
+	skill_dock = wrap
+	skill_btns = {}
+	for d in SKILL_DEFS:
+		var b := Button.new()
+		b.text = d["icon"]
+		b.tooltip_text = d["title"]
+		b.focus_mode = Control.FOCUS_NONE
+		b.add_theme_font_size_override("font_size", 30)
+		b.custom_minimum_size = Vector2(66, 66)
+		b.pressed.connect(_use_skill.bind(String(d["id"])))
+		wrap.add_child(b)
+		skill_btns[String(d["id"])] = b
+	var pipbox := HBoxContainer.new()
+	pipbox.add_theme_constant_override("separation", 6)
+	pipbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	wrap.add_child(pipbox)
+	skill_pips = []
+	for i in 3:
+		var p := ColorRect.new()
+		p.custom_minimum_size = Vector2(16, 16)
+		pipbox.add_child(p)
+		skill_pips.append(p)
+
+func _refresh_skill_dock() -> void:
+	if skill_dock == null:
+		return
+	var xp: int = _xp()
+	var on: bool = cycle_active and GameData.prog_mech_unlocked("skill_1", xp)
+	skill_dock.visible = on
+	if not on:
+		return
+	var charges: int = PotionProfile.get_charges()
+	for d in SKILL_DEFS:
+		var b: Button = skill_btns[String(d["id"])]
+		b.visible = GameData.prog_mech_unlocked(String(d["flag"]), xp)
+		b.disabled = charges <= 0
+	for i in skill_pips.size():
+		(skill_pips[i] as ColorRect).color = Color("ffd24d") if i < charges else Color(1, 1, 1, 0.18)
+
+func _use_skill(id: String) -> void:
+	if PotionProfile.get_charges() <= 0:
+		Sfx.play("badPop"); _toast("Нет зарядов умений", Color("ff9a6a")); return
+	match id:
+		"refresh":
+			if not PotionProfile.spend_charge():
+				return
+			_refresh_day()
+			_toast("🔄 Гости дня обновлены", Color("6ec3ff"))
+			_refresh_skill_dock()
+		"grade":
+			_grade_bump()
+		_:
+			_open_skill_picker(id)
+
+# «Вам уже пора»: перевыбор всех гостей дня (стараемся без повторов текущих)
+func _refresh_day() -> void:
+	var avoid: Dictionary = {}
+	for e in day_choices:
+		avoid[String(e.get("id", ""))] = true
+	for _try in 6:
+		day_choices = _pick_day_npcs()
+		var overlap: bool = false
+		for e in day_choices:
+			if avoid.has(String(e.get("id", ""))):
+				overlap = true; break
+		if not overlap:
+			break
+	_apply_guaranteed()
+	day_order_mods = {}
+	for e in day_choices:
+		day_order_mods[String(e.get("id", ""))] = _roll_order_mods(e, false)
+	_rebuild_day_cards()
+
+# «Повторите!»: случайному гостю дня (тир<4) поднять грейд на +1
+func _grade_bump() -> void:
+	var idxs: Array = []
+	for i in day_choices.size():
+		if int(day_choices[i].get("tier", 1)) < 4:
+			idxs.append(i)
+	if idxs.is_empty():
+		Sfx.play("badPop"); _toast("Некому поднимать грейд", Color("ff9a6a")); return
+	if not PotionProfile.spend_charge():
+		return
+	var i: int = idxs[randi() % idxs.size()]
+	var prev: Dictionary = day_choices[i]
+	var pid: String = String(prev.get("id", ""))
+	day_choices[i] = GameData.grade_up_cfg(prev, int(prev.get("tier", 1)) + 1)
+	day_order_mods[String(day_choices[i].get("id", ""))] = day_order_mods.get(pid, {})
+	_rebuild_day_cards()
+	_toast("🔁 Грейд поднят: %s" % String(day_choices[i].get("name", "")), Color("ffd24d"))
+
+func _rebuild_day_cards() -> void:
+	for c in day_cards.get_children():
+		c.queue_free()
+	for e in day_choices:
+		day_cards.add_child(_day_card(e))
+	Juice.stagger_fade(day_cards.get_children())
+	_refresh_skill_dock()
+
+# 👀 форс-включение гарантированного гостя в тройку дня (если ещё не там)
+func _apply_guaranteed() -> void:
+	if guaranteed_npc == "" or day_choices.is_empty():
+		return
+	for e in day_choices:
+		if String(e.get("id", "")) == guaranteed_npc:
+			guaranteed_npc = ""; return
+	var cfg: Dictionary = _npc_by_id(guaranteed_npc)
+	if cfg.is_empty():
+		guaranteed_npc = ""; return
+	var slot: int = randi() % day_choices.size()
+	var tier: int = int(day_choices[slot].get("tier", 1))
+	day_choices[slot] = GameData.grade_up_cfg(cfg, tier) if int(cfg.get("tier", 1)) < tier else cfg
+	guaranteed_npc = ""
+
+# ---- окно выбора гостей для умений who/ban ----
+func _open_skill_picker(mode: String) -> void:
+	var xp: int = _xp()
+	var unlocked: Dictionary = GameData.prog_unlocked_npcs(xp)
+	var ids: Array = []
+	for n in GameData.NPCS:
+		var id: String = String(n.get("id", ""))
+		if not unlocked.has(id):
+			continue
+		if mode == "ban" and banned_npcs.has(id):
+			continue
+		ids.append(id)
+	if ids.is_empty():
+		Sfx.play("badPop"); return
+	_pick_mode = mode; _pick_sel = {}; _pick_max = 3 if mode == "ban" else 1
+	var ov := ColorRect.new()
+	ov.color = Color(0, 0, 0, 0.62)
+	ov.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ov.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(ov)
+	ov.position = Vector2.ZERO
+	ov.size = get_viewport_rect().size          # страховка полного размера
+	skill_overlay = ov
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	box.offset_left = 24; box.offset_right = -24; box.offset_top = 80; box.offset_bottom = -24
+	box.add_theme_constant_override("separation", 12)
+	ov.add_child(box)
+	var title := Label.new()
+	title.text = "Кто там? Выбери гостя" if mode == "who" else "Этих не пускайте (до 3)"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 26)
+	title.add_theme_color_override("font_color", Color(0.95, 0.98, 1.0))
+	box.add_child(title)
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	box.add_child(scroll)
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(grid)
+	for id in ids:
+		grid.add_child(_pick_cell(_npc_by_id(id)))
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 16)
+	box.add_child(row)
+	var cancel := Button.new()
+	cancel.text = "Отмена"; cancel.add_theme_font_size_override("font_size", 22)
+	cancel.custom_minimum_size = Vector2(160, 56)
+	cancel.pressed.connect(_close_skill_picker)
+	row.add_child(cancel)
+	var confirm := Button.new()
+	confirm.text = "Готово"; confirm.add_theme_font_size_override("font_size", 22)
+	confirm.custom_minimum_size = Vector2(160, 56)
+	confirm.pressed.connect(_skill_pick_confirm)
+	row.add_child(confirm)
+
+func _pick_cell(cfg: Dictionary) -> Control:
+	var id: String = String(cfg.get("id", ""))
+	var b := Button.new()
+	b.toggle_mode = true
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(0, 150)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.toggled.connect(_on_pick_toggle.bind(id, b))
+	var vb := VBoxContainer.new()
+	vb.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vb.add_theme_constant_override("separation", 4)
+	b.add_child(vb)
+	var tex := load(GameData.portrait_path(cfg)) as Texture2D
+	if tex:
+		var ic := TextureRect.new()
+		ic.texture = tex
+		ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		ic.custom_minimum_size = Vector2(0, 104)
+		ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		vb.add_child(ic)
+	var nm := Label.new()
+	nm.text = String(cfg.get("name", ""))
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nm.add_theme_font_size_override("font_size", 16)
+	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vb.add_child(nm)
+	return b
+
+func _on_pick_toggle(pressed: bool, id: String, b: Button) -> void:
+	Sfx.play("uiClick")
+	if pressed:
+		if _pick_sel.size() >= _pick_max:
+			if _pick_max == 1:
+				_pick_sel.clear()
+				for c in b.get_parent().get_children():
+					if c is Button and c != b:
+						(c as Button).button_pressed = false
+			else:
+				b.button_pressed = false
+				Sfx.play("badPop")
+				return
+		_pick_sel[id] = true
+	else:
+		_pick_sel.erase(id)
+
+func _skill_pick_confirm() -> void:
+	var sel: Array = _pick_sel.keys()
+	if sel.is_empty():
+		Sfx.play("badPop"); return
+	if not PotionProfile.spend_charge():
+		return
+	if _pick_mode == "who":
+		guaranteed_npc = String(sel[0])
+		_toast("👀 Гость придёт в ближайших днях", Color("6ec3ff"))
+	else:
+		for id in sel:
+			banned_npcs[String(id)] = true
+		_toast("🚫 Не появятся до конца цикла", Color("ff9a6a"))
+	Sfx.play("cardPick")
+	_close_skill_picker()
+	_refresh_skill_dock()
+
+func _close_skill_picker() -> void:
+	if skill_overlay != null and is_instance_valid(skill_overlay):
+		skill_overlay.queue_free()
+	skill_overlay = null
+	_pick_sel = {}
 
 # Карточки дня: тиры = STAGE_TABLE[stage] (на макс.стадии серии дают тир-5),
 # затем число тиров подгоняется под размер пула прогрессии (2→3→4). NPC берутся
@@ -2914,6 +3195,8 @@ func _npc_pool(tier: int, unlocked: Dictionary, used: Array) -> Array:
 		if used.has(n["id"]):
 			continue
 		if pogrom_removed.has(n["id"]):    # выбыл из цикла из-за «Погрома»
+			continue
+		if banned_npcs.has(n["id"]):       # 🚫 забанен умением «Не пускать»
 			continue
 		if tier != -1 and int(n.get("tier", 1)) != tier:
 			continue
@@ -3995,6 +4278,11 @@ func _do_finish() -> void:
 	var outcome: Dictionary = PotionProfile.record_result(
 		npc["id"], tier, overall, grade, reward, "",
 		time_frac, level, order_focus, pos_mult, no_points, neg_mult, tip_mult, flat_bonus)
+
+	# Фаза 7: заряд умения за каждые 3 идеала за цикл
+	if grade == "perfect" and cycle_active:
+		if PotionProfile.bump_perfect_charge(3):
+			_toast("✨ +1 заряд умения", Color("ffd24d"))
 
 	# особый стикер по условию (или базовый случайный) — рейтинг цикла уже известен
 	var score_after: int = cycle_score + int(outcome.get("points", 0))

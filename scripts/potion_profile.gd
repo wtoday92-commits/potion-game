@@ -67,7 +67,52 @@ func _empty_profile() -> Dictionary:
 		"achievements": {"general": {}, "npc": {}},
 		"lore_phrases": {"unlocked_by_npc": {}},
 		"passives": {"unlocked_by_npc": {}, "active": []},
+		# Фаза 7: умения игрока. charges — текущие заряды (0..3);
+		# perfect_counter — идеалов накоплено в счёт бонусного заряда (сброс на 3).
+		"skills": {"charges": 0, "perfect_counter": 0},
 	}
+
+# ---------- Фаза 7: заряды умений ----------
+const SKILL_CHARGE_CAP := 3
+
+func get_charges() -> int:
+	return int(data.get("skills", {}).get("charges", 0))
+
+func add_charge(n: int = 1) -> void:
+	var s: Dictionary = data.get("skills", {})
+	s["charges"] = clampi(int(s.get("charges", 0)) + n, 0, SKILL_CHARGE_CAP)
+	data["skills"] = s
+	_dirty = true
+	save()
+
+func spend_charge() -> bool:
+	var s: Dictionary = data.get("skills", {})
+	var c: int = int(s.get("charges", 0))
+	if c <= 0:
+		return false
+	s["charges"] = c - 1
+	data["skills"] = s
+	_dirty = true
+	save()
+	return true
+
+# +1 к счётчику идеалов; при достижении порога — сброс и +1 заряд (возвращает true, если заряд начислен)
+func bump_perfect_charge(threshold: int) -> bool:
+	var s: Dictionary = data.get("skills", {})
+	var pc: int = int(s.get("perfect_counter", 0)) + 1
+	if pc >= threshold:
+		s["perfect_counter"] = 0
+		var was: int = int(s.get("charges", 0))
+		s["charges"] = clampi(was + 1, 0, SKILL_CHARGE_CAP)
+		data["skills"] = s
+		_dirty = true
+		save()
+		return s["charges"] > was
+	s["perfect_counter"] = pc
+	data["skills"] = s
+	_dirty = true
+	save()
+	return false
 
 # ---------- загрузка/сохранение ----------
 func load_profile() -> void:
