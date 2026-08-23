@@ -76,6 +76,18 @@ var skill_dock: HBoxContainer = null
 var skill_btns: Dictionary = {}       # id умения → Button
 var skill_pips: Array = []            # ColorRect-индикаторы зарядов
 var skill_overlay: Control = null     # окно выбора гостя (who/ban)
+# Ежедневный заказ: одна и та же тройка у всех по дате; прогресс не трогаем
+var daily_mode: bool = false
+var daily_diff: String = ""
+var daily_seq: Array = []
+var _daily_backup: Dictionary = {}
+var _daily_end: bool = false
+const DAILY_DAYS := 10
+const DAILY_PROFILES := {
+	"easy": {"tier": 3, "label": "Серьёзно?"},
+	"mid":  {"tier": 4, "label": "Ок"},
+	"hard": {"tier": 5, "label": "Так и было задумано"},
+}
 var item_fx: Dictionary = {}          # эффекты применённых предметов на ТЕКУЩИЙ заказ
 var item_pending: Dictionary = {}     # эффекты «на следующий заказ» (Секундомер/Ясность)
 var pogrom_removed: Array = []   # id гостей, выбывших из цикла из-за «Погрома»
@@ -954,8 +966,8 @@ func _build_start() -> void:
 	coll_btn.pressed.connect(_show_collection)
 	sv.add_child(coll_btn)
 
-	var daily_btn := _menu_button("Ежедневный заказ  (скоро)")   # заглушка под Фазу 2/3
-	daily_btn.disabled = true
+	var daily_btn := _menu_button("Ежедневный заказ")
+	daily_btn.pressed.connect(_open_daily_diff)
 	sv.add_child(daily_btn)
 
 	profile_btn = _menu_button("")
@@ -2191,10 +2203,11 @@ func _lb_date(created: String) -> String:
 	return ""
 
 # Сохранить счёт: онлайн (если в аккаунте) + всегда локально (fallback/гость).
-func _lb_save(nick: String, score: int) -> void:
+func _lb_save(nick: String, score: int, mode: String = "arcade") -> void:
 	if PotionAuth.is_logged_in():
-		await PotionAuth.leaderboard_save("arcade", nick, score)
-	PotionProfile.lb_local_add(nick, score)
+		await PotionAuth.leaderboard_save(mode, nick, score)
+	if mode == "arcade":
+		PotionProfile.lb_local_add(nick, score)
 
 var _lb_highlight: int = -1        # какой счёт подсветить при следующем открытии
 
@@ -2852,6 +2865,128 @@ func _show_day() -> void:
 	Juice.stagger_fade(day_cards.get_children())   # карточки влетают по очереди
 	_refresh_skill_dock()
 
+# ---------- Ежедневный особый заказ ----------
+# Одна и та же тройка гостей у всех по дате (детерминированный сид). Прогресс
+# (xp/репутация/статы) НЕ трогаем: снимаем бэкап профиля на входе и откатываем
+# на выходе; в топ уходит только счёт (режим "daily").
+func _open_daily_diff() -> void:
+	var ov := ColorRect.new()
+	ov.color = Color(0, 0, 0, 0.66)
+	ov.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ov.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(ov)
+	ov.position = Vector2.ZERO
+	ov.size = get_viewport_rect().size
+	var vb := VBoxContainer.new()
+	vb.set_anchors_preset(Control.PRESET_CENTER)
+	vb.alignment = BoxContainer.ALIGNMENT_CENTER
+	vb.add_theme_constant_override("separation", 14)
+	ov.add_child(vb)
+	var title := Label.new()
+	title.text = "Особый заказ дня"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 30)
+	title.add_theme_color_override("font_color", Color(0.98, 0.9, 0.72))
+	vb.add_child(title)
+	var sub := Label.new()
+	sub.text = "Сегодня у всех одинаковый набор гостей.\nВыбери сложность:"
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.add_theme_font_size_override("font_size", 18)
+	sub.add_theme_color_override("font_color", Color(0.8, 0.85, 0.95))
+	vb.add_child(sub)
+	for key in ["easy", "mid", "hard"]:
+		var b := _menu_button(String(DAILY_PROFILES[key]["label"]))
+		b.pressed.connect(func():
+			ov.queue_free()
+			_enter_daily(key))
+		vb.add_child(b)
+	var back := _menu_button("Назад")
+	back.pressed.connect(ov.queue_free)
+	vb.add_child(back)
+
+func _enter_daily(diff: String) -> void:
+	_daily_backup = PotionProfile.data.duplicate(true)   # прогресс откатим на выходе
+	daily_mode = true
+	daily_diff = diff
+	daily_seq = _build_daily_seq()
+	Sfx.enter_game()
+	stage = 0
+	day_num = 1
+	cycle_score = 0
+	perfect_streak_max = 0
+	good_streak_max = 0
+	cycle_active = true
+	_tb_rating_shown = 0
+	cycle_stickers = {"perfect": 0, "good": 0, "swill": 0, "bad": 0}
+	pogrom_removed = []
+	banned_npcs = {}
+	guaranteed_npc = ""
+	cycle_days = DAILY_DAYS
+	_new_day()
+
+# Детерминированная последовательность id по дате UTC (одна на день у всех).
+func _build_daily_seq() -> Array:
+	var ids: Array = []
+	for n in GameData.NPCS:
+		ids.append(String(n["id"]))
+	var d: Dictionary = Time.get_datetime_dict_from_system(true)   # UTC
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(d["year"]) * 10000 + int(d["month"]) * 100 + int(d["day"])
+	# Фишер-Йетс детерминированно
+	for i in range(ids.size() - 1, 0, -1):
+		var j: int = rng.randi_range(0, i)
+		var t = ids[i]; ids[i] = ids[j]; ids[j] = t
+	var seq: Array = ids.duplicate()
+	while seq.size() < DAILY_DAYS * 3:              # добить до 30 слотов
+		seq.append_array(ids)
+	return seq
+
+# Тройка гостей дня в дейлике: подмена tier по профилю сложности (tier задаёт
+# число делений/тайминги/награду через npc_config).
+func _daily_pool(day_idx: int) -> Array:
+	var prof: Dictionary = DAILY_PROFILES.get(daily_diff, {"tier": 3})
+	var out: Array = []
+	for k in 3:
+		var id: String = String(daily_seq[(day_idx * 3 + k) % daily_seq.size()])
+		var cfg: Dictionary = _npc_by_id(id).duplicate(true)
+		cfg["tier"] = int(prof["tier"])
+		out.append(cfg)
+	return out
+
+func _restore_daily_backup() -> void:
+	if not _daily_backup.is_empty():
+		PotionProfile.data = _daily_backup
+		PotionProfile.save()
+	_daily_backup = {}
+
+func _show_daily_end() -> void:
+	Sfx.play("weekEnd")
+	cycle_active = false
+	var sc: int = cycle_score
+	_lb_save(PotionAuth.get_nickname(), sc, "daily")   # отдельный топ дейлика
+	_restore_daily_backup()                            # прогресс не пострадал
+	daily_mode = false
+	daily_diff = ""
+	_daily_end = true
+	phase = "cycle_end"
+	round_ui.visible = false
+	_layout_result()
+	result_sticker_tex.visible = false
+	result_glow.visible = false
+	result_points_box.visible = false
+	result_breakdown_box.visible = false
+	result_sticker.text = "Дейлик пройден!"
+	result_sticker.add_theme_color_override("font_color", Color("6dff8f"))
+	result_detail.text = "Рейтинг дня: %d\n🏆 Отправлено в топ дейлика" % sc
+	result_detail.visible = true
+	result_replay_btn.visible = false
+	result_next_btn.visible = true
+	result_panel.visible = true
+	_set_topbar(true)
+	_scene_state("select")
+	Juice.fade_in(result_panel)
+	Juice.pop.call_deferred(result_sticker)
+
 # ---------- Фаза 7: умения игрока (панель на экране дня) ----------
 const SKILL_DEFS := [
 	{"id": "who",     "icon": "👀", "flag": "skill_1", "title": "Кто там? — выбранный гость придёт в ближайших днях"},
@@ -2914,7 +3049,7 @@ func _refresh_skill_dock() -> void:
 	if skill_dock == null:
 		return
 	var xp: int = _xp()
-	var on: bool = cycle_active and GameData.prog_mech_unlocked("skill_1", xp)
+	var on: bool = cycle_active and not daily_mode and GameData.prog_mech_unlocked("skill_1", xp)
 	skill_dock.visible = on
 	if not on:
 		return
@@ -3136,6 +3271,8 @@ func _close_skill_picker() -> void:
 # затем число тиров подгоняется под размер пула прогрессии (2→3→4). NPC берутся
 # только из ОТКРЫТЫХ прогрессией; по возможности разные.
 func _pick_day_npcs() -> Array:
+	if daily_mode:
+		return _daily_pool(day_num - 1)
 	var xp: int = _xp()
 	var unlocked: Dictionary = GameData.prog_unlocked_npcs(xp)
 	var tiers: Array = (GameData.STAGE_TABLE[stage] as Array).duplicate()
@@ -3456,6 +3593,8 @@ func _choose_diff(npc_e: Dictionary, lvl: int) -> void:
 
 # Связи NPC открываются прогрессией (relations) + порогом репутации по тиру гостя
 func _relation_unlocked(npc_id: String) -> bool:
+	if daily_mode:
+		return false                 # в дейлике связей нет
 	if not GameData.prog_mech_unlocked("relations", _xp()):
 		return false
 	var cfg: Dictionary = _npc_by_id(npc_id)
@@ -3666,6 +3805,9 @@ func _after_order() -> void:
 		_new_day()
 
 func _show_cycle_end() -> void:
+	if daily_mode:
+		_show_daily_end()
+		return
 	Sfx.play("weekEnd")              # итог цикла
 	cycle_active = false
 	# прогрессия: уровень и открытые NPC ДО начисления опыта
@@ -3723,6 +3865,9 @@ func _show_cycle_end() -> void:
 
 # ---------- стартовый экран ----------
 func _show_start() -> void:
+	if daily_mode:                   # вышли из дейлика — откатываем прогресс-профиль
+		_restore_daily_backup()
+		daily_mode = false; daily_diff = ""; _daily_end = false
 	Sfx.enter_menu()                 # главное меню — трек меню
 	phase = "start"
 	result_panel.visible = false
@@ -4448,7 +4593,10 @@ func _result_next() -> void:
 	ir_force_extra = ""
 	_replay_snapshot = {}
 	ir_replay_mode = ""
-	if phase == "cycle_end":
+	if _daily_end:
+		_daily_end = false
+		_show_start()
+	elif phase == "cycle_end":
 		_start_cycle()
 	else:
 		_after_order()
