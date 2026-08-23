@@ -136,7 +136,7 @@ class TruckerMech extends NpcMech:
 		_show_only(idx)
 		# переключатель передач — большая стрелка справа (только если правых >1)
 		if keys.size() > 1:
-			switch_btn = NpcMech.make_arrow_btn(g, _next_gear)
+			switch_btn = NpcMech.make_arrow_btn(g, _next_gear, 0.40)   # выше, чтобы не лезла на КПП
 
 	func _make_gear(k: String) -> void:
 		var col: VBoxContainer = g_ref.slider_cols[k]
