@@ -72,7 +72,7 @@ var day_order_mods: Dictionary = {}   # id гостя дня → {"focus":..., "
 # Фаза 7: умения игрока (работают на экране дня, тратят заряды)
 var guaranteed_npc: String = ""       # 👀 «Кто там?» — гость, гарантированно придёт
 var banned_npcs: Dictionary = {}      # 🚫 «Не пускать» — id забанены до конца цикла
-var skill_dock: HBoxContainer = null
+var skill_dock: Control = null
 var skill_btns: Dictionary = {}       # id умения → Button
 var skill_pips: Array = []            # ColorRect-индикаторы зарядов
 var skill_overlay: Control = null     # окно выбора гостя (who/ban)
@@ -1737,6 +1737,7 @@ func _rep_bar_ctl(value: float, tcol: Color, font: int = 16) -> Control:
 # ---------- страница персонажа (досье / репутация-шкала / пассивки / ачивки) ----------
 func _build_char() -> void:
 	char_panel = _make_center_panel()
+	(char_panel.get_node("Card") as PanelContainer).offset_top = PANEL_INSET   # на весь экран (топбар скрыт)
 	var cv := char_panel.get_node("Card/V") as VBoxContainer
 	cv.add_theme_constant_override("separation", 10)
 
@@ -2243,34 +2244,36 @@ func _build_day() -> void:
 	var dv := day_panel.get_node("Card/V") as VBoxContainer
 	dv.add_theme_constant_override("separation", 12)
 
-	# карточки в прокрутке — чтобы при 4 картах умещались, а умения/«Меню» не уезжали
-	var day_scroll := ScrollContainer.new()
-	day_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	day_scroll.scroll_deadzone = 14
-	day_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	day_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	dv.add_child(day_scroll)
+	# карточки по центру; снизу — зарезервированное место под умения/угловые кнопки
 	day_cards = VBoxContainer.new()
 	day_cards.add_theme_constant_override("separation", 18)
 	day_cards.alignment = BoxContainer.ALIGNMENT_CENTER
 	day_cards.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	day_cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	day_scroll.add_child(day_cards)
+	dv.add_child(day_cards)
+	var day_bottom_pad := Control.new()              # чтобы карты не заходили на умения/кнопки
+	day_bottom_pad.custom_minimum_size = Vector2(0, 150)
+	dv.add_child(day_bottom_pad)
 
-	_build_skill_dock(dv)          # Фаза 7: панель умений (закреплена под прокруткой)
+	_build_skill_dock(day_panel)   # Фаза 7: панель умений — закреплена внизу по центру
 
 	# day_header скрыт в шапке экрана — держим ссылку живой (день виден в топбаре)
 	day_header = Label.new()
 	day_header.visible = false
 	dv.add_child(day_header)
 
+	# «← Меню» — фиксированная кнопка в правом нижнем углу (на уровне инвентаря)
 	var to_menu := Button.new()
-	to_menu.text = "← Меню\n(бросить цикл)"
-	to_menu.custom_minimum_size = Vector2(240, 74)   # компактная кнопка: выше и уже
-	to_menu.add_theme_font_size_override("font_size", 19)
-	to_menu.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	to_menu.text = "← Меню"
+	to_menu.tooltip_text = "Бросить цикл"
+	to_menu.custom_minimum_size = Vector2(120, 66)
+	to_menu.add_theme_font_size_override("font_size", 20)
+	to_menu.focus_mode = Control.FOCUS_NONE
+	to_menu.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	to_menu.offset_left = -152.0; to_menu.offset_right = -18.0
+	to_menu.offset_top = -98.0; to_menu.offset_bottom = -18.0
 	to_menu.pressed.connect(_show_start)
-	dv.add_child(to_menu)
+	day_panel.add_child(to_menu)
 
 # ---------- постоянная верхняя панель ----------
 # ---------- Глобальный рейтинг (лидерборд) ----------
@@ -3233,12 +3236,22 @@ func _npc_by_id(id: String) -> Dictionary:
 	return {}
 
 func _build_skill_dock(parent: Node) -> void:
+	# закреплённая полоса внизу по центру (над угловыми кнопками)
+	var strip := Control.new()
+	strip.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	strip.offset_top = -150.0
+	strip.offset_bottom = -90.0
+	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(strip)
+	var cc := CenterContainer.new()
+	cc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	strip.add_child(cc)
 	var wrap := HBoxContainer.new()
 	wrap.alignment = BoxContainer.ALIGNMENT_CENTER
-	wrap.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	wrap.add_theme_constant_override("separation", 10)
-	parent.add_child(wrap)
-	skill_dock = wrap
+	cc.add_child(wrap)
+	skill_dock = strip
 	skill_btns = {}
 	for d in SKILL_DEFS:
 		var b := Button.new()
@@ -3285,7 +3298,8 @@ func _refresh_skill_dock() -> void:
 	for d in SKILL_DEFS:
 		var b: Button = skill_btns[String(d["id"])]
 		b.visible = GameData.prog_mech_unlocked(String(d["flag"]), xp)
-		b.disabled = charges <= 0
+		b.disabled = false                         # всегда жмётся (при 0 зарядов — тост)
+		b.modulate = Color(1, 1, 1, 1) if charges > 0 else Color(1, 1, 1, 0.5)
 	for i in skill_pips.size():
 		(skill_pips[i] as ColorRect).color = Color("ffd24d") if i < charges else Color(1, 1, 1, 0.18)
 
