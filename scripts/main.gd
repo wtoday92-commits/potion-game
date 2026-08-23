@@ -465,7 +465,7 @@ func _build_ui() -> void:
 		var name_lbl := Label.new()
 		name_lbl.text = p["label"]
 		name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		name_lbl.add_theme_font_size_override("font_size", 15)
+		name_lbl.add_theme_font_size_override("font_size", 20)
 		col.add_child(name_lbl)
 
 		var s := TouchSlider.new()
@@ -504,7 +504,7 @@ func _build_ui() -> void:
 
 	var sel_menu := Button.new()
 	sel_menu.text = "← К выбору"
-	sel_menu.custom_minimum_size = Vector2(140, 40)
+	sel_menu.custom_minimum_size = Vector2(180, 60)
 	sel_menu.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	sel_menu.pressed.connect(_show_day)
 	sv.add_child(sel_menu)
@@ -576,7 +576,7 @@ func _build_ui() -> void:
 
 	tier_badge = Label.new()
 	tier_badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	tier_badge.add_theme_font_size_override("font_size", 13)
+	tier_badge.add_theme_font_size_override("font_size", 18)
 	sv.add_child(tier_badge)
 
 	npc_flavor = Label.new()
@@ -593,7 +593,7 @@ func _build_ui() -> void:
 	for lvl in [1, 2, 3, 4]:
 		var b := Button.new()
 		b.text = LEVEL_DESC[lvl]
-		b.custom_minimum_size = Vector2(440, 52)
+		b.custom_minimum_size = Vector2(440, 72)
 		b.pressed.connect(_start_round.bind(lvl))
 		sv.add_child(b)
 		diff_btns[lvl] = b
@@ -741,7 +741,7 @@ func _build_ui() -> void:
 	# ---- DEV-кнопка (справа снизу): много прогресса/чаевых/репутации для тестов ----
 	var dev_btn := Button.new()
 	dev_btn.text = "DEV"
-	dev_btn.add_theme_font_size_override("font_size", 13)
+	dev_btn.add_theme_font_size_override("font_size", 18)
 	dev_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	dev_btn.offset_left = -84.0
 	dev_btn.offset_top = -58.0
@@ -919,8 +919,8 @@ func _build_prog_strip() -> void:
 	sb.set_corner_radius_all(10)
 	sb.set_border_width_all(1)
 	sb.border_color = Color(0.35, 0.30, 0.5, 0.6)
-	sb.content_margin_left = 10.0; sb.content_margin_right = 10.0
-	sb.content_margin_top = 5.0; sb.content_margin_bottom = 5.0
+	sb.content_margin_left = 14.0; sb.content_margin_right = 14.0
+	sb.content_margin_top = 8.0; sb.content_margin_bottom = 8.0
 	prog_strip.add_theme_stylebox_override("panel", sb)
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 4)
@@ -968,8 +968,8 @@ func _build_start() -> void:
 	var subtitle := Label.new()
 	subtitle.text = "Sector Seven Saloon"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	subtitle.add_theme_font_size_override("font_size", 14)
-	subtitle.modulate = Color(1, 1, 1, 0.5)
+	subtitle.add_theme_font_size_override("font_size", 20)
+	subtitle.modulate = Color(1, 1, 1, 0.75)
 	sv.add_child(subtitle)
 
 	# HUD профиля: чипы чаевые / заказы / серия (иконки + число)
@@ -985,19 +985,19 @@ func _build_start() -> void:
 	spacer.custom_minimum_size = Vector2(0, 10)
 	sv.add_child(spacer)
 
-	var play := _menu_button("ИГРАТЬ", true, 66)
+	var play := _menu_button("ИГРАТЬ", true, 96)
 	play.pressed.connect(_start_cycle)
 	sv.add_child(play)
 
-	coll_btn = _menu_button("Коллекция")
+	coll_btn = _menu_button("Коллекция", false, 76, "nav_collection")
 	coll_btn.pressed.connect(_show_collection)
 	sv.add_child(coll_btn)
 
-	var daily_btn := _menu_button("Ежедневный заказ")
+	var daily_btn := _menu_button("Ежедневный заказ", false, 76, "nav_leaderboard")
 	daily_btn.pressed.connect(_open_daily_diff)
 	sv.add_child(daily_btn)
 
-	profile_btn = _menu_button("")
+	profile_btn = _menu_button("", false, 76, "nav_profile")
 	profile_btn.pressed.connect(_show_account)
 	sv.add_child(profile_btn)
 
@@ -1010,30 +1010,35 @@ func _build_start() -> void:
 
 # Ряд «ярлык + горизонтальный слайдер громкости». is_music → музыка, иначе SFX.
 func _audio_row(sv: VBoxContainer, label_text: String, is_music: bool) -> void:
+	# непрозрачная подложка: на контрастном фоне подписи иначе не читаются
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", _panel_sb(UI_BORDER, UI_PANEL2, 14))
+	card.custom_minimum_size = Vector2(440, 76)
 	var row := HBoxContainer.new()
-	row.custom_minimum_size = Vector2(440, 44)
-	row.add_theme_constant_override("separation", 12)
+	row.add_theme_constant_override("separation", 14)
+	card.add_child(row)
 	var lbl := Label.new()
 	lbl.text = label_text
-	lbl.custom_minimum_size = Vector2(120, 0)
-	lbl.add_theme_font_size_override("font_size", 18)
+	lbl.custom_minimum_size = Vector2(150, 0)
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 24)
+	lbl.add_theme_color_override("font_color", UI_TXT)
 	row.add_child(lbl)
-	var sl := HSlider.new()
+	var sl := HTouchSlider.new()               # крупный тач-слайдер вместо тонкого HSlider
 	sl.min_value = 0.0
 	sl.max_value = 100.0
 	sl.step = 1.0
 	sl.value = (Sfx.music_volume if is_music else Sfx.sfx_volume) * 100.0
 	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	sl.custom_minimum_size = Vector2(280, 40)
+	sl.custom_minimum_size = Vector2(260, 62)
 	if is_music:
 		sl.value_changed.connect(_on_music_vol)
-		sl.drag_ended.connect(_on_vol_drag_end)
 	else:
 		sl.value_changed.connect(_on_sfx_vol)
-		sl.drag_ended.connect(_on_sfx_drag_end)
+		sl.value_changed.connect(func(_v): Sfx.play("tick"))
 	row.add_child(sl)
-	sv.add_child(row)
+	sv.add_child(card)
 
 func _on_music_vol(v: float) -> void:
 	Sfx.set_music_volume(v / 100.0)
@@ -1051,19 +1056,22 @@ func _on_sfx_drag_end(_value_changed: bool) -> void:
 # Чип HUD: «эмодзи + значение», значение обновляется в _refresh_hud().
 func _hud_chip(row: HBoxContainer, tex_name: String) -> Label:
 	var chip := PanelContainer.new()
-	chip.add_theme_stylebox_override("panel", _panel_sb(UI_BORDER, UI_PANEL2, 12))
+	chip.add_theme_stylebox_override("panel", _panel_sb(UI_BORDER, UI_PANEL2, 14))
+	chip.custom_minimum_size = Vector2(0, 78)
+	chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 8)
+	h.alignment = BoxContainer.ALIGNMENT_CENTER
+	h.add_theme_constant_override("separation", 10)
 	chip.add_child(h)
 	var ic := TextureRect.new()
 	ic.texture = _ui(tex_name)
-	ic.custom_minimum_size = Vector2(32, 32)
+	ic.custom_minimum_size = Vector2(72, 72)
 	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	h.add_child(ic)
 	var lbl := Label.new()
-	lbl.add_theme_font_size_override("font_size", 20)
+	lbl.add_theme_font_size_override("font_size", 30)
 	lbl.add_theme_color_override("font_color", UI_GOLD)
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	lbl.text = "0"
@@ -1072,12 +1080,18 @@ func _hud_chip(row: HBoxContainer, tex_name: String) -> Label:
 	return lbl
 
 # Единая кнопка меню (primary — золотая заливка, secondary — обычная тема).
-func _menu_button(text: String, primary: bool = false, h: float = 54.0) -> Button:
+func _menu_button(text: String, primary: bool = false, h: float = 76.0, icon_name: String = "") -> Button:
 	var b := Button.new()
 	b.text = text
 	b.custom_minimum_size = Vector2(440, h)
-	b.add_theme_font_size_override("font_size", 20 if primary else FS_BODY)
+	b.add_theme_font_size_override("font_size", 30 if primary else 24)
+	b.add_theme_constant_override("h_separation", 16)
 	b.focus_mode = Control.FOCUS_NONE
+	if icon_name != "":
+		var t := _ui(icon_name)
+		if t != null:
+			b.icon = t
+			b.expand_icon = false
 	if primary:
 		for st in ["normal", "hover", "pressed"]:
 			b.add_theme_stylebox_override(st, _tab_sb(true))
@@ -1129,15 +1143,15 @@ func _stat_tile(tex: Texture2D, number: String, label: String, accent: Color = U
 	if tex != null:
 		var ir := TextureRect.new()
 		ir.texture = tex
-		ir.custom_minimum_size = Vector2(52, 52)
-		ir.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		ir.custom_minimum_size = Vector2(0, 92)
+		ir.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		ir.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		ir.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		v.add_child(ir)
 	var num := Label.new()
 	num.text = number
 	num.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	num.add_theme_font_size_override("font_size", 30)
+	num.add_theme_font_size_override("font_size", 38)
 	num.add_theme_color_override("font_color", UI_GOLD)
 	v.add_child(num)
 	var lbl := Label.new()
@@ -1198,7 +1212,7 @@ func _build_collection() -> void:
 	for tab in [["stats", "Статистика"], ["ribbon", "Лента"], ["stickers", "Стикеры"], ["ach", "Ачивки"]]:
 		var b := Button.new()
 		b.text = tab[1]
-		b.custom_minimum_size = Vector2(0, 50)
+		b.custom_minimum_size = Vector2(0, 64)
 		b.add_theme_font_size_override("font_size", FS_BODY)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.focus_mode = Control.FOCUS_NONE
@@ -1222,7 +1236,7 @@ func _build_collection() -> void:
 
 	var back := Button.new()
 	back.text = "← Назад"
-	back.custom_minimum_size = Vector2(0, 54)
+	back.custom_minimum_size = Vector2(0, 68)
 	back.add_theme_font_size_override("font_size", FS_BODY)
 	back.focus_mode = Control.FOCUS_NONE
 	back.pressed.connect(_close_collection)
@@ -1679,7 +1693,7 @@ func _build_chars() -> void:
 	scroll.add_child(chars_list)
 	var back := Button.new()
 	back.text = "← Назад"
-	back.custom_minimum_size = Vector2(0, 54)
+	back.custom_minimum_size = Vector2(0, 68)
 	back.add_theme_font_size_override("font_size", FS_BODY)
 	back.focus_mode = Control.FOCUS_NONE
 	back.pressed.connect(_close_overlay)
@@ -1753,7 +1767,7 @@ func _build_char() -> void:
 
 	var back := Button.new()
 	back.text = "← К списку"
-	back.custom_minimum_size = Vector2(0, 52)
+	back.custom_minimum_size = Vector2(0, 68)
 	back.pressed.connect(_show_chars)
 	cv.add_child(back)
 
@@ -1969,7 +1983,7 @@ func _npc_ach_card(ach: Dictionary, ns: Dictionary) -> Control:
 	var sub := Label.new()
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	sub.add_theme_font_size_override("font_size", 15)
+	sub.add_theme_font_size_override("font_size", 20)
 	sub.modulate = Color(1, 1, 1, 0.55)
 	if tier < t_list.size():
 		if unlocked:
@@ -2025,7 +2039,7 @@ func _build_account() -> void:
 	scroll.add_child(account_list)
 	var back := Button.new()
 	back.text = "← Меню"
-	back.custom_minimum_size = Vector2(0, 54)
+	back.custom_minimum_size = Vector2(0, 68)
 	back.add_theme_font_size_override("font_size", FS_BODY)
 	back.focus_mode = Control.FOCUS_NONE
 	back.pressed.connect(_show_start)
@@ -2082,7 +2096,7 @@ func _populate_account() -> void:
 		account_list.add_child(_acc_nick_row())
 		var out := Button.new()
 		out.text = "Выйти"
-		out.custom_minimum_size = Vector2(0, 50)
+		out.custom_minimum_size = Vector2(0, 64)
 		out.add_theme_font_size_override("font_size", FS_BODY)
 		out.focus_mode = Control.FOCUS_NONE
 		out.pressed.connect(_acc_logout)
@@ -2101,11 +2115,11 @@ func _populate_account() -> void:
 
 	# вкладки Вход / Регистрация
 	var tabs := HBoxContainer.new()
-	tabs.add_theme_constant_override("separation", 6)
+	tabs.add_theme_constant_override("separation", 8)
 	for t in [["login", "Вход"], ["register", "Регистрация"]]:
 		var b := Button.new()
 		b.text = t[1]
-		b.custom_minimum_size = Vector2(0, 46)
+		b.custom_minimum_size = Vector2(0, 62)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.modulate = Color(1, 1, 1, 1) if _auth_tab == t[0] else Color(1, 1, 1, 0.5)
 		b.pressed.connect(_acc_set_tab.bind(t[0]))
@@ -2129,13 +2143,13 @@ func _populate_account() -> void:
 
 	var submit := Button.new()
 	submit.text = "Создать аккаунт" if is_reg else "Войти"
-	submit.custom_minimum_size = Vector2(0, 52)
+	submit.custom_minimum_size = Vector2(0, 68)
 	submit.pressed.connect(_submit_auth.bind(is_reg, login_edit, pw_edit, nick_edit, msg, submit))
 	account_list.add_child(submit)
 
 	var guest := Button.new()
 	guest.text = "Играть гостем"
-	guest.custom_minimum_size = Vector2(0, 48)
+	guest.custom_minimum_size = Vector2(0, 64)
 	guest.pressed.connect(_show_start)
 	account_list.add_child(guest)
 
@@ -2169,7 +2183,7 @@ func _acc_input(placeholder: String, secret: bool) -> LineEdit:
 	var e := LineEdit.new()
 	e.placeholder_text = placeholder
 	e.secret = secret
-	e.custom_minimum_size = Vector2(0, 46)
+	e.custom_minimum_size = Vector2(0, 60)
 	return e
 
 func _acc_nick_row() -> Control:
@@ -2177,7 +2191,7 @@ func _acc_nick_row() -> Control:
 	row.add_theme_constant_override("separation", 8)
 	var edit := LineEdit.new()
 	edit.text = PotionAuth.get_nickname()
-	edit.custom_minimum_size = Vector2(0, 46)
+	edit.custom_minimum_size = Vector2(0, 60)
 	edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(edit)
 	var btn := Button.new()
@@ -2359,7 +2373,7 @@ func _build_leaderboard_panel() -> void:
 	scroll.add_child(lb_list)
 	var close := Button.new()
 	close.text = "Закрыть"
-	close.custom_minimum_size = Vector2(0, 54)
+	close.custom_minimum_size = Vector2(0, 68)
 	close.add_theme_font_size_override("font_size", FS_BODY)
 	close.focus_mode = Control.FOCUS_NONE
 	close.pressed.connect(func(): lb_panel.visible = false)
@@ -2529,18 +2543,18 @@ func _render_shop() -> void:
 		hb.add_child(vb)
 		var nm := Label.new()
 		nm.text = "%s · Тир %d" % [it["name"], sel + 1]
-		nm.add_theme_font_size_override("font_size", 17)
+		nm.add_theme_font_size_override("font_size", 22)
 		nm.add_theme_color_override("font_color", Color(0.95, 0.9, 1.0))
 		vb.add_child(nm)
 		var ds := Label.new()
 		ds.text = String(it["desc"])
 		ds.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		ds.add_theme_font_size_override("font_size", 12)
+		ds.add_theme_font_size_override("font_size", 17)
 		ds.modulate = Color(1, 1, 1, 0.55)
 		vb.add_child(ds)
 		var ef := Label.new()
 		ef.text = "Эффект: %s" % String(g["label"])
-		ef.add_theme_font_size_override("font_size", 14)
+		ef.add_theme_font_size_override("font_size", 19)
 		ef.add_theme_color_override("font_color", Color("6dff8f"))
 		vb.add_child(ef)
 		var buyrow := HBoxContainer.new()
@@ -2552,7 +2566,7 @@ func _render_shop() -> void:
 		buyrow.add_child(buy)
 		var have := Label.new()
 		have.text = "в сумке: %d" % PotionProfile.item_count(id, sel)
-		have.add_theme_font_size_override("font_size", 13)
+		have.add_theme_font_size_override("font_size", 18)
 		have.modulate = Color(1, 1, 1, 0.6)
 		have.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		buyrow.add_child(have)
@@ -2563,7 +2577,7 @@ func _render_shop() -> void:
 		for gi in grades.size():
 			var gb := Button.new()
 			gb.text = str(gi + 1)
-			gb.custom_minimum_size = Vector2(40, 34)
+			gb.custom_minimum_size = Vector2(56, 48)
 			gb.focus_mode = Control.FOCUS_NONE
 			gb.disabled = not (gi in avail)
 			if gi == sel:
@@ -2637,7 +2651,7 @@ func _build_items_panel() -> void:
 	scroll.add_child(items_list)
 	var close := Button.new()
 	close.text = "ЗАКРЫТЬ"
-	close.custom_minimum_size = Vector2(0, 52)
+	close.custom_minimum_size = Vector2(0, 68)
 	close.add_theme_font_size_override("font_size", 18)
 	close.focus_mode = Control.FOCUS_NONE
 	close.pressed.connect(func(): items_panel.visible = false)
@@ -2663,7 +2677,7 @@ func _render_items() -> void:
 		var l := Label.new()
 		l.text = "Инвентарь пуст.\nКупи предметы в 🛒 Лавке."
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		l.add_theme_font_size_override("font_size", 17)
+		l.add_theme_font_size_override("font_size", 22)
 		l.modulate = Color(1, 1, 1, 0.55)
 		items_list.add_child(l)
 
@@ -2725,7 +2739,7 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	name_row.add_child(nm)
 	var gnote := Label.new()
 	gnote.text = "· Грейд %d (%s)" % [gi + 1, String(it["grades"][gi]["label"])]
-	gnote.add_theme_font_size_override("font_size", 13)
+	gnote.add_theme_font_size_override("font_size", 18)
 	gnote.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
 	gnote.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	name_row.add_child(gnote)
@@ -2734,7 +2748,7 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	# описание
 	var desc := Label.new()
 	desc.text = String(it["desc"])
-	desc.add_theme_font_size_override("font_size", 13)
+	desc.add_theme_font_size_override("font_size", 18)
 	desc.add_theme_color_override("font_color", Color(1, 1, 1, 0.72))
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.add_child(desc)
@@ -2742,7 +2756,7 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	# строка эффекта — зелёным
 	var eff := Label.new()
 	eff.text = _item_effect_desc(it, gi)
-	eff.add_theme_font_size_override("font_size", 13)
+	eff.add_theme_font_size_override("font_size", 18)
 	eff.add_theme_color_override("font_color", Color("8affc0"))
 	eff.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.add_child(eff)
@@ -2752,8 +2766,8 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	act.add_theme_constant_override("separation", 10)
 	var use := Button.new()
 	use.text = "Применить"
-	use.custom_minimum_size = Vector2(150, 44)
-	use.add_theme_font_size_override("font_size", 16)
+	use.custom_minimum_size = Vector2(190, 60)
+	use.add_theme_font_size_override("font_size", 21)
 	use.focus_mode = Control.FOCUS_NONE
 	use.disabled = not usable
 	if usable:
@@ -2761,14 +2775,14 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	act.add_child(use)
 	var owned := Label.new()
 	owned.text = "×%d" % cnt
-	owned.add_theme_font_size_override("font_size", 15)
+	owned.add_theme_font_size_override("font_size", 20)
 	owned.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))
 	owned.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	act.add_child(owned)
 	if not usable:
 		var hint := Label.new()
 		hint.text = "(во время варки)" if String(it["use"]) == "craft" else "(на выбор дня)"
-		hint.add_theme_font_size_override("font_size", 13)
+		hint.add_theme_font_size_override("font_size", 18)
 		hint.add_theme_color_override("font_color", Color(1, 1, 1, 0.5))
 		hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		act.add_child(hint)
@@ -3051,7 +3065,7 @@ func _settings_slider(label: String, is_music: bool) -> Control:
 	var sl := HSlider.new()
 	sl.min_value = 0.0; sl.max_value = 100.0; sl.step = 1.0
 	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	sl.custom_minimum_size = Vector2(220, 40)
+	sl.custom_minimum_size = Vector2(240, 56)
 	sl.value = (Sfx.music_volume if is_music else Sfx.sfx_volume) * 100.0
 	if is_music:
 		sl.value_changed.connect(_on_music_vol)
@@ -3101,7 +3115,7 @@ func _open_daily_diff() -> void:
 	var sub := Label.new()
 	sub.text = "Сегодня у всех одинаковый набор гостей.\nВыбери сложность:"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.add_theme_font_size_override("font_size", 17)
+	sub.add_theme_font_size_override("font_size", 22)
 	sub.add_theme_color_override("font_color", Color(0.8, 0.85, 0.95))
 	vb.add_child(sub)
 	var diff_cols := {"easy": Color("5dff8f"), "mid": Color("6ec3ff"), "hard": Color("c07bff")}
@@ -3477,7 +3491,7 @@ func _pick_cell(cfg: Dictionary) -> Control:
 	var nm := Label.new()
 	nm.text = String(cfg.get("name", ""))
 	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	nm.add_theme_font_size_override("font_size", 16)
+	nm.add_theme_font_size_override("font_size", 21)
 	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vb.add_child(nm)
 	return b
@@ -3809,12 +3823,12 @@ func _diff_block(npc_e: Dictionary, lvl: int, tcol: Color, ideal: int, locked: b
 	sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if locked:
 		sub.text = "нужна\nрепутация\nур.%d" % GameData.REP_L4_UNLOCK_LEVEL
-		sub.add_theme_font_size_override("font_size", 15)
+		sub.add_theme_font_size_override("font_size", 20)
 		sub.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
 		v.add_child(sub)
 	else:
 		sub.text = "за идеал:"
-		sub.add_theme_font_size_override("font_size", 15)
+		sub.add_theme_font_size_override("font_size", 20)
 		sub.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))
 		v.add_child(sub)
 		var val := Label.new()
@@ -3914,8 +3928,8 @@ func _mod_row(tex: Texture2D, emoji: String, text: String, col: Color) -> PanelC
 	sb.set_corner_radius_all(6)
 	sb.border_width_left = 4
 	sb.border_color = col
-	sb.content_margin_left = 10.0; sb.content_margin_right = 10.0
-	sb.content_margin_top = 5.0; sb.content_margin_bottom = 5.0
+	sb.content_margin_left = 14.0; sb.content_margin_right = 14.0
+	sb.content_margin_top = 8.0; sb.content_margin_bottom = 8.0
 	p.add_theme_stylebox_override("panel", sb)
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 7)
@@ -3923,7 +3937,7 @@ func _mod_row(tex: Texture2D, emoji: String, text: String, col: Color) -> PanelC
 	if tex != null:
 		var ir := TextureRect.new()
 		ir.texture = tex
-		ir.custom_minimum_size = Vector2(20, 20)
+		ir.custom_minimum_size = Vector2(30, 30)
 		ir.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		ir.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		ir.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -3935,7 +3949,7 @@ func _mod_row(tex: Texture2D, emoji: String, text: String, col: Color) -> PanelC
 		h.add_child(el)
 	var l := Label.new()
 	l.text = text.to_upper()
-	l.add_theme_font_size_override("font_size", 15)
+	l.add_theme_font_size_override("font_size", 20)
 	l.add_theme_color_override("font_color", col)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	h.add_child(l)
