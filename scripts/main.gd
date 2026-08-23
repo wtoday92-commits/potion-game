@@ -2877,30 +2877,38 @@ func _open_daily_diff() -> void:
 	add_child(ov)
 	ov.position = Vector2.ZERO
 	ov.size = get_viewport_rect().size
+	var cc := CenterContainer.new()
+	cc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ov.add_child(cc)
 	var vb := VBoxContainer.new()
-	vb.set_anchors_preset(Control.PRESET_CENTER)
+	vb.custom_minimum_size = Vector2(520, 0)
 	vb.alignment = BoxContainer.ALIGNMENT_CENTER
 	vb.add_theme_constant_override("separation", 14)
-	ov.add_child(vb)
+	cc.add_child(vb)
 	var title := Label.new()
 	title.text = "Особый заказ дня"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 30)
 	title.add_theme_color_override("font_color", Color(0.98, 0.9, 0.72))
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vb.add_child(title)
 	var sub := Label.new()
 	sub.text = "Сегодня у всех одинаковый набор гостей.\nВыбери сложность:"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.add_theme_font_size_override("font_size", 18)
 	sub.add_theme_color_override("font_color", Color(0.8, 0.85, 0.95))
+	sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vb.add_child(sub)
 	for key in ["easy", "mid", "hard"]:
 		var b := _menu_button(String(DAILY_PROFILES[key]["label"]))
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.pressed.connect(func():
 			ov.queue_free()
 			_enter_daily(key))
 		vb.add_child(b)
 	var back := _menu_button("Назад")
+	back.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	back.pressed.connect(ov.queue_free)
 	vb.add_child(back)
 
