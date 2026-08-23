@@ -1101,9 +1101,9 @@ const UI_BORDER := Color(0.34, 0.32, 0.5, 0.55)  # обводка панели
 const UI_OK := Color("6dff8f")             # успех
 const UI_BAD := Color("ff5d6a")            # штраф/провал
 const FS_TITLE := 30
-const FS_H := 22
-const FS_BODY := 16
-const FS_SMALL := 13
+const FS_H := 25
+const FS_BODY := 19
+const FS_SMALL := 16
 
 # Единый стайлбокс карточки-панели (скругление + тонкая обводка + мягкая тень).
 func _panel_sb(accent: Color = UI_BORDER, bg: Color = UI_PANEL, radius: int = 16) -> StyleBoxFlat:
@@ -1396,8 +1396,8 @@ func _ach_card(a: Dictionary) -> Control:
 	card.add_child(col)
 
 	var ic := TextureRect.new()
-	ic.custom_minimum_size = Vector2(60, 60)
-	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	ic.custom_minimum_size = Vector2(0, 120)
+	ic.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	ic.texture = load(GameData.ach_icon_path(a["img"])) as Texture2D
@@ -1419,9 +1419,9 @@ func _ach_card(a: Dictionary) -> Control:
 	dots.add_theme_constant_override("separation", 4)
 	for i in n_tiers:
 		var d := Panel.new()
-		d.custom_minimum_size = Vector2(14, 14)
+		d.custom_minimum_size = Vector2(18, 18)
 		var dsb := StyleBoxFlat.new()
-		dsb.set_corner_radius_all(7)
+		dsb.set_corner_radius_all(9)
 		dsb.bg_color = UI_GOLD if i < filled else Color(1, 1, 1, 0.12)
 		d.add_theme_stylebox_override("panel", dsb)
 		dots.add_child(d)
@@ -1442,7 +1442,7 @@ func _ach_card(a: Dictionary) -> Control:
 	return card
 
 # Тонкий прогресс-бар (капсула фон + заливка), доля 0..1.
-func _mini_bar(frac: float, col: Color, h: float = 8.0) -> ProgressBar:
+func _mini_bar(frac: float, col: Color, h: float = 12.0) -> ProgressBar:
 	var bar := ProgressBar.new()
 	bar.min_value = 0.0; bar.max_value = 1.0; bar.value = clampf(frac, 0.0, 1.0)
 	bar.show_percentage = false
@@ -1940,7 +1940,7 @@ func _npc_ach_card(ach: Dictionary, ns: Dictionary) -> Control:
 	var ic := Label.new()   # иконка ачивки — эмодзи
 	ic.text = String(ach.get("icon", "🏅")) if unlocked else "❓"
 	ic.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	ic.add_theme_font_size_override("font_size", 40)
+	ic.add_theme_font_size_override("font_size", 56)
 	if not unlocked:
 		ic.modulate = Color(1, 1, 1, 0.5)
 	col.add_child(ic)
@@ -1949,7 +1949,7 @@ func _npc_ach_card(ach: Dictionary, ns: Dictionary) -> Control:
 	nm.text = String(ach.get("name", "")) if unlocked else "???"
 	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	nm.add_theme_font_size_override("font_size", 15)
+	nm.add_theme_font_size_override("font_size", 18)
 	nm.modulate = Color(1, 1, 1, 1) if unlocked else Color(1, 1, 1, 0.5)
 	col.add_child(nm)
 
@@ -1960,7 +1960,7 @@ func _npc_ach_card(ach: Dictionary, ns: Dictionary) -> Control:
 	for i in t_list.size():
 		var m := Label.new()
 		m.text = TIER_MEDAL[i] if i < TIER_MEDAL.size() else "•"
-		m.add_theme_font_size_override("font_size", 18)
+		m.add_theme_font_size_override("font_size", 22)
 		m.modulate = Color(1, 1, 1, 1) if i < tier else Color(1, 1, 1, 0.2)
 		medals.add_child(m)
 	col.add_child(medals)
@@ -1969,7 +1969,7 @@ func _npc_ach_card(ach: Dictionary, ns: Dictionary) -> Control:
 	var sub := Label.new()
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	sub.add_theme_font_size_override("font_size", 12)
+	sub.add_theme_font_size_override("font_size", 15)
 	sub.modulate = Color(1, 1, 1, 0.55)
 	if tier < t_list.size():
 		if unlocked:
@@ -2835,8 +2835,7 @@ func _build_topbar() -> void:
 
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.set_anchors_preset(Control.PRESET_FULL_RECT)
-	row.add_theme_constant_override("separation", 12)
+	row.add_theme_constant_override("separation", 8)   # 7 иконок должны влезать без съезда
 	topbar.add_child(row)
 
 	# крупные тач-иконки (день/серия/рейтинг переехали под прогрессию)
@@ -2856,7 +2855,8 @@ func _build_topbar() -> void:
 func _topbar_icon(row: HBoxContainer, icon_name: String, glyph: String, tip: String, cb: Callable, enabled: bool) -> Button:
 	var b := Button.new()
 	b.tooltip_text = tip
-	b.custom_minimum_size = Vector2(74, 66)
+	b.custom_minimum_size = Vector2(66, 66)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL   # иконки делят ширину поровну
 	b.focus_mode = Control.FOCUS_NONE
 	b.disabled = not enabled
 	var tex := load("res://assets/ui/%s.png" % icon_name) as Texture2D
@@ -3278,14 +3278,17 @@ func _build_skill_dock(parent: Node) -> void:
 			b.add_theme_font_size_override("font_size", 30)
 		wrap.add_child(b)
 		skill_btns[String(d["id"])] = b
+	# заряды умений — крупные круглые жетоны (раньше были неясные полоски)
 	var pipbox := HBoxContainer.new()
-	pipbox.add_theme_constant_override("separation", 6)
+	pipbox.add_theme_constant_override("separation", 8)
 	pipbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	wrap.add_child(pipbox)
 	skill_pips = []
 	for i in 3:
-		var p := ColorRect.new()
-		p.custom_minimum_size = Vector2(16, 16)
+		var p := Panel.new()
+		p.custom_minimum_size = Vector2(22, 22)
+		p.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		p.tooltip_text = "Заряды умений"
 		pipbox.add_child(p)
 		skill_pips.append(p)
 
@@ -3304,7 +3307,14 @@ func _refresh_skill_dock() -> void:
 		b.disabled = false                         # всегда жмётся (при 0 зарядов — тост)
 		b.modulate = Color(1, 1, 1, 1) if charges > 0 else Color(1, 1, 1, 0.5)
 	for i in skill_pips.size():
-		(skill_pips[i] as ColorRect).color = Color("ffd24d") if i < charges else Color(1, 1, 1, 0.18)
+		var p: Panel = skill_pips[i]
+		var full: bool = i < charges
+		var psb := StyleBoxFlat.new()
+		psb.bg_color = Color("ffd24d") if full else Color(0.16, 0.16, 0.2, 0.9)
+		psb.set_corner_radius_all(11)
+		psb.set_border_width_all(2)
+		psb.border_color = Color("ffd24d") if full else Color(1, 1, 1, 0.25)
+		p.add_theme_stylebox_override("panel", psb)
 
 func _use_skill(id: String) -> void:
 	if PotionProfile.get_charges() <= 0:
@@ -3799,12 +3809,12 @@ func _diff_block(npc_e: Dictionary, lvl: int, tcol: Color, ideal: int, locked: b
 	sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if locked:
 		sub.text = "нужна\nрепутация\nур.%d" % GameData.REP_L4_UNLOCK_LEVEL
-		sub.add_theme_font_size_override("font_size", 12)
+		sub.add_theme_font_size_override("font_size", 15)
 		sub.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
 		v.add_child(sub)
 	else:
 		sub.text = "за идеал:"
-		sub.add_theme_font_size_override("font_size", 12)
+		sub.add_theme_font_size_override("font_size", 15)
 		sub.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))
 		v.add_child(sub)
 		var val := Label.new()
