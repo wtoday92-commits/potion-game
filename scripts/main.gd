@@ -1769,21 +1769,23 @@ func _show_char(npc_e: Dictionary) -> void:
 	for c in char_list.get_children():
 		c.queue_free()
 
-	# шапка: аватар + имя + репутация-шкала
-	var head := HBoxContainer.new()
-	head.add_theme_constant_override("separation", 16)
-	head.add_child(_card_avatar(npc_e, 120.0))
-	var hcol := VBoxContainer.new()
-	hcol.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hcol.alignment = BoxContainer.ALIGNMENT_CENTER
-	hcol.add_theme_constant_override("separation", 6)
+	# шапка: КРУПНЫЙ аватар по центру (без металлической рамки) + имя + репутация
+	var head := VBoxContainer.new()
+	head.alignment = BoxContainer.ALIGNMENT_CENTER
+	head.add_theme_constant_override("separation", 10)
+	var av := _big_avatar(npc_e, 240.0)
+	av.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	head.add_child(av)
 	var nm := Label.new()
 	nm.text = npc_e["name"]
-	nm.add_theme_font_size_override("font_size", 26)
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nm.add_theme_font_size_override("font_size", 34)
 	nm.add_theme_color_override("font_color", tcol)
-	hcol.add_child(nm)
-	hcol.add_child(_rep_bar_ctl(PotionProfile.get_rep(id), tcol, 16))
-	head.add_child(hcol)
+	head.add_child(nm)
+	var rep_ctl := _rep_bar_ctl(PotionProfile.get_rep(id), tcol, 18)
+	rep_ctl.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	rep_ctl.custom_minimum_size.x = 360.0
+	head.add_child(rep_ctl)
 	char_list.add_child(head)
 
 	# досье
@@ -1792,7 +1794,7 @@ func _show_char(npc_e: Dictionary) -> void:
 	doss.text = GameData.dossier(id)
 	doss.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	doss.modulate = Color(1, 1, 1, 0.9)
-	doss.add_theme_font_size_override("font_size", 17)
+	doss.add_theme_font_size_override("font_size", 19)
 	char_list.add_child(doss)
 
 	# пассивки (5, открываются уровнями репутации; эффекты — Фаза 4)
@@ -1803,7 +1805,7 @@ func _show_char(npc_e: Dictionary) -> void:
 		var p := Label.new()
 		p.text = ("✓ Пассивка ур.%d — открыта" % n) if open else ("🔒 Пассивка ур.%d — нужна репутация ур.%d" % [n, n])
 		p.modulate = Color(1, 1, 1, 0.9) if open else Color(1, 1, 1, 0.45)
-		p.add_theme_font_size_override("font_size", 16)
+		p.add_theme_font_size_override("font_size", 18)
 		char_list.add_child(p)
 
 	# ачивки гостя (по 3 градации: бронза/серебро/золото)
@@ -1820,6 +1822,64 @@ func _show_char(npc_e: Dictionary) -> void:
 		for a in achs:
 			grid.add_child(_npc_ach_card(a, ns))
 		char_list.add_child(grid)
+
+# Крупный круглый аватар без металлической рамки: свечение тира + тёмный диск +
+# портрет + тонкая цветная окантовка.
+func _big_avatar(npc_e: Dictionary, sz: float) -> Control:
+	var tier: int = int(npc_e.get("tier", 1))
+	var tcol: Color = GameData.TIER_COLORS.get(tier, Color.WHITE)
+	var box := Control.new()
+	box.custom_minimum_size = Vector2(sz, sz)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var glow := Panel.new()
+	glow.set_anchors_preset(Control.PRESET_FULL_RECT)
+	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var gsb := StyleBoxFlat.new()
+	gsb.bg_color = Color(tcol.r, tcol.g, tcol.b, 0.16)
+	gsb.set_corner_radius_all(int(sz))
+	gsb.shadow_color = Color(tcol.r, tcol.g, tcol.b, 0.55)
+	gsb.shadow_size = 26
+	glow.add_theme_stylebox_override("panel", gsb)
+	box.add_child(glow)
+	var disc := Panel.new()
+	disc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var dsb := StyleBoxFlat.new()
+	dsb.bg_color = Color(0.09, 0.09, 0.12, 1.0)
+	dsb.set_corner_radius_all(int(sz))
+	disc.add_theme_stylebox_override("panel", dsb)
+	box.add_child(disc)
+	var tex := load(GameData.portrait_path(npc_e)) as Texture2D
+	if tex:
+		var pic := TextureRect.new()
+		pic.set_anchors_preset(Control.PRESET_FULL_RECT)
+		var ins: float = sz * 0.15                 # квадрат портрета вписан в круг
+		pic.offset_left = ins; pic.offset_top = ins; pic.offset_right = -ins; pic.offset_bottom = -ins
+		pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		pic.texture = tex
+		pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		box.add_child(pic)
+	else:
+		var e := Label.new()
+		e.set_anchors_preset(Control.PRESET_FULL_RECT)
+		e.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		e.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		e.add_theme_font_size_override("font_size", int(sz * 0.5))
+		e.text = npc_e.get("emoji", "❓")
+		e.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		box.add_child(e)
+	var ring := Panel.new()                        # тонкая цветная окантовка (не металл)
+	ring.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var rsb := StyleBoxFlat.new()
+	rsb.bg_color = Color(0, 0, 0, 0)
+	rsb.set_corner_radius_all(int(sz))
+	rsb.set_border_width_all(4)
+	rsb.border_color = Color(tcol.r, tcol.g, tcol.b, 0.85)
+	ring.add_theme_stylebox_override("panel", rsb)
+	box.add_child(ring)
+	return box
 
 # Текущая градация NPC-ачивки (0..len(t)) по порогам.
 func _npc_ach_tier(ns: Dictionary, ach: Dictionary) -> int:

@@ -193,6 +193,7 @@ func dev_boost() -> void:
 	data["progression"]["xp"] = maxi(int(data["progression"].get("xp", 0)), 200000)
 	data["tips"]["balance"] = int(data["tips"].get("balance", 0)) + 9999
 	data["tips"]["lifetime"] = int(data["tips"].get("lifetime", 0)) + 9999
+	data["skills"] = {"charges": SKILL_CHARGE_CAP, "perfect_counter": 0}   # полные заряды умений для теста
 	for n in GameData.NPCS:
 		var id: String = n["id"]
 		ensure_npc(id)
