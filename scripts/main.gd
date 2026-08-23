@@ -397,7 +397,7 @@ func _layout_result() -> void:
 func _build_ui() -> void:
 	# три параллакс-слоя по Z (дальний → ближний). Все 9:16, тянутся на весь экран.
 	# Пивот по центру — чтобы камера-переходы масштабировали относительно центра.
-	layer_back = _bg_layer("res://assets/bg/cosmos for bg.png")       # космос (дальний)
+	layer_back = _bg_layer("res://assets/bg/cosmos_comic.png")        # космос (дальний, комикс-стиль)
 	layer_mid = _bg_layer("res://assets/bg/bg_for_game_no_table.png") # стена с окном
 	layer_front = _bg_layer("res://assets/bg/bg_for_game_table.png")  # стол + пол (ближний)
 	# стартовое состояние «меню» мгновенно (без вспышки полного бара на буте)
@@ -875,7 +875,7 @@ func _toast(text: String, col: Color = Color("6ec3ff"), delay: float = 0.0) -> v
 	p.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.06, 0.11, 0.96)
+	sb.bg_color = Color(0.06, 0.06, 0.11, 1.0)
 	sb.set_corner_radius_all(12)
 	sb.set_border_width_all(2)
 	sb.border_color = col
@@ -915,7 +915,7 @@ func _build_prog_strip() -> void:
 	prog_strip.offset_bottom = STRIP_TOP + STRIP_H
 	prog_strip.visible = false
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.04, 0.05, 0.08, 0.92)
+	sb.bg_color = Color(0.04, 0.05, 0.08, 1.0)
 	sb.set_corner_radius_all(10)
 	sb.set_border_width_all(1)
 	sb.border_color = Color(0.35, 0.30, 0.5, 0.6)
@@ -1924,7 +1924,7 @@ func _npc_ach_card(ach: Dictionary, ns: Dictionary) -> Control:
 	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.09, 0.10, 0.16, 0.95)
+	sb.bg_color = Color(0.09, 0.10, 0.16, 1.0)
 	sb.set_corner_radius_all(12)
 	sb.set_border_width_all(2)
 	sb.border_color = Color("ffb14d") if unlocked else Color(0.3, 0.32, 0.42, 0.6)
@@ -2221,9 +2221,10 @@ func _make_center_panel(transparent: bool = false) -> Control:
 		# прозрачная карточка — сквозь неё виден параллакс-бар (меню/выбор)
 		sb.bg_color = Color(0, 0, 0, 0)
 	else:
-		sb.bg_color = Color(0.05, 0.04, 0.07, 0.84)
+		# НЕПРОЗРАЧНАЯ подложка: фон-комикс очень контрастный, элементы не должны с ним сливаться
+		sb.bg_color = Color(0.05, 0.04, 0.07, 1.0)
 		sb.set_border_width_all(2)
-		sb.border_color = Color(0.35, 0.24, 0.13, 0.85)   # деревянно-коричневая кайма
+		sb.border_color = Color(0.35, 0.24, 0.13, 0.95)   # деревянно-коричневая кайма
 	sb.set_corner_radius_all(16)
 	sb.content_margin_left = 24.0
 	sb.content_margin_right = 24.0
@@ -2449,7 +2450,7 @@ func _build_shop_panel() -> void:
 	card.anchor_left = 0.5; card.anchor_right = 0.5; card.anchor_top = 0.5; card.anchor_bottom = 0.5
 	card.offset_left = -320.0; card.offset_right = 320.0; card.offset_top = -420.0; card.offset_bottom = 420.0
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.09, 0.08, 0.13, 0.98)
+	sb.bg_color = Color(0.09, 0.08, 0.13, 1.0)
 	sb.set_corner_radius_all(16); sb.set_border_width_all(2)
 	sb.border_color = Color(0.90, 0.72, 0.42)
 	sb.set_content_margin_all(18.0)
@@ -2821,7 +2822,7 @@ func _build_topbar() -> void:
 	topbar.offset_bottom = 30.0 + TOPBAR_H
 	topbar.visible = false
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.04, 0.05, 0.08, 0.92)
+	sb.bg_color = Color(0.04, 0.05, 0.08, 1.0)
 	sb.set_corner_radius_all(10)
 	sb.set_border_width_all(1)
 	sb.border_color = Color(0.35, 0.30, 0.5, 0.6)
@@ -3005,7 +3006,7 @@ func _open_settings() -> void:
 	ov.add_child(cc)
 	var panel := PanelContainer.new()
 	var psb := StyleBoxFlat.new()
-	psb.bg_color = Color(0.07, 0.08, 0.13, 0.98)
+	psb.bg_color = Color(0.07, 0.08, 0.13, 1.0)
 	psb.set_corner_radius_all(18)
 	psb.set_border_width_all(2)
 	psb.border_color = Color(0.4, 0.75, 0.85, 0.7)
@@ -3079,7 +3080,7 @@ func _open_daily_diff() -> void:
 	# подложка-панель (чтобы блок не сливался со стартовым меню)
 	var panel := PanelContainer.new()
 	var psb := StyleBoxFlat.new()
-	psb.bg_color = Color(0.07, 0.08, 0.13, 0.98)
+	psb.bg_color = Color(0.07, 0.08, 0.13, 1.0)
 	psb.set_corner_radius_all(18)
 	psb.set_border_width_all(2)
 	psb.border_color = Color(0.4, 0.75, 0.85, 0.7)
@@ -3937,7 +3938,7 @@ const FOCUS_IMG := {"bubbles": "bubble", "color": "color", "size": "size"}
 # растёт на hover/press через параметр k).
 func _card_sb(tcol: Color, k: float) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.11, 0.10, 0.15, 0.96)
+	sb.bg_color = Color(0.11, 0.10, 0.15, 1.0)
 	sb.set_corner_radius_all(18)
 	sb.border_width_left = 7
 	sb.border_width_top = 2
