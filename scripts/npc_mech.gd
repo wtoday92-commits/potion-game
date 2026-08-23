@@ -689,7 +689,8 @@ class MarketerMech extends NpcMech:
 	func craft_start(g) -> void:
 		g_ref = g
 		var cnt: int = int(MG_COUNT.get(g.level, 1))
-		# доп.время НЕ добавляем: на время миниигры таймер и так ×0.2 (почти пауза)
+		g.phase_total *= 1.3                       # +30% времени на создание (миниигры отвлекают)
+		g.phase_left *= 1.3
 		schedule.clear()
 		var slots: Array = {1: [0.45], 2: [0.36, 0.68]}.get(cnt, [0.45])
 		for s in slots:
@@ -2093,6 +2094,8 @@ class ChefMech extends NpcMech:
 	func craft_start(g) -> void:
 		g_ref = g
 		_apply_target(g)
+		g.phase_total *= 1.5                       # книгу листать дольше — ×1.5 времени
+		g.phase_left *= 1.5
 		if cards != null and is_instance_valid(cards):
 			cards.queue_free()
 			cards = null
