@@ -222,6 +222,9 @@ var tb_streak: Label
 var _tb_stickers: HBoxContainer   # иконки стикеров за цикл (под прогрессией)
 var cycle_stickers: Dictionary = {"perfect": 0, "good": 0, "swill": 0, "bad": 0}
 var topbar_coll_btn: Button      # иконка коллекции (гейт прогрессией)
+var _topbar_nav: Array = []      # все nav-иконки (для гейтинга дейлика)
+var settings_btn: Button = null  # кнопка настроек (язык/громкость)
+var settings_panel: Control = null
 var _tb_rating_shown: int = 0    # для count-up рейтинга
 
 func _ready() -> void:
@@ -2741,12 +2744,15 @@ func _build_topbar() -> void:
 	topbar.add_child(row)
 
 	# крупные тач-иконки (день/серия/рейтинг переехали под прогрессию)
+	_topbar_nav = []
 	topbar_coll_btn = _topbar_icon(row, "nav_collection", "🗂", "Коллекция", _show_collection, true)
-	_topbar_icon(row, "nav_shop", "🛒", "Лавка", _open_shop, true)
-	_topbar_icon(row, "nav_leaderboard", "🏆", "Рейтинг", _open_leaderboard, true)
-	_topbar_icon(row, "nav_characters", "👥", "Персонажи", _show_chars, true)
-	_topbar_icon(row, "nav_skills", "⚡", "Пассивки", Callable(), false)
-	_topbar_icon(row, "nav_profile", "👤", "Профиль", _show_account, true)
+	_topbar_nav.append(topbar_coll_btn)
+	_topbar_nav.append(_topbar_icon(row, "nav_shop", "🛒", "Лавка", _open_shop, true))
+	_topbar_nav.append(_topbar_icon(row, "nav_leaderboard", "🏆", "Рейтинг", _open_leaderboard, true))
+	_topbar_nav.append(_topbar_icon(row, "nav_characters", "👥", "Персонажи", _show_chars, true))
+	_topbar_nav.append(_topbar_icon(row, "nav_skills", "⚡", "Пассивки", Callable(), false))
+	_topbar_nav.append(_topbar_icon(row, "nav_profile", "👤", "Профиль", _show_account, true))
+	settings_btn = _topbar_icon(row, "nav_settings", "⚙", "Настройки", _open_settings, true)
 
 # Кнопка топбара: картинка nav_<name>.png (масштабируется, дизейбл дим-ит её),
 # фолбэк — эмодзи-глиф, если картинки нет.
@@ -2777,8 +2783,17 @@ func _set_topbar(on: bool) -> void:
 		prog_widget.refresh()
 
 func _refresh_topbar() -> void:
+	# Дейлик: прячем всё, кроме рейтинга и настроек
+	for b in _topbar_nav:
+		if is_instance_valid(b):
+			b.visible = not daily_mode
+	prog_widget.visible = not daily_mode
+	tb_streak.visible = not daily_mode
+	if _tb_stickers != null:
+		_tb_stickers.visible = not daily_mode
+	tb_day.visible = true
 	var sk: Dictionary = PotionProfile.data.get("streaks", {})
-	tb_day.text = "День %d / %d   ·   ст.%d" % [day_num, cycle_days, stage + 1]
+	tb_day.text = "День %d / %d" % [day_num, cycle_days] if daily_mode else "День %d / %d   ·   ст.%d" % [day_num, cycle_days, stage + 1]
 	tb_streak.text = "🔥 %d" % int(sk.get("goodplus_current", 0))
 	topbar_coll_btn.disabled = not GameData.prog_mech_unlocked("collection", _xp())
 	if cycle_score != _tb_rating_shown:
@@ -2865,6 +2880,84 @@ func _show_day() -> void:
 	Juice.stagger_fade(day_cards.get_children())   # карточки влетают по очереди
 	_refresh_skill_dock()
 
+# ---------- Настройки (язык + громкость) ----------
+func _open_settings() -> void:
+	if settings_panel != null and is_instance_valid(settings_panel):
+		settings_panel.queue_free()
+		settings_panel = null
+		return
+	var ov := ColorRect.new()
+	ov.color = Color(0, 0, 0, 0.6)
+	ov.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ov.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(ov)
+	ov.position = Vector2.ZERO
+	ov.size = get_viewport_rect().size
+	settings_panel = ov
+	ov.gui_input.connect(func(e):
+		if e is InputEventMouseButton and e.pressed:   # тап по фону — закрыть
+			ov.queue_free(); settings_panel = null)
+	var cc := CenterContainer.new()
+	cc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ov.add_child(cc)
+	var panel := PanelContainer.new()
+	var psb := StyleBoxFlat.new()
+	psb.bg_color = Color(0.07, 0.08, 0.13, 0.98)
+	psb.set_corner_radius_all(18)
+	psb.set_border_width_all(2)
+	psb.border_color = Color(0.4, 0.75, 0.85, 0.7)
+	psb.content_margin_left = 26; psb.content_margin_right = 26
+	psb.content_margin_top = 22; psb.content_margin_bottom = 22
+	panel.add_theme_stylebox_override("panel", psb)
+	cc.add_child(panel)
+	var vb := VBoxContainer.new()
+	vb.custom_minimum_size = Vector2(460, 0)
+	vb.add_theme_constant_override("separation", 16)
+	panel.add_child(vb)
+	var title := Label.new()
+	title.text = "Настройки"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 28)
+	title.add_theme_color_override("font_color", Color(0.98, 0.9, 0.72))
+	vb.add_child(title)
+	# язык (RU/EN) — переключатель (EN-тексты пока не портированы, храним выбор)
+	var lang_btn := _diff_button("Язык:  RU", Color("6ec3ff"))
+	var cur_lang: String = String(PotionProfile.data.get("settings", {}).get("lang", "ru"))
+	lang_btn.text = "Язык:  %s" % cur_lang.to_upper()
+	lang_btn.pressed.connect(func():
+		var s: Dictionary = PotionProfile.data.get("settings", {})
+		var nl: String = "en" if String(s.get("lang", "ru")) == "ru" else "ru"
+		s["lang"] = nl; PotionProfile.data["settings"] = s; PotionProfile.save()
+		lang_btn.text = "Язык:  %s" % nl.to_upper())
+	vb.add_child(lang_btn)
+	vb.add_child(_settings_slider("🎵 Музыка", true))
+	vb.add_child(_settings_slider("🔊 Звуки", false))
+	var close := _diff_button("Закрыть", Color(0.7, 0.72, 0.8))
+	close.pressed.connect(func(): ov.queue_free(); settings_panel = null)
+	vb.add_child(close)
+
+func _settings_slider(label: String, is_music: bool) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	var l := Label.new()
+	l.text = label
+	l.add_theme_font_size_override("font_size", 20)
+	l.custom_minimum_size = Vector2(140, 0)
+	row.add_child(l)
+	var sl := HSlider.new()
+	sl.min_value = 0.0; sl.max_value = 100.0; sl.step = 1.0
+	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sl.custom_minimum_size = Vector2(220, 40)
+	sl.value = (Sfx.music_volume if is_music else Sfx.sfx_volume) * 100.0
+	if is_music:
+		sl.value_changed.connect(_on_music_vol)
+	else:
+		sl.value_changed.connect(_on_sfx_vol)
+	sl.drag_ended.connect(func(_c): PotionProfile.save())
+	row.add_child(sl)
+	return row
+
 # ---------- Ежедневный особый заказ ----------
 # Одна и та же тройка гостей у всех по дате (детерминированный сид). Прогресс
 # (xp/репутация/статы) НЕ трогаем: снимаем бэкап профиля на входе и откатываем
@@ -2881,36 +2974,64 @@ func _open_daily_diff() -> void:
 	cc.set_anchors_preset(Control.PRESET_FULL_RECT)
 	cc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ov.add_child(cc)
+	# подложка-панель (чтобы блок не сливался со стартовым меню)
+	var panel := PanelContainer.new()
+	var psb := StyleBoxFlat.new()
+	psb.bg_color = Color(0.07, 0.08, 0.13, 0.98)
+	psb.set_corner_radius_all(18)
+	psb.set_border_width_all(2)
+	psb.border_color = Color(0.4, 0.75, 0.85, 0.7)
+	psb.content_margin_left = 26; psb.content_margin_right = 26
+	psb.content_margin_top = 22; psb.content_margin_bottom = 22
+	panel.add_theme_stylebox_override("panel", psb)
+	cc.add_child(panel)
 	var vb := VBoxContainer.new()
-	vb.custom_minimum_size = Vector2(520, 0)
-	vb.alignment = BoxContainer.ALIGNMENT_CENTER
-	vb.add_theme_constant_override("separation", 14)
-	cc.add_child(vb)
+	vb.custom_minimum_size = Vector2(480, 0)
+	vb.add_theme_constant_override("separation", 12)
+	panel.add_child(vb)
 	var title := Label.new()
 	title.text = "Особый заказ дня"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 30)
+	title.add_theme_font_size_override("font_size", 28)
 	title.add_theme_color_override("font_color", Color(0.98, 0.9, 0.72))
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vb.add_child(title)
 	var sub := Label.new()
 	sub.text = "Сегодня у всех одинаковый набор гостей.\nВыбери сложность:"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.add_theme_font_size_override("font_size", 18)
+	sub.add_theme_font_size_override("font_size", 17)
 	sub.add_theme_color_override("font_color", Color(0.8, 0.85, 0.95))
-	sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vb.add_child(sub)
+	var diff_cols := {"easy": Color("5dff8f"), "mid": Color("6ec3ff"), "hard": Color("c07bff")}
 	for key in ["easy", "mid", "hard"]:
-		var b := _menu_button(String(DAILY_PROFILES[key]["label"]))
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var b := _diff_button(String(DAILY_PROFILES[key]["label"]), diff_cols[key])
 		b.pressed.connect(func():
 			ov.queue_free()
 			_enter_daily(key))
 		vb.add_child(b)
-	var back := _menu_button("Назад")
-	back.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var back := _diff_button("Назад", Color(0.7, 0.72, 0.8))
 	back.pressed.connect(ov.queue_free)
 	vb.add_child(back)
+
+# кнопка выбора сложности: тёмный фон + цветная рамка/текст (цвет = сложность)
+func _diff_button(text: String, col: Color) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(0, 58)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.add_theme_font_size_override("font_size", 22)
+	b.add_theme_color_override("font_color", col)
+	b.add_theme_color_override("font_hover_color", col.lightened(0.2))
+	b.add_theme_color_override("font_pressed_color", col)
+	for st in ["normal", "hover", "pressed"]:
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.10, 0.11, 0.16, 1.0) if st != "hover" else Color(0.14, 0.16, 0.22, 1.0)
+		sb.set_corner_radius_all(12)
+		sb.set_border_width_all(2)
+		sb.border_color = col
+		sb.content_margin_top = 8; sb.content_margin_bottom = 8
+		b.add_theme_stylebox_override(st, sb)
+	return b
 
 func _enter_daily(diff: String) -> void:
 	_daily_backup = PotionProfile.data.duplicate(true)   # прогресс откатим на выходе
