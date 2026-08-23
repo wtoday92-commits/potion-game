@@ -49,6 +49,7 @@ const CAT_PROD := 2
 const CAT_NAMES := ["Жидкости", "Специи", "Продукты"]
 
 var _level: int = 1
+var _snap: Dictionary = {}     # key -> {min,max,step} реальной сетки ползунков раунда
 var _cats: Array = []          # какие категории показывать (индексы)
 var _cur: int = 0
 var _tabs: Array = []          # кнопки-вкладки
@@ -67,9 +68,10 @@ func _process(_delta: float) -> void:
 	if not size.is_equal_approx(vp):
 		size = vp
 
-func open(level: int, cats: Array) -> void:
+func open(level: int, cats: Array, snap: Dictionary = {}) -> void:
 	_level = level
 	_cats = cats
+	_snap = snap
 	_cur = cats[0]
 	_build()
 	# анимация появления
@@ -240,11 +242,22 @@ func _make_row(it: Dictionary, cat: int) -> Control:
 		hb.add_child(syl)
 	return row
 
+# значение, снапнутое к реальной сетке ползунка раунда (чтобы игрок мог его выставить)
+func _snap_v(key: String, v: float) -> float:
+	if not _snap.has(key):
+		return v
+	var c: Dictionary = _snap[key]
+	var step: float = float(c.get("step", 0.0))
+	var r: float = v
+	if step > 0.0:
+		r = float(c["min"]) + roundf((v - float(c["min"])) / step) * step
+	return clampf(r, float(c["min"]), float(c["max"]))
+
 func _values_text(it: Dictionary, cat: int) -> String:
 	match cat:
-		CAT_LIQ: return "Спектр %d°   ·   Накал %d%%" % [int(it["hue"]), int(it["sat"])]
-		CAT_ADD: return "Объём %d%%" % int(it["vol"])
-		_: return "Размер %d%%   ·   Сгустки %d" % [int(it["bsize"]), int(it["count"])]
+		CAT_LIQ: return "Спектр %d°   ·   Накал %d%%" % [int(_snap_v("color", it["hue"])), int(_snap_v("sat", it["sat"]))]
+		CAT_ADD: return "Объём %d%%" % int(_snap_v("volume", it["vol"]))
+		_: return "Размер %d%%   ·   Сгустки %d" % [int(_snap_v("bsize", it["bsize"])), int(_snap_v("count", it["count"]))]
 
 func _on_close() -> void:
 	var t := create_tween()

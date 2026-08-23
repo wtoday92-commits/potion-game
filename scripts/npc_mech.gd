@@ -2032,15 +2032,35 @@ class ChefMech extends NpcMech:
 	func skip_memorize(g) -> bool:
 		return g.level == 4
 
-	# записать значения ингредиентов в target активных параметров (после генерации target)
+	# снап значения к РЕАЛЬНОЙ сетке ползунка раунда (шаг зависит от тира/сложности)
+	func _snap(g, key: String, v: float) -> float:
+		if not g.sliders.has(key):
+			return v
+		var s = g.sliders[key]
+		var step: float = float(s.step)
+		var r: float = v
+		if step > 0.0:
+			r = s.min_value + roundf((v - s.min_value) / step) * step
+		return clampf(r, s.min_value, s.max_value)
+
+	# контекст сетки ползунков для книги (чтобы она показывала достижимые значения)
+	func _snap_ctx(g) -> Dictionary:
+		var d: Dictionary = {}
+		for k in ["color", "sat", "volume", "bsize", "count"]:
+			if g.sliders.has(k):
+				var s = g.sliders[k]
+				d[k] = {"min": s.min_value, "max": s.max_value, "step": s.step}
+		return d
+
+	# записать значения ингредиентов в target активных параметров (снапнутые к сетке)
 	func _apply_target(g) -> void:
-		g.target["color"] = liquid["hue"]
-		g.target["sat"] = liquid["sat"]
+		g.target["color"] = _snap(g, "color", liquid["hue"])
+		g.target["sat"] = _snap(g, "sat", liquid["sat"])
 		if not addon.is_empty():
-			g.target["volume"] = addon["vol"]
+			g.target["volume"] = _snap(g, "volume", addon["vol"])
 		if not product.is_empty():
-			g.target["bsize"] = product["bsize"]
-			g.target["count"] = int(product["count"])
+			g.target["bsize"] = _snap(g, "bsize", product["bsize"])
+			g.target["count"] = int(_snap(g, "count", product["count"]))
 
 	func memorize_start(g) -> void:
 		g_ref = g
@@ -2145,7 +2165,7 @@ class ChefMech extends NpcMech:
 		book = RecipeBook.new()
 		g.add_child(book)
 		book.closed.connect(func(): book = null)
-		book.open(g.level, _cats(g))
+		book.open(g.level, _cats(g), _snap_ctx(g))
 
 	func stop(g) -> void:
 		for n in [book, book_btn, name_lbl, cards]:
