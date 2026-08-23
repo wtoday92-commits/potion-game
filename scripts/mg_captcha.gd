@@ -33,7 +33,8 @@ var _tgt: Texture2D
 var _tgt_name: String = ""
 var _tgt_rects: Array = []          # экземпляры цели (доли области), 1 крупный + фоновые
 var _dist: Array = []               # обманки: [{tex, rect}]
-var _correct: Dictionary = {}       # индекс клетки -> true
+var _required: Dictionary = {}      # клетки, где объект ЧЁТКО виден (надо выбрать)
+var _forbidden: Dictionary = {}     # клетки, где почти пусто (выбирать нельзя)
 var _sel: Dictionary = {}           # выбранные клетки
 var _anim: Dictionary = {}          # индекс -> прогресс анимации 0..1
 var _btns: Array = []               # кнопки-клетки
@@ -83,7 +84,7 @@ func setup(lvl: int) -> void:
 				if not _overlaps_any(cand, _tgt_rects, 0.03) and not _overlaps_dist(cand):
 					_dist.append({"tex": dtex, "rect": cand})
 					break
-	_calc_correct()
+	_calc_coverage()
 	_build_ui()
 
 func _overlaps_any(r: Rect2, arr: Array, pad: float) -> bool:
@@ -98,27 +99,59 @@ func _overlaps_dist(r: Rect2) -> bool:
 			return true
 	return false
 
-# верные клетки = перекрыты ЛЮБЫМ экземпляром цели >= THRESH площади клетки
-func _calc_correct() -> void:
-	_correct.clear()
+# Покрытие клетки по РЕАЛЬНОЙ альфе объекта (а не по прямоугольнику — у стикеров
+# прозрачные поля). required = объект чётко виден, forbidden = почти пусто, между —
+# «серая зона» (необязательна, не штрафуется) → капчу можно честно закрыть на 100%.
+func _calc_coverage() -> void:
+	_required.clear(); _forbidden.clear()
 	var cell: float = 1.0 / float(n)
+	var img: Image = null
+	if _tgt != null:
+		img = _tgt.get_image()
+		if img != null and img.is_compressed():
+			img.decompress()
 	var best_i: int = -1
-	var best_ov: float = 0.0
+	var best: float = 0.0
 	for r in n:
 		for c in n:
-			var cr := Rect2(c * cell, r * cell, cell, cell)
-			var ov: float = 0.0
-			for tr in _tgt_rects:
-				var inter := cr.intersection(tr)
-				if inter.size.x > 0.0 and inter.size.y > 0.0:
-					ov = maxf(ov, (inter.size.x * inter.size.y) / (cell * cell))
 			var idx: int = r * n + c
-			if ov >= THRESH:
-				_correct[idx] = true
-			if ov > best_ov:
-				best_ov = ov; best_i = idx
-	if _correct.is_empty() and best_i >= 0:
-		_correct[best_i] = true
+			var cr := Rect2(c * cell, r * cell, cell, cell)
+			var v: float = 0.0
+			for tr in _tgt_rects:
+				v += _cell_alpha_cov(cr, tr, img)
+			v = minf(1.0, v)
+			if v >= 0.18:
+				_required[idx] = true
+			elif v < 0.05:
+				_forbidden[idx] = true
+			if v > best:
+				best = v; best_i = idx
+	if _required.is_empty() and best_i >= 0:
+		_required[best_i] = true
+		_forbidden.erase(best_i)
+
+# доля площади клетки cr, покрытая НЕПРОЗРАЧНЫМИ пикселями объекта экземпляра tr
+func _cell_alpha_cov(cr: Rect2, tr: Rect2, img: Image) -> float:
+	var inter := cr.intersection(tr)
+	if inter.size.x <= 0.0 or inter.size.y <= 0.0:
+		return 0.0
+	var inter_frac: float = (inter.size.x * inter.size.y) / (cr.size.x * cr.size.y)
+	if img == null:
+		return inter_frac
+	var iw: int = img.get_width()
+	var ih: int = img.get_height()
+	var S: int = 6
+	var opaque: int = 0
+	for iy in S:
+		for ix in S:
+			var px: float = inter.position.x + (float(ix) + 0.5) / float(S) * inter.size.x
+			var py: float = inter.position.y + (float(iy) + 0.5) / float(S) * inter.size.y
+			var u: float = (px - tr.position.x) / tr.size.x
+			var vv: float = (py - tr.position.y) / tr.size.y
+			var a: float = img.get_pixel(int(clampf(u * iw, 0, iw - 1)), int(clampf(vv * ih, 0, ih - 1))).a
+			if a > 0.35:
+				opaque += 1
+	return (float(opaque) / float(S * S)) * inter_frac
 
 func _build_ui() -> void:
 	_timer = Label.new()
@@ -235,14 +268,15 @@ func show_result(pct: int, ok: bool) -> void:
 	add_child(res)
 
 func _on_submit() -> void:
-	var inter: int = 0
-	var uni: Dictionary = {}
-	for k in _correct: uni[k] = true
+	# штраф только за пропуск НУЖНЫХ клеток и выбор ЯВНО ПУСТЫХ; «серая зона» — бесплатно
+	var req_total: int = _required.size()
+	var req_hit: int = 0
+	var forb_hit: int = 0
 	for k in _sel:
-		uni[k] = true
-		if _correct.has(k): inter += 1
-	var acc: float = float(inter) / float(maxi(1, uni.size()))
-	var ok: bool = (_sel.size() == _correct.size()) and (inter == _correct.size())
+		if _required.has(k): req_hit += 1
+		elif _forbidden.has(k): forb_hit += 1
+	var acc: float = clampf((float(req_hit) - 0.5 * float(forb_hit)) / float(maxi(1, req_total)), 0.0, 1.0)
+	var ok: bool = (req_hit == req_total) and (forb_hit == 0)
 	Sfx.play("dock" if ok else "tick")
 	finished.emit(ok, acc)
 
