@@ -2041,7 +2041,9 @@ class ChefMech extends NpcMech:
 	func memorize_start(g) -> void:
 		g_ref = g
 		_apply_target(g)
-		g.jar.visible = false                     # вместо банки — карточки ингредиентов
+		# прячем банку ПРОЗРАЧНОСТЬЮ (visible ненадёжно: _enter_jar через кадр ставит
+		# visible=true уже после нас). modulate.a никто позже не сбрасывает.
+		g.jar.modulate.a = 0.0
 		_show_cards(g)
 
 	func _show_cards(g) -> void:
@@ -2094,18 +2096,19 @@ class ChefMech extends NpcMech:
 		if cards != null and is_instance_valid(cards):
 			cards.queue_free()
 			cards = null
-		g.jar.visible = true
-		# кнопка «Рецепты»
+		g.jar.modulate = Color.WHITE              # вернуть банку
+		# кнопка «Рецепты» — крупная
 		book_btn = Button.new()
 		book_btn.text = "📖 Рецепты"
 		book_btn.focus_mode = Control.FOCUS_NONE
-		book_btn.add_theme_font_size_override("font_size", 20)
+		book_btn.add_theme_font_size_override("font_size", 26)
 		book_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		book_btn.offset_left = -168.0; book_btn.offset_right = -12.0
-		book_btn.offset_top = 96.0; book_btn.offset_bottom = 140.0
+		book_btn.offset_left = -250.0; book_btn.offset_right = -14.0
+		book_btn.offset_top = 88.0; book_btn.offset_bottom = 150.0
 		book_btn.pressed.connect(_open_book)
 		g.add_child(book_btn)
-		# УР.4: название коктейля из слогов (порядок перемешан)
+		# УР.4: название коктейля из слогов (порядок перемешан) — ПОД бутылкой, между
+		# банкой и регуляторами (вставляем в VBox round_ui сразу после jar_stage)
 		if g.level == 4:
 			var parts: Array = [liquid["syl"]]
 			if not addon.is_empty(): parts.append(addon["syl"])
@@ -2114,13 +2117,14 @@ class ChefMech extends NpcMech:
 			name_lbl = Label.new()
 			name_lbl.text = "🍸 " + "-".join(parts)
 			name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			name_lbl.add_theme_font_size_override("font_size", 30)
+			name_lbl.add_theme_font_size_override("font_size", 32)
 			name_lbl.add_theme_color_override("font_color", Color(1.0, 0.82, 0.4))
 			name_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 			name_lbl.add_theme_constant_override("outline_size", 6)
-			name_lbl.set_anchors_preset(Control.PRESET_TOP_WIDE)
-			name_lbl.offset_top = 150.0; name_lbl.offset_bottom = 190.0
-			g.add_child(name_lbl)
+			g.round_ui.add_child(name_lbl)
+			var idx: int = g.round_ui.get_children().find(g.jar_stage)
+			if idx >= 0:
+				g.round_ui.move_child(name_lbl, idx + 1)
 
 	func _cats(g) -> Array:
 		var c: Array = [RecipeBook.CAT_LIQ]
@@ -2143,7 +2147,7 @@ class ChefMech extends NpcMech:
 				n.queue_free()
 		book = null; book_btn = null; name_lbl = null; cards = null
 		if g != null and is_instance_valid(g.jar):
-			g.jar.visible = true
+			g.jar.modulate = Color.WHITE
 
 	func result_note(_g) -> String:
 		return "🦑 Шеф: собрано по книге рецептов"
