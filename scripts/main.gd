@@ -2878,12 +2878,24 @@ func _build_skill_dock(parent: Node) -> void:
 	skill_btns = {}
 	for d in SKILL_DEFS:
 		var b := Button.new()
-		b.text = d["icon"]
 		b.tooltip_text = d["title"]
 		b.focus_mode = Control.FOCUS_NONE
-		b.add_theme_font_size_override("font_size", 30)
-		b.custom_minimum_size = Vector2(66, 66)
+		b.custom_minimum_size = Vector2(70, 70)
 		b.pressed.connect(_use_skill.bind(String(d["id"])))
+		# сгенерированная иконка умения (фолбэк — эмодзи, если арт не импортирован)
+		var tex := load("res://assets/ui/skill_%s.png" % String(d["id"])) as Texture2D
+		if tex:
+			var ic := TextureRect.new()
+			ic.texture = tex
+			ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			ic.set_anchors_preset(Control.PRESET_FULL_RECT)
+			ic.offset_left = 6; ic.offset_top = 6; ic.offset_right = -6; ic.offset_bottom = -6
+			b.add_child(ic)
+		else:
+			b.text = d["icon"]
+			b.add_theme_font_size_override("font_size", 30)
 		wrap.add_child(b)
 		skill_btns[String(d["id"])] = b
 	var pipbox := HBoxContainer.new()
