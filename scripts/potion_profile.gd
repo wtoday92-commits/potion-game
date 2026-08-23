@@ -70,7 +70,48 @@ func _empty_profile() -> Dictionary:
 		# Фаза 7: умения игрока. charges — текущие заряды (0..3);
 		# perfect_counter — идеалов накоплено в счёт бонусного заряда (сброс на 3).
 		"skills": {"charges": 0, "perfect_counter": 0},
+		# Связи NPC: grudge/offended/left — состояние ЗА ЦИКЛ (сброс в новом цикле).
+		# discovered_relations — открытые пары "a|b", НАВСЕГДА.
+		"npc_relations_state": {},
+		"discovered_relations": [],
 	}
+
+# ---------- Связи NPC ----------
+func relation_state(npc_id: String) -> Dictionary:
+	var st: Dictionary = data.get("npc_relations_state", {})
+	if not st.has(npc_id):
+		st[npc_id] = {"grudge": 0, "offended": false, "left": false}
+	data["npc_relations_state"] = st
+	return st[npc_id]
+
+# +1 к «обиде»; пороги 3 (offended) и 6 (left). Возвращает флаги перехода порога.
+func bump_grudge(npc_id: String) -> Dictionary:
+	var s: Dictionary = relation_state(npc_id)
+	s["grudge"] = int(s.get("grudge", 0)) + 1
+	var was_off: bool = bool(s.get("offended", false))
+	var was_left: bool = bool(s.get("left", false))
+	if s["grudge"] >= 3: s["offended"] = true
+	if s["grudge"] >= 6: s["left"] = true
+	_dirty = true
+	save()
+	return {"state": s, "just_offended": s["offended"] and not was_off, "just_left": s["left"] and not was_left}
+
+func relation_left(npc_id: String) -> bool:
+	return bool(relation_state(npc_id).get("left", false))
+
+func reset_relations_cycle() -> void:
+	data["npc_relations_state"] = {}
+	_dirty = true
+
+func discover_relation(key: String) -> bool:
+	var arr: Array = data.get("discovered_relations", [])
+	if key in arr:
+		return false
+	arr.append(key)
+	data["discovered_relations"] = arr
+	_dirty = true
+	save()
+	return true
 
 # ---------- Фаза 7: заряды умений ----------
 const SKILL_CHARGE_CAP := 3

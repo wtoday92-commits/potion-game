@@ -2815,6 +2815,7 @@ func _start_cycle() -> void:
 	pogrom_removed = []              # «Погром»: выбывшие возвращаются в новый цикл
 	banned_npcs = {}                # 🚫 баны умения сбрасываются на новый цикл
 	guaranteed_npc = ""
+	PotionProfile.reset_relations_cycle()   # связи: обиды/уходы — только за цикл
 	cycle_days = GameData.prog_cycle_days(_xp())   # длина цикла по прогрессии
 	PotionProfile.reset_picks_cycle()
 	_new_day()
@@ -3210,6 +3211,8 @@ func _npc_pool(tier: int, unlocked: Dictionary, used: Array) -> Array:
 			continue
 		if banned_npcs.has(n["id"]):       # 🚫 забанен умением «Не пускать»
 			continue
+		if PotionProfile.relation_left(String(n["id"])):   # ушёл из цикла из-за обиды
+			continue
 		if tier != -1 and int(n.get("tier", 1)) != tier:
 			continue
 		if not unlocked.is_empty() and not unlocked.has(n["id"]):
@@ -3447,8 +3450,46 @@ func _diff_sb(bc: Color, k: float) -> StyleBoxFlat:
 # Выбор сложности на карточке → сразу в раунд (без отдельного экрана выбора).
 func _choose_diff(npc_e: Dictionary, lvl: int) -> void:
 	Sfx.play("cardPick")
+	_apply_relation_pick(String(npc_e.get("id", "")))   # связи: реакция других гостей дня
 	npc = npc_e
 	_start_round(lvl)
+
+# Связи NPC открываются прогрессией (relations) + порогом репутации по тиру гостя
+func _relation_unlocked(npc_id: String) -> bool:
+	if not GameData.prog_mech_unlocked("relations", _xp()):
+		return false
+	var cfg: Dictionary = _npc_by_id(npc_id)
+	if cfg.is_empty():
+		return false
+	return PotionProfile.get_rep_level(npc_id) >= GameData.relation_rep_need(int(cfg.get("tier", 1)))
+
+# При выборе гостя дня — реакция остальных двух: друг/собутыльник +репутация,
+# враг/неприязнь копят «обиду» (grudge) и теряют репутацию (сильнее с ростом обиды).
+func _apply_relation_pick(chosen_id: String) -> void:
+	if not _relation_unlocked(chosen_id):
+		return
+	for e in day_choices:
+		var other: String = String(e.get("id", ""))
+		if other == chosen_id:
+			continue
+		var rel: Dictionary = GameData.find_relation(chosen_id, other)
+		if rel.is_empty():
+			continue
+		match String(rel["kind"]):
+			"friend":
+				PotionProfile.adjust_rep(other, 3.0)
+			"buddy":
+				PotionProfile.adjust_rep(other, 1.0)
+			"enemy", "dislike":
+				var bump: Dictionary = PotionProfile.bump_grudge(other)
+				var scale: int = mini(int(bump["state"]["grudge"]), 3)
+				var base: float = 3.0 if String(rel["kind"]) == "enemy" else 1.0
+				PotionProfile.adjust_rep(other, -base * float(scale))
+				var nm: String = String(_npc_by_id(other).get("name", ""))
+				if bump["just_left"]:
+					_toast("🚪 %s обиделся и ушёл до конца цикла" % nm, Color("ff6a6a"))
+				elif bump["just_offended"]:
+					_toast("😤 %s обиделся — стикеры будут нечестные" % nm, Color("ff9a6a"))
 
 # Модификаторы задания — полосы во всю ширину панели (иконка + название капсом),
 # у каждого свой цвет; «без модификатора» — красным.
@@ -4300,7 +4341,13 @@ func _do_finish() -> void:
 	var score_after: int = cycle_score + int(outcome.get("points", 0))
 	sticker_name = _pick_sticker(grade, overall, comps, tier, time_frac, score_after,
 		perfect_run, good_run, bad_before)
-	PotionProfile.mark_sticker_seen(grade, sticker_name)
+	# Связи: обиженный гость (grudge≥3) форсит «нечестный» стикер-брак (💩 = bad9),
+	# очки/серии/репутация считаются по НАСТОЯЩЕМУ результату — спойлится только вид.
+	var sticker_grade: String = grade
+	if _relation_unlocked(String(npc.get("id", ""))) and bool(PotionProfile.relation_state(String(npc["id"])).get("offended", false)):
+		sticker_grade = "bad"
+		sticker_name = "bad9"
+	PotionProfile.mark_sticker_seen(sticker_grade, sticker_name)
 
 	# «Последний из Ир» (УР.3+): идеал → бафф след. заказу, брак/пойло → дебафф
 	if String(npc.get("id", "")) == "last_of_ir" and level >= 3:

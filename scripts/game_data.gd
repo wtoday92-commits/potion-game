@@ -446,7 +446,7 @@ const PROG_BEYOND_TIPS := 200     # чаевые за уровень сверх 
 const PROG_LEVELS := [
 	{"xp": 1200,  "cycle_days": 6, "mechanics": ["collection"],
 		"npc_marks": [[0.25, "tentacloid"], [0.5, "marketer"], [0.72, "fashionista"], [0.9, "dj_pulsar"]]},
-	{"xp": 2400,  "mechanics": ["characters", "quests"],
+	{"xp": 2400,  "mechanics": ["characters"],
 		"npc_marks": [[0.4, "gourmet_vega"], [0.85, "perfumer"]]},
 	{"xp": 4000,  "cycle_days": 7, "mechanics": ["skill_1", "modifiers"],
 		"npc_marks": [[0.3, "engineer"], [0.6, "apothecary_mo"]]},
@@ -459,7 +459,7 @@ const PROG_LEVELS := [
 	{"xp": 19000, "cycle_days": 10, "mechanics": ["modifiers_multi"],
 		"npc_marks": [[0.35, "nebula_chef"], [0.65, "twofaced_priestess"], [0.9, "plasma_bartender"]]},
 	{"xp": 26000, "mechanics": ["skill_4", "shop_grade_3", "unique_items"], "npc_marks": []},
-	{"xp": 34000, "pool_size": 4, "mechanics": ["quests_pin"], "npc_marks": []},
+	{"xp": 34000, "pool_size": 4, "mechanics": [], "npc_marks": []},
 ]
 
 # Индекс id -> запись + кумулятивный xp по уровням (строятся один раз).
@@ -601,3 +601,63 @@ func prog_bar(xp: int) -> Dictionary:
 		cum_prev += prog_level_increment(l)
 	var needed: int = prog_level_increment(lvl + 1)
 	return {"level": lvl, "into": xp - cum_prev, "needed": needed}
+
+# ---------- Связи NPC (Фаза: relations, откр. с xp 14000) ----------
+# kind: friend | enemy | buddy | dislike. Обе стороны читают связь одинаково.
+const NPC_RELATIONS := [
+	{"a": "drone", "b": "janitor", "kind": "friend"},
+	{"a": "pete", "b": "trucker_chrome", "kind": "buddy"},
+	{"a": "pete", "b": "janitor", "kind": "dislike"},
+	{"a": "last_of_ir", "b": "archivist", "kind": "friend"},
+	{"a": "engineer", "b": "swarm_navigator", "kind": "friend"},
+	{"a": "engineer", "b": "racer_kai", "kind": "dislike"},
+	{"a": "tentacloid", "b": "fashionista", "kind": "enemy"},
+	{"a": "racer_kai", "b": "guild_inspector", "kind": "enemy"},
+	{"a": "plasma_bartender", "b": "racer_kai", "kind": "buddy"},
+	{"a": "plasma_bartender", "b": "swarm_navigator", "kind": "buddy"},
+	{"a": "plasma_bartender", "b": "nebula_chef", "kind": "buddy"},
+	{"a": "plasma_bartender", "b": "twofaced_priestess", "kind": "buddy"},
+	{"a": "plasma_bartender", "b": "the_waiter", "kind": "buddy"},
+	{"a": "gourmet_vega", "b": "perfumer", "kind": "buddy"},
+	{"a": "apothecary_mo", "b": "vex", "kind": "buddy"},
+	{"a": "catlady", "b": "apothecary_mo", "kind": "buddy"},
+	{"a": "catlady", "b": "guild_inspector", "kind": "dislike"},
+	{"a": "intern_beep", "b": "trucker_chrome", "kind": "buddy"},
+	{"a": "marketer", "b": "dj_pulsar", "kind": "buddy"},
+	{"a": "marketer", "b": "fashionista", "kind": "dislike"},
+	{"a": "twofaced_priestess", "b": "supernova_child", "kind": "buddy"},
+	{"a": "guild_inspector", "b": "dj_pulsar", "kind": "dislike"},
+	{"a": "guild_inspector", "b": "vex", "kind": "dislike"},
+	{"a": "guild_inspector", "b": "collector_gz", "kind": "dislike"},
+	{"a": "tentacloid", "b": "dj_pulsar", "kind": "dislike"},
+	{"a": "tentacloid", "b": "perfumer", "kind": "dislike"},
+	{"a": "nebula_chef", "b": "swarm_navigator", "kind": "dislike"},
+	{"a": "fashionista", "b": "collector_gz", "kind": "dislike"},
+	{"a": "vex", "b": "racer_kai", "kind": "dislike"},
+	{"a": "archivist", "b": "supernova_child", "kind": "dislike"},
+	{"a": "plasma_bartender", "b": "intern_beep", "kind": "buddy"},
+	{"a": "plasma_bartender", "b": "trucker_chrome", "kind": "buddy"},
+	{"a": "plasma_bartender", "b": "dj_pulsar", "kind": "buddy"},
+	{"a": "the_waiter", "b": "collector_gz", "kind": "buddy"},
+	{"a": "guild_inspector", "b": "nebula_chef", "kind": "dislike"},
+	{"a": "tentacloid", "b": "janitor", "kind": "dislike"},
+	{"a": "tentacloid", "b": "intern_beep", "kind": "dislike"},
+	{"a": "nebula_chef", "b": "gourmet_vega", "kind": "dislike"},
+]
+const REL_KIND_LABEL := {"friend": "Друг", "enemy": "Враг", "buddy": "Собутыльник", "dislike": "Неприязнь"}
+
+func relation_rep_need(tier: int) -> int:
+	if tier <= 1: return 1
+	if tier <= 3: return 2
+	return 3
+
+func find_relation(a: String, b: String) -> Dictionary:
+	for r in NPC_RELATIONS:
+		if (r["a"] == a and r["b"] == b) or (r["a"] == b and r["b"] == a):
+			return r
+	return {}
+
+func relation_key(a: String, b: String) -> String:
+	var arr := [a, b]
+	arr.sort()
+	return "%s|%s" % [arr[0], arr[1]]
