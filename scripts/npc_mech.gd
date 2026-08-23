@@ -708,7 +708,7 @@ class MarketerMech extends NpcMech:
 
 	# выбрать тип миниигры: меньше всего использованный (повтор не более 1 раза за заказ)
 	func _pick_type() -> String:
-		var pool: Array = ["captcha", "ad", "puzzle"]
+		var pool: Array = ["captcha", "ad", "puzzle", "mosaic"]
 		pool.shuffle()
 		pool.sort_custom(func(a, b): return int(used_types.get(a, 0)) < int(used_types.get(b, 0)))
 		return pool[0]
@@ -729,6 +729,9 @@ class MarketerMech extends NpcMech:
 		elif t == "puzzle":
 			game = PuzzleGame.new()
 			game.finished.connect(_on_puzzle_done)
+		elif t == "mosaic":
+			game = MosaicGame.new()
+			game.finished.connect(_on_ad_done)     # без баффа — как реклама
 		else:
 			game = CaptchaGame.new()
 			game.finished.connect(_on_captcha_done)

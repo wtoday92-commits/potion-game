@@ -22,8 +22,8 @@ var _cx: float = 0.0                 # текущий X центра куска 
 var _rot: float = 0.0                # текущий поворот куска (рад), только УР.4
 var _timer: Label
 var _prompt: Label
-var _xslider: HSlider
-var _rslider: HSlider
+var _xslider: HTouchSlider
+var _rslider: HTouchSlider
 var _submit: Button
 var _piece: ColorRect
 var _mat: ShaderMaterial
@@ -68,7 +68,7 @@ func setup(lvl: int) -> void:
 
 func _area() -> Rect2:
 	var top: float = 92.0
-	var ctrl_h: float = 168.0 if level == 4 else 118.0
+	var ctrl_h: float = 226.0 if level == 4 else 150.0
 	var avail: float = maxf(60.0, size.y - top - ctrl_h)
 	var side: float = minf(size.x - 24.0, avail)
 	return Rect2((size.x - side) * 0.5, top, side, side)
@@ -94,28 +94,31 @@ func _build_ui() -> void:
 	_piece.material = _mat
 	add_child(_piece)
 
-	_xslider = HSlider.new()
+	# крупные тач-слайдеры (под палец): X — всегда, поворот — на УР.4. Хорошо разнесены.
+	_xslider = HTouchSlider.new()
 	_xslider.min_value = 0.0; _xslider.max_value = 1.0; _xslider.step = 0.001
+	_xslider.accent = Color(0.55, 0.85, 1.0)
 	_xslider.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	_xslider.offset_left = 30.0; _xslider.offset_right = -30.0
-	_xslider.offset_top = -110.0 if level == 4 else -100.0
-	_xslider.offset_bottom = _xslider.offset_top + 34.0
+	_xslider.offset_left = 24.0; _xslider.offset_right = -24.0
+	_xslider.offset_top = -132.0 if level == 4 else -128.0
+	_xslider.offset_bottom = _xslider.offset_top + 64.0
 	add_child(_xslider)
 
 	if level == 4:
-		_rslider = HSlider.new()
+		_rslider = HTouchSlider.new()
 		_rslider.min_value = -0.6; _rslider.max_value = 0.6; _rslider.step = 0.01
+		_rslider.accent = Color(1.0, 0.72, 0.42)
 		_rslider.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-		_rslider.offset_left = 30.0; _rslider.offset_right = -30.0
-		_rslider.offset_top = -66.0; _rslider.offset_bottom = -32.0
+		_rslider.offset_left = 24.0; _rslider.offset_right = -24.0
+		_rslider.offset_top = -210.0; _rslider.offset_bottom = -146.0
 		add_child(_rslider)
 
 	_submit = Button.new()
 	_submit.text = "Проверить"
 	_submit.focus_mode = Control.FOCUS_NONE
-	_submit.add_theme_font_size_override("font_size", 22)
+	_submit.add_theme_font_size_override("font_size", 24)
 	_submit.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	_submit.offset_top = -26.0; _submit.offset_bottom = -2.0
+	_submit.offset_top = -56.0; _submit.offset_bottom = -10.0
 	_submit.offset_left = 40.0; _submit.offset_right = -40.0
 	_submit.pressed.connect(_on_submit)
 	add_child(_submit)
