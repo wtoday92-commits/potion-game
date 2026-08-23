@@ -32,6 +32,9 @@ var accent: Color = Color(0.90, 0.72, 0.42)   # латунь (салун-сти�
 var _cum: Array = []
 var _total: float = 1.0
 var _dragging: bool = false
+var inertia: bool = false        # УР.4: рычаг проскакивает по инерции
+var _frac: float = 0.0           # непрерывная доля пути (для инерции/плавной отрисовки)
+var _vel: float = 0.0            # скорость доли пути (инерция)
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -48,6 +51,7 @@ func setup(mn: float, mx: float, st: float, val: float, shape_idx: int = -1) -> 
 	points = (PATHS[shape_idx] as Array).duplicate()
 	_measure()
 	value = _snap(val)
+	_frac = _value_to_frac(value)
 	queue_redraw()
 
 func _measure() -> void:
@@ -122,11 +126,30 @@ func _gui_input(event: InputEvent) -> void:
 		accept_event()
 
 func _set_from_pos(pos: Vector2) -> void:
-	var v: float = _frac_to_value(_frac_at(_to_view(pos)))
+	var tf: float = _frac_at(_to_view(pos))
+	if inertia:
+		_vel = clampf(tf - _frac, -0.18, 0.18)   # копим «скорость» рывка
+	_frac = tf
+	var v: float = _frac_to_value(tf)
 	queue_redraw()
 	if not is_equal_approx(v, value):
 		value = v
 		value_changed.emit(value)
+
+func _process(_delta: float) -> void:
+	if not inertia or _dragging or absf(_vel) < 0.0009:
+		return
+	_frac = clampf(_frac + _vel, 0.0, 1.0)
+	if _frac <= 0.0 or _frac >= 1.0:
+		_vel = 0.0
+	_vel *= 0.90                                   # трение — рычаг затухает
+	var v: float = _frac_to_value(_frac)
+	if not is_equal_approx(v, value):
+		value = v
+		value_changed.emit(value)
+	if absf(_vel) < 0.0009:
+		_frac = _value_to_frac(value)             # осел на снапнутом значении
+	queue_redraw()
 
 func _draw() -> void:
 	if points.size() < 2:
@@ -135,16 +158,20 @@ func _draw() -> void:
 	var scr := PackedVector2Array()
 	for p in points:
 		scr.append(_from_view(p))
-	# трек-ломаная: тёмная подложка + светлое тело (толщина от размера виджета)
-	draw_polyline(scr, Color(0.16, 0.15, 0.19), 14.0 * sc, true)
-	draw_polyline(scr, Color(0.34, 0.33, 0.38), 7.0 * sc, true)
-	# засечки-узлы траектории
+	# трек-ломаная: тёмная подложка + светлое тело (толще — крупная тач-зона)
+	draw_polyline(scr, Color(0.14, 0.13, 0.17), 20.0 * sc, true)
+	draw_polyline(scr, Color(0.34, 0.33, 0.38), 11.0 * sc, true)
+	draw_polyline(scr, Color(1, 1, 1, 0.10), 3.0 * sc, true)          # блик по центру трека
+	# концы траектории: низ = минимум, верх = максимум
+	draw_circle(scr[0], 7.0 * sc, Color(0.55, 0.5, 0.45))
+	draw_circle(scr[scr.size() - 1], 7.0 * sc, accent.darkened(0.2))
+	# засечки-узлы
 	for p in scr:
-		draw_circle(p, 4.0 * sc, Color(1, 1, 1, 0.12))
-	# рычаг КПП на текущем значении
-	var tp: Vector2 = _from_view(_point_at_frac(_value_to_frac(value)))
-	var r: float = 7.5 * sc                    # крупная тач-цель
+		draw_circle(p, 4.5 * sc, Color(1, 1, 1, 0.16))
+	# рычаг КПП (по непрерывной доле — плавно при инерции)
+	var tp: Vector2 = _from_view(_point_at_frac(_frac))
+	var r: float = 15.0 * sc                    # крупная тач-цель
 	draw_circle(tp, r + 3.0, Color(0, 0, 0, 0.35))
 	draw_circle(tp, r, accent.darkened(0.4))
-	draw_circle(tp, r * 0.78, accent)
-	draw_circle(tp - Vector2(r * 0.3, r * 0.3), r * 0.24, Color(1, 1, 1, 0.35))
+	draw_circle(tp, r * 0.80, accent)
+	draw_circle(tp - Vector2(r * 0.3, r * 0.3), r * 0.26, Color(1, 1, 1, 0.4))

@@ -148,6 +148,7 @@ class TruckerMech extends NpcMech:
 		col.add_child(gear)
 		col.move_child(gear, s.get_index())        # на место слайдера (после ярлыка)
 		gear.setup(s.min_value, s.max_value, s.step, s.value)
+		gear.inertia = (g_ref.level == 4)          # УР.4: рычаг проскакивает по инерции
 		gear.value_changed.connect(_on_gear.bind(k))
 		gears[k] = gear
 
@@ -182,6 +183,8 @@ class TruckerMech extends NpcMech:
 	func result_note(_g) -> String:
 		if keys.is_empty():
 			return ""
+		if _g != null and _g.level == 4:
+			return "🚚 Коробка передач: рычагами по одному (+ инерция!)"
 		return "🚚 Коробка передач: регуляторы — рычагами по одному"
 
 # ============================================================
