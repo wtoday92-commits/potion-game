@@ -189,7 +189,8 @@ func reset() -> void:
 # DEV: сразу много прогресса — опыт (все NPC/механики/пул/цикл открыты), чаевые
 # и максимальная репутация со всеми (открывает УР.4 у всех). Для тестов.
 func dev_boost() -> void:
-	data["progression"]["xp"] = maxi(int(data["progression"].get("xp", 0)), 40000)
+	# xp кумулятивный: до макс. уровня прогрессии нужно ~116k суммарно — берём с запасом
+	data["progression"]["xp"] = maxi(int(data["progression"].get("xp", 0)), 200000)
 	data["tips"]["balance"] = int(data["tips"].get("balance", 0)) + 9999
 	data["tips"]["lifetime"] = int(data["tips"].get("lifetime", 0)) + 9999
 	for n in GameData.NPCS:
