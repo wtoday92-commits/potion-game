@@ -10,12 +10,11 @@ const PAD := 26.0
 
 # id механики -> человекочитаемое имя (что показать на маркере уровня)
 const MECH_NAMES := {
-	"collection": "Коллекция", "characters": "Персонажи", "quests": "Задания",
+	"collection": "Коллекция", "characters": "Персонажи",
 	"tips": "Чаевые", "shop": "Магазин", "relations": "Связи NPC",
 	"skill_1": "Умение", "skill_2": "Умение", "skill_3": "Умение", "skill_4": "Умение",
 	"modifiers": "Модификаторы", "modifiers_new3": "Ещё модификаторы",
 	"modifiers_multi": "Мультимодификаторы", "unique_items": "Уник-предметы",
-	"quests_pin": "Закрепление заданий",
 }
 
 var _markers: Array = []    # [{frac, text}]
