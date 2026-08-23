@@ -958,20 +958,15 @@ func _build_start() -> void:
 	var sv := start_panel.get_node("Card/V") as VBoxContainer
 	sv.add_theme_constant_override("separation", 16)
 
-	var title := Label.new()
-	title.text = "ЗЕЛЬЕВАРНЯ"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 46)
-	_title_font(title)
-	sv.add_child(title)
-	_glow_label(title, Color("c07bff"))
-
 	var subtitle := Label.new()
-	subtitle.text = "Sector Seven Saloon"
+	subtitle.text = "SECTOR SEVEN SALOON"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	subtitle.add_theme_font_size_override("font_size", 20)
-	subtitle.modulate = Color(1, 1, 1, 0.75)
+	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	subtitle.add_theme_font_size_override("font_size", 52)
+	subtitle.add_theme_color_override("font_color", Color("ffe9a8"))
+	_title_font(subtitle)
 	sv.add_child(subtitle)
+	_glow_label(subtitle, Color("ff4fd8"))
 
 	# HUD профиля: чипы чаевые / заказы / серия (иконки + число)
 	var hud := HBoxContainer.new()
@@ -1091,9 +1086,16 @@ func _menu_tile(text: String, icon_name: String, primary: bool = false) -> Butto
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.focus_mode = Control.FOCUS_NONE
 	b.clip_contents = true
+	var tsb := StyleBoxFlat.new()
+	tsb.bg_color = Color(0.20, 0.15, 0.05, 1.0) if primary else UI_PANEL
+	tsb.set_corner_radius_all(16)
+	tsb.set_border_width_all(3 if primary else 2)
+	tsb.border_color = UI_GOLD if primary else UI_BORDER
 	if primary:
-		for st in ["normal", "hover", "pressed"]:
-			b.add_theme_stylebox_override(st, _tab_sb(true))
+		tsb.shadow_color = Color(UI_GOLD.r, UI_GOLD.g, UI_GOLD.b, 0.35)
+		tsb.shadow_size = 10
+	for st in ["normal", "hover", "pressed"]:
+		b.add_theme_stylebox_override(st, tsb)
 	var v := VBoxContainer.new()
 	v.set_anchors_preset(Control.PRESET_FULL_RECT)
 	v.offset_left = 10; v.offset_right = -10; v.offset_top = 10; v.offset_bottom = -10
@@ -2750,8 +2752,8 @@ func _build_items_panel() -> void:
 	scroll.add_child(items_list)
 	var close := Button.new()
 	close.text = "ЗАКРЫТЬ"
-	close.custom_minimum_size = Vector2(0, 68)
-	close.add_theme_font_size_override("font_size", 18)
+	close.custom_minimum_size = Vector2(0, 72)
+	close.add_theme_font_size_override("font_size", 24)
 	close.focus_mode = Control.FOCUS_NONE
 	close.pressed.connect(func(): items_panel.visible = false)
 	col.add_child(close)
@@ -2818,9 +2820,9 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	var ibsb := StyleBoxFlat.new()
 	ibsb.bg_color = UI_PANEL2
 	ibsb.set_corner_radius_all(12)
-	ibsb.set_content_margin_all(8.0)
+	ibsb.set_content_margin_all(10.0)
 	icon_box.add_theme_stylebox_override("panel", ibsb)
-	icon_box.add_child(_item_icon_node(it, 56.0, 40))
+	icon_box.add_child(_item_icon_node(it, 104.0, 68))
 	row.add_child(icon_box)
 
 	var body := VBoxContainer.new()
@@ -2833,12 +2835,12 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	name_row.add_theme_constant_override("separation", 6)
 	var nm := Label.new()
 	nm.text = String(it["name"])
-	nm.add_theme_font_size_override("font_size", 18)
+	nm.add_theme_font_size_override("font_size", 26)
 	nm.add_theme_color_override("font_color", Color(0.97, 0.97, 1.0))
 	name_row.add_child(nm)
 	var gnote := Label.new()
 	gnote.text = "· Грейд %d (%s)" % [gi + 1, String(it["grades"][gi]["label"])]
-	gnote.add_theme_font_size_override("font_size", 18)
+	gnote.add_theme_font_size_override("font_size", 20)
 	gnote.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
 	gnote.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	name_row.add_child(gnote)
@@ -2847,7 +2849,7 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	# описание
 	var desc := Label.new()
 	desc.text = String(it["desc"])
-	desc.add_theme_font_size_override("font_size", 18)
+	desc.add_theme_font_size_override("font_size", 21)
 	desc.add_theme_color_override("font_color", Color(1, 1, 1, 0.72))
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.add_child(desc)
@@ -2855,7 +2857,7 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	# строка эффекта — зелёным
 	var eff := Label.new()
 	eff.text = _item_effect_desc(it, gi)
-	eff.add_theme_font_size_override("font_size", 18)
+	eff.add_theme_font_size_override("font_size", 21)
 	eff.add_theme_color_override("font_color", Color("8affc0"))
 	eff.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.add_child(eff)
@@ -2866,7 +2868,7 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	var use := Button.new()
 	use.text = "Применить"
 	use.custom_minimum_size = Vector2(190, 60)
-	use.add_theme_font_size_override("font_size", 21)
+	use.add_theme_font_size_override("font_size", 24)
 	use.focus_mode = Control.FOCUS_NONE
 	use.disabled = not usable
 	if usable:
@@ -2874,7 +2876,7 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	act.add_child(use)
 	var owned := Label.new()
 	owned.text = "×%d" % cnt
-	owned.add_theme_font_size_override("font_size", 20)
+	owned.add_theme_font_size_override("font_size", 24)
 	owned.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))
 	owned.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	act.add_child(owned)
@@ -4270,7 +4272,7 @@ func _refresh_hud() -> void:
 	coll_btn.disabled = not coll_ok
 	coll_btn.text = "Коллекция" if coll_ok else "Коллекция  (откроется на ур.%d)" % GameData.mech_unlock_level("collection")
 	# профиль: ник + статус
-	profile_btn.text = "👤 %s%s" % [PotionAuth.get_nickname(), "" if PotionAuth.is_logged_in() else "  (гость)"]
+	profile_btn.tooltip_text = "%s%s" % [PotionAuth.get_nickname(), "" if PotionAuth.is_logged_in() else "  (гость)"]
 
 # ---------- экран выбора ----------
 func _show_select() -> void:
