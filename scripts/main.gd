@@ -986,21 +986,25 @@ func _build_start() -> void:
 	spacer.custom_minimum_size = Vector2(0, 10)
 	sv.add_child(spacer)
 
-	var play := _menu_button("ИГРАТЬ", true, 78, "nav_play")
+	# 4 квадратные плитки 2×2: подпись сверху, крупная иконка снизу
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", 14)
+	grid.add_theme_constant_override("v_separation", 14)
+	sv.add_child(grid)
+	var play := _menu_tile("ИГРАТЬ", "menu_play", true)
 	play.pressed.connect(_start_cycle)
-	sv.add_child(play)
-
-	coll_btn = _menu_button("Коллекция", false, 66, "nav_collection")
+	grid.add_child(play)
+	coll_btn = _menu_tile("Коллекция", "menu_collection")
 	coll_btn.pressed.connect(_show_collection)
-	sv.add_child(coll_btn)
-
-	var daily_btn := _menu_button("Ежедневный заказ", false, 66, "2ru_daily")
+	grid.add_child(coll_btn)
+	var daily_btn := _menu_tile("Заказ дня", "menu_daily")
 	daily_btn.pressed.connect(_open_daily_diff)
-	sv.add_child(daily_btn)
-
-	profile_btn = _menu_button("", false, 66, "nav_profile")
+	grid.add_child(daily_btn)
+	profile_btn = _menu_tile("Профиль", "menu_profile")
 	profile_btn.pressed.connect(_show_account)
-	sv.add_child(profile_btn)
+	grid.add_child(profile_btn)
 
 	# --- громкость: музыка / звуки ---
 	var vol_spacer := Control.new()
@@ -1079,6 +1083,40 @@ func _hud_chip(row: HBoxContainer, tex_name: String) -> Label:
 	h.add_child(lbl)
 	row.add_child(chip)
 	return lbl
+
+# Квадратная плитка главного меню: подпись сверху, крупная иконка снизу.
+func _menu_tile(text: String, icon_name: String, primary: bool = false) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(0, 190)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.focus_mode = Control.FOCUS_NONE
+	b.clip_contents = true
+	if primary:
+		for st in ["normal", "hover", "pressed"]:
+			b.add_theme_stylebox_override(st, _tab_sb(true))
+	var v := VBoxContainer.new()
+	v.set_anchors_preset(Control.PRESET_FULL_RECT)
+	v.offset_left = 10; v.offset_right = -10; v.offset_top = 10; v.offset_bottom = -10
+	v.add_theme_constant_override("separation", 4)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(v)
+	var l := Label.new()
+	l.text = text
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.add_theme_font_size_override("font_size", 30 if primary else 25)
+	l.add_theme_color_override("font_color", UI_GOLD if primary else UI_TXT)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_title_font(l)
+	v.add_child(l)
+	var ir := TextureRect.new()
+	ir.texture = _ui(icon_name)
+	ir.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	ir.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	ir.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	ir.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(ir)
+	return b
 
 # Единая кнопка меню (primary — золотая заливка, secondary — обычная тема).
 func _menu_button(text: String, primary: bool = false, h: float = 66.0, icon_name: String = "") -> Button:
@@ -1801,33 +1839,42 @@ func _show_char(npc_e: Dictionary) -> void:
 	for c in char_list.get_children():
 		c.queue_free()
 
-	# шапка: КРУПНЫЙ аватар по центру (без металлической рамки) + имя + репутация
-	var head := VBoxContainer.new()
-	head.alignment = BoxContainer.ALIGNMENT_CENTER
-	head.add_theme_constant_override("separation", 10)
-	var av := _big_avatar(npc_e, 240.0)
-	av.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	head.add_child(av)
+	# шапка: КРУПНЫЙ прямоугольный портрет слева + имя/репутация/досье справа
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 18)
+	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(_portrait_card(npc_e, 300.0))
+	var hcol := VBoxContainer.new()
+	hcol.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hcol.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	hcol.add_theme_constant_override("separation", 8)
 	var nm := Label.new()
 	nm.text = npc_e["name"]
-	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	nm.add_theme_font_size_override("font_size", 34)
 	nm.add_theme_color_override("font_color", tcol)
-	head.add_child(nm)
-	var rep_ctl := _rep_bar_ctl(PotionProfile.get_rep(id), tcol, 18)
-	rep_ctl.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	rep_ctl.custom_minimum_size.x = 360.0
-	head.add_child(rep_ctl)
+	_title_font(nm)
+	hcol.add_child(nm)
+	var rep_lab := Label.new()
+	rep_lab.text = "Репутация · ур.%d" % PotionProfile.get_rep_level(id)
+	rep_lab.add_theme_font_size_override("font_size", FS_SMALL)
+	rep_lab.add_theme_color_override("font_color", UI_TXT_DIM)
+	hcol.add_child(rep_lab)
+	hcol.add_child(_rep_bar_ctl(PotionProfile.get_rep(id), tcol, 18))
+	var doss_head := Label.new()
+	doss_head.text = "ДОСЬЕ"
+	doss_head.add_theme_font_size_override("font_size", FS_SMALL)
+	doss_head.add_theme_color_override("font_color", tcol)
+	hcol.add_child(doss_head)
+	var doss_txt := Label.new()
+	doss_txt.text = GameData.dossier(id)
+	doss_txt.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	doss_txt.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	doss_txt.add_theme_font_size_override("font_size", 18)
+	doss_txt.add_theme_color_override("font_color", UI_TXT)
+	hcol.add_child(doss_txt)
+	head.add_child(hcol)
 	char_list.add_child(head)
-
-	# досье
-	_char_header("Досье", tcol)
-	var doss := Label.new()
-	doss.text = GameData.dossier(id)
-	doss.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	doss.modulate = Color(1, 1, 1, 0.9)
-	doss.add_theme_font_size_override("font_size", 19)
-	char_list.add_child(doss)
 
 	# пассивки (5, открываются уровнями репутации; эффекты — Фаза 4)
 	_char_header("Пассивки", tcol)
@@ -1855,8 +1902,43 @@ func _show_char(npc_e: Dictionary) -> void:
 			grid.add_child(_npc_ach_card(a, ns))
 		char_list.add_child(grid)
 
-# Крупный круглый аватар без металлической рамки: свечение тира + тёмный диск +
-# портрет + тонкая цветная окантовка.
+# Крупная ПРЯМОУГОЛЬНАЯ карточка-портрет (без круга и металла): текстура-подложка,
+# арт персонажа во всю карточку, тонкая рамка цвета тира.
+func _portrait_card(npc_e: Dictionary, sz: float) -> Control:
+	var tier: int = int(npc_e.get("tier", 1))
+	var tcol: Color = GameData.TIER_COLORS.get(tier, Color.WHITE)
+	var card := Panel.new()
+	card.custom_minimum_size = Vector2(sz * 0.8, sz)
+	card.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.08, 0.09, 0.13, 1.0)
+	sb.set_corner_radius_all(14)
+	sb.set_border_width_all(3)
+	sb.border_color = Color(tcol.r, tcol.g, tcol.b, 0.9)
+	sb.shadow_color = Color(tcol.r, tcol.g, tcol.b, 0.35)
+	sb.shadow_size = 12
+	card.add_theme_stylebox_override("panel", sb)
+	var tex_bg := load("res://assets/ui/dossier_tex.png") as Texture2D
+	if tex_bg != null:
+		var bgr := TextureRect.new()
+		bgr.texture = tex_bg
+		bgr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		bgr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		bgr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bgr.set_anchors_preset(Control.PRESET_FULL_RECT)
+		bgr.offset_left = 3; bgr.offset_top = 3; bgr.offset_right = -3; bgr.offset_bottom = -3
+		bgr.modulate = Color(1, 1, 1, 0.5)
+		card.add_child(bgr)
+	var pic := TextureRect.new()
+	pic.texture = load(GameData.portrait_path(npc_e)) as Texture2D
+	pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pic.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pic.offset_left = 6; pic.offset_top = 6; pic.offset_right = -6; pic.offset_bottom = -6
+	card.add_child(pic)
+	return card
+
 func _big_avatar(npc_e: Dictionary, sz: float) -> Control:
 	var tier: int = int(npc_e.get("tier", 1))
 	var tcol: Color = GameData.TIER_COLORS.get(tier, Color.WHITE)
