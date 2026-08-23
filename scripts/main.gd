@@ -2251,8 +2251,8 @@ func _build_day() -> void:
 	day_cards.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	day_cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	dv.add_child(day_cards)
-	var day_bottom_pad := Control.new()              # чтобы карты не заходили на умения/кнопки
-	day_bottom_pad.custom_minimum_size = Vector2(0, 150)
+	var day_bottom_pad := Control.new()              # чтобы карты не заходили на нижний ряд
+	day_bottom_pad.custom_minimum_size = Vector2(0, 104)
 	dv.add_child(day_bottom_pad)
 
 	_build_skill_dock(day_panel)   # Фаза 7: панель умений — закреплена внизу по центру
@@ -3239,8 +3239,10 @@ func _build_skill_dock(parent: Node) -> void:
 	# закреплённая полоса внизу по центру (над угловыми кнопками)
 	var strip := Control.new()
 	strip.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	strip.offset_top = -150.0
-	strip.offset_bottom = -90.0
+	strip.offset_top = -98.0            # тот же уровень, что инвентарь и «← Меню»
+	strip.offset_bottom = -18.0
+	strip.offset_left = 108.0           # не наезжать на инвентарь слева
+	strip.offset_right = -164.0         # и на «← Меню» справа
 	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(strip)
 	var cc := CenterContainer.new()
