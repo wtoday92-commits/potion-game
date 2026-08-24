@@ -33,7 +33,7 @@ static func make_arrow_btn(g, cb: Callable, anchor_y: float = 0.62) -> Button:
 	b.add_theme_font_size_override("font_size", UI.FS_HERO)
 	b.focus_mode = Control.FOCUS_NONE
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.14, 0.12, 0.10, 0.9)
+	sb.bg_color = Color(0.14, 0.12, 0.10, 1.0)
 	sb.set_corner_radius_all(24)
 	sb.set_border_width_all(3)
 	sb.border_color = Color(0.90, 0.72, 0.42)
@@ -569,7 +569,7 @@ class ApothecaryMech extends NpcMech:
 		g_ref = g
 		bar = Panel.new()
 		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(0.09, 0.10, 0.16, 0.9)
+		sb.bg_color = Color(0.09, 0.10, 0.16, 1.0)
 		sb.set_corner_radius_all(8)
 		sb.set_border_width_all(2)
 		sb.border_color = Color(0.4, 0.42, 0.52)

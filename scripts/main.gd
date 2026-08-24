@@ -241,6 +241,14 @@ var nav_lb_btn: Button = null    # кнопка лидерборда (в дей�
 var nav_passives_btn: Button = null   # кнопка пассивок ⚡ (гейт прогрессией)
 var settings_panel: Control = null
 var _tb_rating_shown: int = 0    # для count-up рейтинга
+var scrim: ColorRect = null      # затемнение арта под интерфейсом
+var _scrim_now: float = -1.0     # текущая цель затемнения (чтобы не перезапускать твин)
+# Насколько гасим фон на разных экранах. В раунде — совсем не гасим: там бар и
+# есть сцена. На меню/выборе — слегка, чтобы арт стал атмосферой, а не спором
+# с текстом. На служебных экранах — сильно: они «поверх мира», а не в нём.
+const SCRIM_ROUND := 0.0
+const SCRIM_STAGE := 0.42
+const SCRIM_MENU := 0.66
 # Полоса поощрений цикла (вторая строка стрипа) + выездной топбар с инфой
 var reward_track: RewardTrack = null
 var drop_bar: PanelContainer = null      # выездная панель день/серия/рейтинг/стикеры
@@ -308,11 +316,27 @@ const SCENE_STATES := {
 	# (offset вверх синхронизирован с JarStage.TABLE_SCREEN_Y). Тюнится по скрину.
 	"play":   [[1.12, 1.0, 0.0],   [1.22, 1.0, -30.0], [1.28, 1.0, -150.0]],
 }
+# Плавно выставить затемнение фона. Зовётся из показа каждого экрана.
+# Прошлый твин обязательно гасим: _scene_state() ставит своё значение, а экран
+# следом уточняет — два живых твина на одном свойстве дрались, и до цели
+# затемнение не доезжало.
+var _scrim_tw: Tween = null
+
+func _scrim(amount: float, dur: float = 0.28) -> void:
+	if scrim == null or is_equal_approx(_scrim_now, amount):
+		return
+	_scrim_now = amount
+	if _scrim_tw != null and _scrim_tw.is_valid():
+		_scrim_tw.kill()
+	_scrim_tw = scrim.create_tween()
+	_scrim_tw.tween_property(scrim, "color:a", amount, dur).set_trans(Tween.TRANS_SINE)
+
 func _scene_state(state: String, dur: float = 0.55) -> void:
 	var c: Array = SCENE_STATES.get(state, SCENE_STATES["game"])
 	_tween_layer(layer_back, c[0], dur)
 	_tween_layer(layer_mid, c[1], dur)
 	_tween_layer(layer_front, c[2], dur)
+	_scrim(SCRIM_ROUND if state == "play" else SCRIM_STAGE)
 	_slide_header(state == "play")     # на игре верхние панели уезжают вверх, иначе — на месте
 	if state != "play":                # вне игры — снять «пьяную» качку/двоение
 		drunk_amount = 0.0
@@ -321,9 +345,10 @@ func _scene_state(state: String, dur: float = 0.55) -> void:
 func _tween_layer(l: TextureRect, cfg: Array, dur: float) -> void:
 	if l == null:
 		return
-	var old: Variant = l.get_meta("cam_tw", null)   # заглушить прошлый камерный тви́н
-	if old is Tween and old.is_valid():
-		old.kill()
+	if l.has_meta("cam_tw"):                        # заглушить прошлый камерный тви́н
+		var old: Variant = l.get_meta("cam_tw")
+		if old is Tween and old.is_valid():
+			old.kill()
 	var t := l.create_tween().set_parallel(true)
 	l.set_meta("cam_tw", t)
 	t.tween_property(l, "scale", Vector2(cfg[0], cfg[0]), dur).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
@@ -404,6 +429,15 @@ func _build_ui() -> void:
 	layer_mid.scale = Vector2(1.30, 1.30); layer_mid.modulate.a = 0.0
 	layer_front.scale = Vector2(1.60, 1.60); layer_front.modulate.a = 0.0
 	get_viewport().size_changed.connect(_on_bg_resized)   # фон следит за реальным размером экрана
+
+	# Скрим: единственный слой между артом и интерфейсом. Фон-комикс — самый
+	# контрастный элемент игры, и текст поверх него читался только за счёт тени.
+	# Глубина затемнения зависит от экрана (см. _scrim).
+	scrim = ColorRect.new()
+	scrim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scrim.color = Color(0.03, 0.03, 0.07, 0.0)
+	scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(scrim)
 
 	# ---- UI раунда ----
 	round_ui = VBoxContainer.new()
@@ -1454,6 +1488,7 @@ func _show_collection() -> void:
 		drop_handle.visible = false
 	collection_panel.visible = true
 	_set_topbar(false)
+	_scrim(SCRIM_MENU)
 	_set_collection_tab(collection_tab)
 	Juice.fade_in(collection_panel)
 
@@ -1904,6 +1939,7 @@ func _show_chars() -> void:
 	day_panel.visible = false
 	chars_panel.visible = true
 	_set_topbar(false)
+	_scrim(SCRIM_MENU)
 	prog_strip.visible = false
 	if drop_handle != null:
 		drop_handle.visible = false
@@ -1975,6 +2011,7 @@ func _show_char(npc_e: Dictionary) -> void:
 	collection_panel.visible = false
 	char_panel.visible = true
 	_set_topbar(false)
+	_scrim(SCRIM_MENU)
 	var id: String = npc_e["id"]
 	var tier: int = int(npc_e.get("tier", 1))
 	var tcol: Color = GameData.TIER_COLORS.get(tier, Color.WHITE)
@@ -2315,6 +2352,7 @@ func _show_account() -> void:
 	day_panel.visible = false
 	account_panel.visible = true
 	_set_topbar(false)
+	_scrim(SCRIM_MENU)
 	prog_strip.visible = false
 	if drop_handle != null:
 		drop_handle.visible = false
@@ -2818,7 +2856,7 @@ func _render_shop() -> void:
 		# карточка-блок предмета
 		var block := PanelContainer.new()
 		var bsb := StyleBoxFlat.new()
-		bsb.bg_color = Color(0.12, 0.12, 0.18, 0.9)
+		bsb.bg_color = Color(0.12, 0.12, 0.18, 1.0)
 		bsb.set_corner_radius_all(12)
 		bsb.set_content_margin_all(12.0)
 		block.add_theme_stylebox_override("panel", bsb)
@@ -4937,6 +4975,7 @@ func _show_start() -> void:
 	prog_strip.visible = true          # на меню топбар скрыт, но прогрессию показываем
 	prog_widget.refresh()
 	_scene_state("menu")
+	_scrim(SCRIM_MENU)
 	_refresh_hud()
 	Juice.fade_in(start_panel)
 
