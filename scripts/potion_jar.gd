@@ -12,11 +12,23 @@ const LiquidShader := preload("res://shaders/liquid.gdshader")
 const BottleBlurShader := preload("res://shaders/jar_blur.gdshader")
 const ScreenBlurShader := preload("res://shaders/jar_screenblur.gdshader")
 
-# Границы интерьера стекла в UV (замерены по bottle_interior.png).
-const I_TOP := 0.150
-const I_BOT := 0.953
-const I_LEFT := 0.240
-const I_RIGHT := 0.746
+# Набор посуды космо-бара. У каждого стакана свой арт и МАСКА ПО ФОРМЕ (жидкость
+# клипается точно по чаше — ножки/основания в маску не входят), плюс UV-границы
+# зоны жидкости, замеренные по этой маске.
+const GLASSES := [
+	{"id": "hi",     "tex": "res://assets/bottle/glass_hi.png",    "mask": "res://assets/bottle/glass_hi_int.png",
+		"top": 0.0745, "bot": 0.8406, "left": 0.1526, "right": 0.8295},
+	{"id": "curvy",  "tex": "res://assets/bottle/glass_curvy.png", "mask": "res://assets/bottle/glass_curvy_int.png",
+		"top": 0.0406, "bot": 0.6953, "left": 0.1412, "right": 0.8263},
+	{"id": "bottle", "tex": "res://assets/bottle/bottle.png",      "mask": "res://assets/bottle/bottle_interior.png",
+		"top": 0.150,  "bot": 0.953,  "left": 0.240,  "right": 0.746},
+]
+# Границы интерьера в UV — обновляются в set_glass().
+var I_TOP := 0.150
+var I_BOT := 0.953
+var I_LEFT := 0.240
+var I_RIGHT := 0.746
+var glass_idx: int = -1
 const FILL := 0.78     # уровень жидкости (ниже горлышка — видно, как плещется)
 const MAX_BLOBS := 18  # потолок числа сгустков (должен совпадать с liquid.gdshader)
 
@@ -112,7 +124,34 @@ func _ready() -> void:
 	_t = float(pot_seed) * 0.7
 
 	resized.connect(_apply)
+	if glass_idx < 0:
+		set_glass(0)
 	_apply()
+
+# Выбрать посуду из набора GLASSES: меняет арт, маску шейдера и UV-границы.
+func set_glass(idx: int) -> void:
+	var i: int = clampi(idx, 0, GLASSES.size() - 1)
+	if i == glass_idx:
+		return
+	glass_idx = i
+	var g: Dictionary = GLASSES[i]
+	I_TOP = float(g["top"]); I_BOT = float(g["bot"])
+	I_LEFT = float(g["left"]); I_RIGHT = float(g["right"])
+	var tex := load(String(g["tex"])) as Texture2D
+	if tex != null and bottle != null:
+		bottle.texture = tex
+	var msk := load(String(g["mask"])) as Texture2D
+	if msk != null:
+		if mat != null: mat.set_shader_parameter("mask", msk)
+		if blur_mat != null: blur_mat.set_shader_parameter("mask", msk)
+	_apply()
+
+# Индекс посуды по id ("hi" — прямой стакан Векса).
+static func glass_index(id: String) -> int:
+	for i in GLASSES.size():
+		if String(GLASSES[i]["id"]) == id:
+			return i
+	return 0
 
 func set_potion(h: float, v: float, c: int, b: float, s: int, sat: float = 0.72, height: float = -1.0, c2: int = 0, fill: float = -1.0, h2: float = -1.0) -> void:
 	hue = h
