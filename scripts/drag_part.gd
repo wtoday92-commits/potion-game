@@ -20,6 +20,10 @@ var blob_scale: float = 1.0      # масштаб сгустка Векса (р�
 var blob_col: Color = Color(0.55, 0.6, 0.72)   # цвет сгустка Векса (= цвет зелья)
 var _drag: bool = false
 var _drag_snd_t: int = 0
+var _grab_off: Vector2 = Vector2.ZERO   # где внутри детали её взяли (в своих коорд.)
+var push_others: bool = false           # расталкивать соседей (включает механика Роя)
+var push_bounds: bool = false           # держаться в границах родителя
+var drift_tw: Tween = null              # твин «полёта» — гасим, если деталь толкнули
 var _palette := [
 	[Color("aeb7c4"), Color("343a42")],   # сталь
 	[Color("d8b45a"), Color("6b5320")],   # латунь
@@ -33,6 +37,52 @@ func _ready() -> void:
 	size = Vector2(SZ, SZ)
 	custom_minimum_size = size
 	queue_redraw()
+
+# Детали Роя/Векса не должны слипаться: каждый кадр мягко расталкиваем соседей.
+# Ту, что в руке, не двигаем — расступаются остальные.
+func _process(delta: float) -> void:
+	if not push_others:
+		return
+	var par := get_parent() as Control
+	if par == null:
+		return
+	var my_c: Vector2 = center()
+	var my_r: float = size.x * 0.5
+	for sib in par.get_children():
+		if sib == self or not (sib is DragPart) or not sib.visible:
+			continue
+		var other: DragPart = sib
+		var d: Vector2 = other.center() - my_c
+		var dist: float = d.length()
+		var need: float = (my_r + other.size.x * 0.5) * 0.92
+		if dist >= need:
+			continue
+		if dist < 0.01:
+			d = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)).normalized()
+			dist = 0.01
+		var push: Vector2 = d.normalized() * (need - dist)
+		# в руке — стоим на месте, соседа выталкиваем целиком; иначе делим пополам
+		var speed: float = minf(1.0, delta * 12.0)
+		# толкаемая деталь не должна одновременно ехать по своему твину-дрейфу,
+		# иначе твин каждый кадр возвращает её обратно в наложение
+		if other.drift_tw != null and other.drift_tw.is_valid():
+			other.drift_tw.kill()
+		if _drag:
+			other.position += push * speed
+		elif not other._drag:
+			other.position += push * 0.5 * speed
+			position -= push * 0.5 * speed
+		if other.push_bounds:
+			other._clamp_to_parent()
+	if push_bounds and not _drag:
+		_clamp_to_parent()
+
+func _clamp_to_parent() -> void:
+	var par := get_parent() as Control
+	if par == null or par.size.x <= 1.0:
+		return
+	position.x = clampf(position.x, 0.0, maxf(0.0, par.size.x - size.x))
+	position.y = clampf(position.y, 0.0, maxf(0.0, par.size.y - size.y))
 
 func set_symbol(_sym: String) -> void:
 	pass
@@ -158,22 +208,62 @@ func _draw() -> void:
 			draw_rect(body, edge, false, 2.0)
 			draw_circle(ctr - Vector2(half - 5.0, half - 5.0), 2.5, edge)
 
+# Точка события — в системе координат РОДИТЕЛЯ (в ней живёт position).
+# Раньше деталь двигали через `position += event.relative`, но при этом сдвигался
+# и её собственный трансформ, следующая дельта считалась уже от нового места —
+# деталь разгонялась и улетала вперёд пальца. Теперь просто ставим её туда,
+# где палец, минус точка захвата: никакого накопления ошибки.
+func _to_parent(local_pos: Vector2) -> Vector2:
+	var par := get_parent() as Control
+	var gp: Vector2 = get_global_transform() * local_pos
+	if par == null:
+		return gp
+	return par.get_global_transform().affine_inverse() * gp
+
+func _start_drag(local_pos: Vector2) -> void:
+	_drag = true
+	_grab_off = local_pos
+	z_index = 1
+	set_process_input(true)          # отпускание может прийти мимо нас — ловим глобально
+	Sfx.play("blobGrab")
+
+func _end_drag() -> void:
+	if not _drag:
+		return
+	_drag = false
+	z_index = 0
+	set_process_input(false)
+	dropped.emit(self)
+
+func _move_to(local_pos: Vector2) -> void:
+	position = _to_parent(local_pos) - _grab_off
+	if push_bounds:
+		_clamp_to_parent()
+	var now: int = Time.get_ticks_msec()
+	if now - _drag_snd_t > 130:
+		_drag_snd_t = now
+		Sfx.play("blobDrag")
+
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch or (event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT):
 		if event.pressed:
-			_drag = true
-			z_index = 1
-			Sfx.play("blobGrab")
+			_start_drag(event.position)
 		else:
-			if _drag:
-				_drag = false
-				z_index = 0
-				dropped.emit(self)
+			_end_drag()
 		accept_event()
 	elif (event is InputEventScreenDrag or event is InputEventMouseMotion) and _drag:
-		position += event.relative
-		var now: int = Time.get_ticks_msec()
-		if now - _drag_snd_t > 130:
-			_drag_snd_t = now
-			Sfx.play("blobDrag")
+		_move_to(event.position)
 		accept_event()
+
+# Пока деталь в руке, палец легко уходит за её пределы — там _gui_input уже не
+# приходит. Ловим движение и отпускание глобально, иначе деталь «залипает».
+func _input(event: InputEvent) -> void:
+	if not _drag:
+		return
+	if event is InputEventScreenTouch or (event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT):
+		if not event.pressed:
+			_end_drag()
+			get_viewport().set_input_as_handled()
+	elif event is InputEventScreenDrag or (event is InputEventMouseMotion and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0):
+		_move_to(get_global_transform().affine_inverse() * event.position)
+		get_viewport().set_input_as_handled()

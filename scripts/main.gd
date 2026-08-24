@@ -842,8 +842,7 @@ func _build_dev_panel() -> void:
 	reset.pressed.connect(_dev_reset)
 	v.add_child(reset)
 	# список всех гостей — по кнопке прыгаем прямо в раунд
-	var scroll := ScrollContainer.new()
-	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх кнопок/карточек
+	var scroll := TouchScroll.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.custom_minimum_size = Vector2(0, 560)
 	v.add_child(scroll)
@@ -1452,8 +1451,7 @@ func _build_collection() -> void:
 		tabrow.add_child(b)
 		coll_tab_btns.append(b)
 
-	var scroll := ScrollContainer.new()
-	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх кнопок/карточек
+	var scroll := TouchScroll.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	cv.add_child(scroll)
@@ -1927,8 +1925,7 @@ func _build_chars() -> void:
 	title.add_theme_color_override("font_color", UI_GOLD)
 	cv.add_child(title)
 	_glow_label(title, UI_GOLD)
-	var scroll := ScrollContainer.new()
-	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх кнопок/карточек
+	var scroll := TouchScroll.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	cv.add_child(scroll)
@@ -2004,8 +2001,7 @@ func _build_char() -> void:
 	var cv := char_panel.get_node("Card/V") as VBoxContainer
 	cv.add_theme_constant_override("separation", 10)
 
-	var scroll := ScrollContainer.new()
-	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх кнопок/карточек
+	var scroll := TouchScroll.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	cv.add_child(scroll)
@@ -2317,8 +2313,7 @@ func _build_account() -> void:
 	title.add_theme_color_override("font_color", UI_GOLD)
 	cv.add_child(title)
 	_glow_label(title, UI_GOLD)
-	var scroll := ScrollContainer.new()
-	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх кнопок/карточек
+	var scroll := TouchScroll.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	cv.add_child(scroll)
@@ -2715,8 +2710,7 @@ func _build_leaderboard_panel() -> void:
 	title.add_theme_color_override("font_color", UI_GOLD)
 	col.add_child(title)
 	_glow_label(title, UI_GOLD)
-	var scroll := ScrollContainer.new()
-	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх кнопок/карточек
+	var scroll := TouchScroll.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	col.add_child(scroll)
@@ -2838,8 +2832,7 @@ func _build_shop_panel() -> void:
 	shop_balance.add_theme_color_override("font_color", Color("ffd75e"))
 	head.add_child(shop_balance)
 	col.add_child(head)
-	var scroll := ScrollContainer.new()
-	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх кнопок/карточек
+	var scroll := TouchScroll.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.add_child(scroll)
 	shop_list = VBoxContainer.new()
@@ -2993,8 +2986,7 @@ func _build_items_panel() -> void:
 	title.add_theme_color_override("font_color", UI_GOLD)
 	col.add_child(title)
 	_glow_label(title, UI_GOLD)
-	var scroll := ScrollContainer.new()
-	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх кнопок/карточек
+	var scroll := TouchScroll.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	col.add_child(scroll)
@@ -3244,8 +3236,7 @@ func _build_passives_panel() -> void:
 	passives_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	passives_note.add_theme_font_size_override("font_size", 16)
 	col.add_child(passives_note)
-	var scroll := ScrollContainer.new()
-	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх карточек
+	var scroll := TouchScroll.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	col.add_child(scroll)
@@ -4255,7 +4246,7 @@ func _open_skill_picker(mode: String) -> void:
 	title.add_theme_font_size_override("font_size", 26)
 	title.add_theme_color_override("font_color", Color(0.95, 0.98, 1.0))
 	box.add_child(title)
-	var scroll := ScrollContainer.new()
+	var scroll := TouchScroll.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(scroll)
@@ -5081,10 +5072,12 @@ func _start_round(lvl: int) -> void:
 	bulb_bar.visible = true
 	_serving = false
 	jar_stage.reset_jar()          # вернуть банку на стол после прошлого отъезда
-	for ch in jar_stage.get_children():   # снять «залипшую» грязь Уборщика с прошлого заказа
-		if ch is GrimeOverlay:
+	# снести всё, что механика прошлого заказа могла оставить на сцене:
+	# грязь Уборщика, слой деталей Роя и сами детали (в банке и на сцене)
+	for ch in jar_stage.get_children():
+		if ch is GrimeOverlay or ch is DragPart or ch.has_meta("mech_layer"):
 			ch.queue_free()
-	for ch in jar.inner_holder().get_children():   # снять «залипшие» детали Роя из банки
+	for ch in jar.inner_holder().get_children():
 		if ch is DragPart:
 			ch.queue_free()
 	jar.modulate = Color.WHITE     # общий сброс тона банки (страховка)
