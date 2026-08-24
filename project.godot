@@ -42,4 +42,4 @@ renderer/rendering_method.mobile="gl_compatibility"
 
 [gui]
 
-theme/custom_font="res://assets/fonts/pobeda-regular.ttf"
+theme/custom_font="res://assets/fonts/Robofan.ttf"

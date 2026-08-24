@@ -2,13 +2,13 @@
 
 importer="font_data_dynamic"
 type="FontFile"
-uid="uid://qvxhiou3rms8"
-path="res://.godot/imported/pobeda-bold.ttf-50abf87297ca5e3b5b75dc2f8ac06290.fontdata"
+uid="uid://drsnf65e04vef"
+path="res://.godot/imported/spaceranger-rus.otf-2c0315865cd1f3589144e4437b7b62aa.fontdata"
 
 [deps]
 
-source_file="res://assets/fonts/pobeda-bold.ttf"
-dest_files=["res://.godot/imported/pobeda-bold.ttf-50abf87297ca5e3b5b75dc2f8ac06290.fontdata"]
+source_file="res://assets/fonts/spaceranger-rus.otf"
+dest_files=["res://.godot/imported/spaceranger-rus.otf-2c0315865cd1f3589144e4437b7b62aa.fontdata"]
 
 [params]
 

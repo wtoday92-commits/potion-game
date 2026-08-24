@@ -2,13 +2,13 @@
 
 importer="font_data_dynamic"
 type="FontFile"
-uid="uid://bccnvc151hd7y"
-path="res://.godot/imported/pobeda-regular.ttf-2b099dfcd2e1844a9ece7a163323b56b.fontdata"
+uid="uid://b6pr2i66xfsll"
+path="res://.godot/imported/Robofan.ttf-192f5ffed395deeceb4fe60a7217bbe6.fontdata"
 
 [deps]
 
-source_file="res://assets/fonts/pobeda-regular.ttf"
-dest_files=["res://.godot/imported/pobeda-regular.ttf-2b099dfcd2e1844a9ece7a163323b56b.fontdata"]
+source_file="res://assets/fonts/Robofan.ttf"
+dest_files=["res://.godot/imported/Robofan.ttf-192f5ffed395deeceb4fe60a7217bbe6.fontdata"]
 
 [params]
 
