@@ -5,8 +5,8 @@ extends Node
 ## сам дополняется недостающими полями новой схемы, лишнего не тащит.
 ##
 ## Фаза 1: перенесён персистентный костяк (статистика, серии, репутация,
-## статы по NPC, прогрессия, чаевые, виденные стикеры). Ачивки/лор/пассивки/
-## магазин/печати — поля заведены под будущие фазы, но логики пока нет.
+## статы по NPC, прогрессия, чаевые, виденные стикеры). Пассивки персонажей —
+## рабочие (см. ниже); лор/печати — поля заведены под будущие фазы.
 ## Формулы начисления репутации/чаевых — ПРЕДВАРИТЕЛЬНЫЕ (tunable, см. ниже).
 
 const SCHEMA_VERSION := 1
@@ -155,6 +155,113 @@ func bump_perfect_charge(threshold: int) -> bool:
 	save()
 	return false
 
+# ---------- Пассивки персонажей ----------
+# Хранение: data.passives.active = [{"npc": id, "pid": "p3"}, ...] (до
+# GameData.PASSIVE_SLOTS штук). Открытость считается ОТ РЕПУТАЦИИ — репутация
+# может упасть, тогда пассивка закрывается обратно и вылетает из активных.
+
+func passive_unlocked(npc_id: String, pid: String) -> bool:
+	var idx: int = GameData.passive_index(npc_id, pid)
+	if idx < 0:
+		return false
+	return get_rep_level(npc_id) >= idx + 1
+
+# Активные пассивки после чистки от «больше не открытых» и лишних сверх слотов.
+func active_passives() -> Array:
+	var pv: Dictionary = data.get("passives", {})
+	var act: Array = pv.get("active", [])
+	var clean: Array = []
+	for a in act:
+		if typeof(a) != TYPE_DICTIONARY:
+			continue
+		var npc_id: String = String(a.get("npc", ""))
+		var pid: String = String(a.get("pid", ""))
+		if passive_unlocked(npc_id, pid) and clean.size() < GameData.PASSIVE_SLOTS:
+			clean.append({"npc": npc_id, "pid": pid})
+	if clean.size() != act.size():
+		pv["active"] = clean
+		data["passives"] = pv
+		_dirty = true
+		save()
+	return clean
+
+func is_passive_active(npc_id: String, pid: String) -> bool:
+	for a in active_passives():
+		if String(a["npc"]) == npc_id and String(a["pid"]) == pid:
+			return true
+	return false
+
+# Включить/выключить пассивку. Возвращает "on"|"off"|"locked"|"full".
+func toggle_passive(npc_id: String, pid: String) -> String:
+	if not passive_unlocked(npc_id, pid):
+		return "locked"
+	var act: Array = active_passives()
+	var found := -1
+	for i in act.size():
+		if String(act[i]["npc"]) == npc_id and String(act[i]["pid"]) == pid:
+			found = i
+			break
+	var res := "on"
+	if found >= 0:
+		act.remove_at(found)
+		res = "off"
+	elif act.size() >= GameData.PASSIVE_SLOTS:
+		return "full"
+	else:
+		act.append({"npc": npc_id, "pid": pid})
+	var pv: Dictionary = data.get("passives", {})
+	pv["active"] = act
+	data["passives"] = pv
+	_dirty = true
+	save()
+	return res
+
+# Суммарные числовые эффекты для заказа конкретного NPC: global-пассивки работают
+# всегда, npc-пассивки — только «у своего» гостя. npc_id "" → только global.
+func passive_fx(npc_id: String) -> Dictionary:
+	var fx := {"score": 0.0, "craftTime": 0.0, "memTime": 0.0,
+		"speedCap": 0.0, "rep": 0.0, "progress": 0.0, "tips": 0.0}
+	for a in active_passives():
+		var owner_id: String = String(a["npc"])
+		var def: Dictionary = GameData.passive_def(owner_id, String(a["pid"]))
+		if def.is_empty():
+			continue
+		if String(def["scope"]) == "npc" and owner_id != npc_id:
+			continue
+		for k in (def["fx"] as Dictionary):
+			if fx.has(k) and typeof(def["fx"][k]) != TYPE_BOOL:
+				fx[k] = float(fx[k]) + float(def["fx"][k])
+	return fx
+
+# Активна ли хоть одна пассивка-«уникалка» с булевым флагом (chargeAt2…).
+func passive_flag(flag: String) -> bool:
+	for a in active_passives():
+		var def: Dictionary = GameData.passive_def(String(a["npc"]), String(a["pid"]))
+		if not def.is_empty() and bool((def["fx"] as Dictionary).get(flag, false)):
+			return true
+	return false
+
+# Сумма плоских прибавок по ключу (tipsFlat…).
+func passive_flat(flag: String) -> float:
+	var sum := 0.0
+	for a in active_passives():
+		var def: Dictionary = GameData.passive_def(String(a["npc"]), String(a["pid"]))
+		if def.is_empty():
+			continue
+		var v = (def["fx"] as Dictionary).get(flag, null)
+		if typeof(v) == TYPE_INT or typeof(v) == TYPE_FLOAT:
+			sum += float(v)
+	return sum
+
+# Начислить чаевые «мимо заказа» (плоская пассивка в конце цикла).
+func add_tips(n: int) -> void:
+	if n <= 0:
+		return
+	data["tips"]["balance"] = int(data["tips"]["balance"]) + n
+	data["tips"]["lifetime"] = int(data["tips"]["lifetime"]) + n
+	_dirty = true
+	save()
+
 # ---------- загрузка/сохранение ----------
 func load_profile() -> void:
 	var base := _empty_profile()
@@ -260,8 +367,17 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 		reward: int, sticker_name: String = "",
 		time_frac: float = 1.0, reg_level: int = 1,
 		focus: String = "", rating_mult: float = 1.0, no_points: bool = false,
-		neg_mult: float = 1.0, tip_mult: float = 1.0, flat_bonus: int = 0) -> Dictionary:
+		neg_mult: float = 1.0, tip_mult: float = 1.0, flat_bonus: int = 0,
+		pfx: Dictionary = {}) -> Dictionary:
 	ensure_npc(npc_id)
+	# pfx — эффекты пассивок, зафиксированные на этот заказ (см. passive_fx)
+	var pf_score: float = 1.0 + float(pfx.get("score", 0.0))
+	var pf_speed: float = float(pfx.get("speedCap", 0.0))
+	var pf_rep: float = 1.0 + float(pfx.get("rep", 0.0))
+	var pf_prog: float = 1.0 + float(pfx.get("progress", 0.0))
+	var pf_tips: float = 1.0 + float(pfx.get("tips", 0.0))
+	# вклад в «коллекционный» прогресс (лента идеальных / взвешенные ачивки)
+	var prog_w: float = GameData.ribbon_weight(reward, reg_level) * pf_prog
 	var is_perfect := grade == "perfect"
 	var is_good := grade == "good" or is_perfect     # «годнота+»
 	var is_bad := grade == "bad"
@@ -273,7 +389,7 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 	st["total_orders"] += 1
 	st["stickers_lifetime"][grade] += 1
 	# дельта рейтинга (может быть отрицательной: пойло/брак отнимают)
-	var sd: Dictionary = GameData.score_delta(overall, grade, tier, reward, reg_level, time_frac)
+	var sd: Dictionary = GameData.score_delta(overall, grade, tier, reward, reg_level, time_frac, pf_score, pf_speed)
 	var points: int = int(sd["delta"])
 	# множитель рейтинга: механика гостя + «Погром»/«Утка» на плюс; «Утка» усиливает и штраф
 	if points > 0 and rating_mult != 1.0:
@@ -288,7 +404,7 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 	if points > 0:
 		st["total_score_earned"] += points     # lifetime — только заработанное
 	if is_good:                                 # взвешенный прогресс (ачивка «Мастер смесей»)
-		st["weighted_progress"] = float(st.get("weighted_progress", 0.0)) + GameData.ribbon_weight(reward, reg_level)
+		st["weighted_progress"] = float(st.get("weighted_progress", 0.0)) + prog_w
 
 	# --- серии ---
 	var sk: Dictionary = data["streaks"]
@@ -302,7 +418,7 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 	# --- лента идеальных (вклад зависит от тира персонажа и сложности УР) ---
 	if is_perfect:
 		var rb: Dictionary = data["perfect_ribbon"]
-		rb["count"] = float(rb["count"]) + GameData.ribbon_weight(reward, reg_level)
+		rb["count"] = float(rb["count"]) + prog_w
 		while float(rb["count"]) >= GameData.RIBBON_FULL:
 			rb["platinum_count"] = int(rb["platinum_count"]) + 1
 			rb["count"] = float(rb["count"]) - GameData.RIBBON_FULL
@@ -323,7 +439,7 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 		if time_frac <= 1.0 / 3.0: ns["fast_perfects"] += 1
 		if hard: ns["hard_perfects"] += 1
 		if level4: ns["level4_perfects"] += 1
-		ns["weighted"] = float(ns.get("weighted", 0.0)) + GameData.ribbon_weight(reward, reg_level)
+		ns["weighted"] = float(ns.get("weighted", 0.0)) + prog_w
 		if focus != "" and ns["focus_perfects"].has(focus):
 			ns["focus_perfects"][focus] += 1
 
@@ -331,12 +447,15 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 	var rep: Dictionary = data["npc_reputation"][npc_id]
 	var lvl_before := GameData.rep_level(float(rep["value"]))
 	var rep_before := float(rep["value"])
-	rep["value"] = maxf(0.0, rep_before + REP_GAIN.get(grade, 0.0))
+	var rep_gain: float = float(REP_GAIN.get(grade, 0.0))
+	if rep_gain > 0.0:
+		rep_gain *= pf_rep                     # пассивка rep — только на ПРИРОСТ
+	rep["value"] = maxf(0.0, rep_before + rep_gain)
 	var lvl_after := GameData.rep_level(float(rep["value"]))
 	rep["level"] = lvl_after
 
 	# --- чаевые ---
-	var tip := int(round(reward * float(TIP_FACTOR.get(grade, 0.0)) * tip_mult))
+	var tip := int(round(reward * float(TIP_FACTOR.get(grade, 0.0)) * tip_mult * pf_tips))
 	if tip > 0:
 		data["tips"]["balance"] += tip
 		data["tips"]["lifetime"] += tip

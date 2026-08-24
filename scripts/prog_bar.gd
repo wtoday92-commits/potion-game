@@ -4,9 +4,10 @@ class_name ProgBar
 ## Мобилка: наведения нет — по ТАПУ на маркер всплывает, что откроется.
 ## Данные из GameData.PROG_LEVELS + текущий xp профиля.
 
-const BAR_H := 26.0
-const MARK_R := 20.0        # крупные маркеры под палец
+const BAR_H := 24.0
+const MARK_R := 18.0        # крупные маркеры под палец
 const PAD := 26.0
+const BAR_Y := 50.0         # линия полосы внутри виджета
 
 # id механики -> человекочитаемое имя (что показать на маркере уровня)
 const MECH_NAMES := {
@@ -26,17 +27,17 @@ var _popup: PanelContainer
 var _popup_label: Label
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(440, 92)
+	custom_minimum_size = Vector2(440, BAR_Y + MARK_R + 6.0)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 
 	_title = Label.new()
-	_title.add_theme_font_size_override("font_size", 30)
+	_title.add_theme_font_size_override("font_size", 26)
 	_title.add_theme_color_override("font_color", Color(0.95, 0.82, 0.5))
 	_title.position = Vector2(PAD, 0)
 	add_child(_title)
 
 	_xptext = Label.new()
-	_xptext.add_theme_font_size_override("font_size", 26)
+	_xptext.add_theme_font_size_override("font_size", 23)
 	_xptext.modulate = Color(1, 1, 1, 0.8)
 	_xptext.custom_minimum_size = Vector2(220, 0)
 	_xptext.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -94,8 +95,7 @@ func refresh() -> void:
 func _bar_geom() -> Dictionary:
 	var x0: float = PAD
 	var x1: float = size.x - PAD
-	var y: float = 64.0
-	return {"x0": x0, "x1": x1, "y": y}
+	return {"x0": x0, "x1": x1, "y": BAR_Y}
 
 func _draw() -> void:
 	if size.x <= 0.0:

@@ -89,6 +89,10 @@ const DAILY_PROFILES := {
 	"hard": {"tier": 5, "label": "Так и было задумано"},
 }
 var item_fx: Dictionary = {}          # эффекты применённых предметов на ТЕКУЩИЙ заказ
+# Пассивки персонажей: суммарные эффекты, ЗАФИКСИРОВАННЫЕ на текущий заказ
+# (состав пассивок нельзя менять после первого выполненного заказа цикла).
+var order_pfx: Dictionary = {}
+var passives_locked: bool = false     # цикл начался — состав заморожен
 var item_pending: Dictionary = {}     # эффекты «на следующий заказ» (Секундомер/Ясность)
 var pogrom_removed: Array = []   # id гостей, выбывших из цикла из-за «Погрома»
 var mod_chip: Label              # плашка фокуса/модификаторов под надписью фазы
@@ -205,8 +209,14 @@ var day_choices: Array = []      # зафиксированная тройка �
 # постоянная верхняя панель (день/рейтинг/серия + иконки-кнопки) + стрип прогрессии
 const TOPBAR_H := 78.0           # выше — крупные тач-иконки
 const STRIP_TOP := 116.0         # верх стрипа прогрессии (под топбаром)
-const STRIP_H := 156.0           # прогресс-бар + строка день/серия/рейтинг + стикеры (крупно для телефона)
-const CONTENT_TOP := 284.0       # верх контента экранов — ниже топбара и стрипа
+# Низ стрипа обязан оставаться ВЫШЕ проёма окна (WINDOW_UV.y = 0.221 высоты арта,
+# на 9:16 это ~283px) — иначе панель налезает на раму окна.
+const STRIP_H := 158.0           # прогресс-бар «Лавка ур.N» + полоса поощрений цикла
+const CONTENT_TOP := 286.0       # верх контента экранов — ниже топбара и стрипа
+# Выездной топбар: висит поверх обоих, перекрывает их ровно по ширине.
+const DROP_TOP := 30.0
+const DROP_H := STRIP_TOP + STRIP_H - DROP_TOP   # от верха топбара до низа стрипа
+const DROP_HOLD := 4.0           # сколько секунд висит, если не убрать свайпом
 
 # Три параллакс-слоя по Z: задний (космос) → средний (стена с окном) →
 # передний (стол+пол). Окно среднего слоя прозрачно — сквозь него виден космос.
@@ -228,8 +238,25 @@ var topbar_coll_btn: Button      # иконка коллекции (гейт п�
 var _topbar_nav: Array = []      # все nav-иконки (для гейтинга дейлика)
 var settings_btn: Button = null  # кнопка настроек (язык/громкость)
 var nav_lb_btn: Button = null    # кнопка лидерборда (в дейлике остаётся)
+var nav_passives_btn: Button = null   # кнопка пассивок ⚡ (гейт прогрессией)
 var settings_panel: Control = null
 var _tb_rating_shown: int = 0    # для count-up рейтинга
+# Полоса поощрений цикла (вторая строка стрипа) + выездной топбар с инфой
+var reward_track: RewardTrack = null
+var drop_bar: PanelContainer = null      # выездная панель день/серия/рейтинг/стикеры
+var drop_handle: Control = null          # треугольник-«язычок» сверху
+var _drop_shown: bool = false
+var _drop_token: int = 0                 # чтобы старый автоскрыт не гасил новый показ
+var _drop_swipe: float = 0.0             # накопленный свайп вверх по панели
+var _pending_mark: Dictionary = {}       # отметка дня, ждёт экрана результата
+
+# Множитель рейтинга цикла по итоговой градации полосы (индекс = градация 0..5,
+# где 5 — секретная фиолетовая). Отклонение от 1.0 вдвое мягче первой версии:
+# тусклая срезает четверть, золотая даёт +50%, секретная +75%.
+const TRACK_MULT := [0.75, 0.85, 1.0, 1.2, 1.5, 1.75]
+const TRACK_GRADE_NAME := ["тусклая", "слабая", "ровная", "яркая", "ЗОЛОТАЯ", "ЗВЁЗДНАЯ"]
+const TRACK_REP_MIN_GRADE := 4           # бонус репутации — начиная с 4-й градации
+const TRACK_REP_BONUS := {"perfect": 10.0, "hundred": 16.0}
 
 func _ready() -> void:
 	randomize()
@@ -663,7 +690,7 @@ func _build_ui() -> void:
 	result_breakdown_box.add_child(result_breakdown)
 	rv.add_child(result_breakdown_box)
 
-	result_detail = Label.new()       # доп. текст (итог цикла)
+	result_detail = Label.new()       # доп. текст (итог заказа / итог цикла)
 	result_detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	result_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	result_detail.custom_minimum_size = Vector2(420, 0)
@@ -680,26 +707,14 @@ func _build_ui() -> void:
 	result_replay_btn.pressed.connect(_ir_replay)
 	ract.add_child(result_replay_btn)
 
-	result_next_btn = Button.new()
-	result_next_btn.text = "Дальше →"
-	result_next_btn.custom_minimum_size = Vector2(468, 82)   # крупная primary у стены
-	result_next_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	result_next_btn.add_theme_font_size_override("font_size", 26)
-	result_next_btn.focus_mode = Control.FOCUS_NONE
-	for st in ["normal", "hover", "pressed"]:
-		result_next_btn.add_theme_stylebox_override(st, _tab_sb(true))   # золотая «primary»
-	result_next_btn.add_theme_color_override("font_color", UI_GOLD)
-	result_next_btn.pressed.connect(_result_next)
-	ract.add_child(result_next_btn)
-
-	var res_menu := Button.new()
-	res_menu.text = "← В меню"
-	res_menu.custom_minimum_size = Vector2(468, 60)
-	res_menu.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	res_menu.add_theme_font_size_override("font_size", FS_BODY)
-	res_menu.focus_mode = Control.FOCUS_NONE
-	res_menu.pressed.connect(_show_start)
-	ract.add_child(res_menu)
+	# две крупные квадратные кнопки в ряд: надпись сверху, картинка снизу
+	var brow := HBoxContainer.new()
+	brow.alignment = BoxContainer.ALIGNMENT_CENTER
+	brow.add_theme_constant_override("separation", ACT_BTN_GAP)
+	ract.add_child(brow)
+	brow.add_child(_big_action_btn("В меню", "btn_menu", false, _show_start))
+	result_next_btn = _big_action_btn("Дальше", "btn_next", true, _result_next)
+	brow.add_child(result_next_btn)
 
 	# ---- стартовый экран (главное меню + HUD профиля) ----
 	_build_start()
@@ -914,44 +929,177 @@ func _build_prog_strip() -> void:
 	prog_strip.offset_top = STRIP_TOP
 	prog_strip.offset_bottom = STRIP_TOP + STRIP_H
 	prog_strip.visible = false
+	if drop_handle != null:
+		drop_handle.visible = false
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.04, 0.05, 0.08, 1.0)
 	sb.set_corner_radius_all(10)
 	sb.set_border_width_all(1)
 	sb.border_color = Color(0.35, 0.30, 0.5, 0.6)
 	sb.content_margin_left = 14.0; sb.content_margin_right = 14.0
-	sb.content_margin_top = 8.0; sb.content_margin_bottom = 8.0
+	sb.content_margin_top = 6.0; sb.content_margin_bottom = 8.0
 	prog_strip.add_theme_stylebox_override("panel", sb)
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 4)
+	vb.add_theme_constant_override("separation", 6)
 	prog_strip.add_child(vb)
 	prog_widget = ProgBar.new()
 	prog_widget.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vb.add_child(prog_widget)
-	# строка под прогрессией: день/серия/рейтинг + стикеры за цикл (крупно для телефона)
-	var info := HBoxContainer.new()
-	info.add_theme_constant_override("separation", 12)
-	vb.add_child(info)
-	_tb_info = info
+	# вторая строка стрипа — полоса поощрений цикла (отметка на каждый день)
+	reward_track = RewardTrack.new()
+	reward_track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vb.add_child(reward_track)
+	add_child(prog_strip)
+	_build_drop_bar()
+
+# ---------- Выездной топбар: день/серия/рейтинг/стикеры ----------
+# Висит выше экрана; по тапу/свайпу вниз по «язычку» съезжает поверх обоих
+# топбаров, через DROP_HOLD секунд уезжает сам (или свайпом вверх по панели).
+func _build_drop_bar() -> void:
+	drop_bar = PanelContainer.new()
+	drop_bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	drop_bar.offset_left = 30.0
+	drop_bar.offset_right = -30.0
+	drop_bar.visible = false
+	drop_bar.mouse_filter = Control.MOUSE_FILTER_STOP
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.05, 0.055, 0.09, 1.0)
+	sb.set_corner_radius_all(14)
+	sb.set_border_width_all(2)
+	sb.border_color = Color(0.55, 0.45, 0.75, 0.75)
+	sb.shadow_color = Color(0, 0, 0, 0.55)
+	sb.shadow_size = 16
+	sb.content_margin_left = 22.0; sb.content_margin_right = 22.0
+	sb.content_margin_top = 16.0; sb.content_margin_bottom = 16.0
+	drop_bar.add_theme_stylebox_override("panel", sb)
+	drop_bar.gui_input.connect(_drop_panel_input)
+	add_child(drop_bar)
+
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 14)
+	drop_bar.add_child(col)
+
 	tb_day = Label.new()
-	tb_day.add_theme_font_size_override("font_size", 22)
-	info.add_child(tb_day)
+	tb_day.add_theme_font_size_override("font_size", 32)
+	tb_day.add_theme_color_override("font_color", Color(0.95, 0.92, 1.0))
+	col.add_child(tb_day)
+
+	var info := HBoxContainer.new()
+	info.add_theme_constant_override("separation", 22)
+	col.add_child(info)
+	_tb_info = info
 	tb_streak = Label.new()
-	tb_streak.add_theme_font_size_override("font_size", 22)
+	tb_streak.add_theme_font_size_override("font_size", 30)
 	tb_streak.modulate = Color(1.0, 0.7, 0.4)
 	info.add_child(tb_streak)
 	tb_rating = Label.new()
-	tb_rating.add_theme_font_size_override("font_size", 22)
+	tb_rating.add_theme_font_size_override("font_size", 30)
+	tb_rating.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info.add_child(tb_rating)
 	var sp := Control.new()
 	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info.add_child(sp)
 	_tb_info_spacer = sp
-	# иконки стикеров за цикл (идеал/годно/пойло/брак) с счётчиками
+	# стикеры за цикл — здесь места хватает, делаем крупными
 	_tb_stickers = HBoxContainer.new()
-	_tb_stickers.add_theme_constant_override("separation", 9)
-	info.add_child(_tb_stickers)
-	add_child(prog_strip)
+	_tb_stickers.alignment = BoxContainer.ALIGNMENT_CENTER
+	_tb_stickers.add_theme_constant_override("separation", 22)
+	col.add_child(_tb_stickers)
+
+	var hint := Label.new()
+	hint.text = "смахни вверх, чтобы убрать"
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_font_size_override("font_size", 16)
+	hint.modulate = Color(1, 1, 1, 0.35)
+	col.add_child(hint)
+
+	_set_drop_y(-DROP_H - 20.0)
+	_build_drop_handle()
+
+# «Язычок» — узкий полупрозрачный треугольник над топбарами.
+func _build_drop_handle() -> void:
+	drop_handle = Control.new()
+	drop_handle.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	drop_handle.offset_left = 0.0
+	drop_handle.offset_right = 0.0
+	drop_handle.offset_top = 2.0
+	drop_handle.offset_bottom = 28.0
+	drop_handle.custom_minimum_size = Vector2(0, 26)
+	drop_handle.mouse_filter = Control.MOUSE_FILTER_STOP
+	drop_handle.visible = false
+	add_child(drop_handle)
+	# подложка: без неё треугольник теряется на пёстром фоне-комиксе
+	var plate := Panel.new()
+	plate.size = Vector2(128, 24)
+	plate.position = Vector2(360 - 64, 0)
+	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var psb := StyleBoxFlat.new()
+	psb.bg_color = Color(0.05, 0.05, 0.09, 0.42)
+	psb.corner_radius_bottom_left = 12
+	psb.corner_radius_bottom_right = 12
+	plate.add_theme_stylebox_override("panel", psb)
+	drop_handle.add_child(plate)
+	var tri := Polygon2D.new()
+	tri.polygon = PackedVector2Array([Vector2(-40, 0), Vector2(40, 0), Vector2(0, 17)])
+	tri.color = Color(0.86, 0.83, 1.0, 0.55)
+	tri.position = Vector2(360, 4)      # вьюпорт 720 — по центру
+	drop_handle.add_child(tri)
+	drop_handle.gui_input.connect(_drop_handle_input)
+
+func _set_drop_y(y: float) -> void:
+	if drop_bar == null:
+		return
+	drop_bar.offset_top = y
+	drop_bar.offset_bottom = y + DROP_H
+
+func _drop_handle_input(ev: InputEvent) -> void:
+	var press: bool = (ev is InputEventScreenTouch and ev.pressed) \
+		or (ev is InputEventMouseButton and ev.pressed)
+	var drag_down: bool = (ev is InputEventScreenDrag and ev.relative.y > 4.0) \
+		or (ev is InputEventMouseMotion and ev.relative.y > 4.0 and ev.button_mask != 0)
+	if press or drag_down:
+		_show_drop(true)
+
+func _drop_panel_input(ev: InputEvent) -> void:
+	if ev is InputEventScreenTouch or ev is InputEventMouseButton:
+		if ev.pressed:
+			_drop_swipe = 0.0
+		return
+	var dy: float = 0.0
+	if ev is InputEventScreenDrag:
+		dy = ev.relative.y
+	elif ev is InputEventMouseMotion and ev.button_mask != 0:
+		dy = ev.relative.y
+	else:
+		return
+	_drop_swipe = minf(0.0, _drop_swipe + dy) if dy < 0.0 else 0.0
+	if _drop_swipe < -26.0:                       # уверенный свайп вверх — убрать
+		_show_drop(false)
+
+func _show_drop(on: bool) -> void:
+	if drop_bar == null or _drop_shown == on:
+		return
+	_drop_shown = on
+	_drop_swipe = 0.0
+	_drop_token += 1
+	var token: int = _drop_token
+	if on:
+		_refresh_topbar()
+		drop_bar.visible = true
+		Sfx.play("uiClick")
+	var t := create_tween()
+	t.tween_method(_set_drop_y, drop_bar.offset_top, DROP_TOP if on else -DROP_H - 20.0, 0.32) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT if on else Tween.EASE_IN)
+	if on:
+		# автоскрыт: гасим только если за это время панель не дёрнули заново
+		get_tree().create_timer(DROP_HOLD).timeout.connect(func():
+			if _drop_token == token and _drop_shown:
+				_show_drop(false))
+	else:
+		t.tween_callback(func():
+			if not _drop_shown:
+				drop_bar.visible = false)
 
 func _build_start() -> void:
 	start_panel = _make_center_panel(true)    # прозрачная — виден космос/бар
@@ -1352,6 +1500,8 @@ func _show_collection() -> void:
 	chars_panel.visible = false
 	account_panel.visible = false
 	prog_strip.visible = false
+	if drop_handle != null:
+		drop_handle.visible = false
 	collection_panel.visible = true
 	_set_topbar(false)
 	_set_collection_tab(collection_tab)
@@ -1796,6 +1946,8 @@ func _build_chars() -> void:
 
 func _show_chars() -> void:
 	phase = "chars"
+	_char_shown = {}
+	_clear_passive_sel()
 	start_panel.visible = false
 	collection_panel.visible = false
 	char_panel.visible = false
@@ -1804,6 +1956,8 @@ func _show_chars() -> void:
 	chars_panel.visible = true
 	_set_topbar(false)
 	prog_strip.visible = false
+	if drop_handle != null:
+		drop_handle.visible = false
 	for c in chars_list.get_children():
 		c.queue_free()
 	for npc_e in GameData.NPCS:
@@ -1868,6 +2022,7 @@ func _build_char() -> void:
 
 func _show_char(npc_e: Dictionary) -> void:
 	phase = "char"
+	_char_shown = npc_e
 	chars_panel.visible = false
 	collection_panel.visible = false
 	char_panel.visible = true
@@ -1916,16 +2071,11 @@ func _show_char(npc_e: Dictionary) -> void:
 	head.add_child(hcol)
 	char_list.add_child(head)
 
-	# пассивки (5, открываются уровнями репутации; эффекты — Фаза 4)
-	_char_header("Пассивки", tcol)
-	var rep_lvl: int = PotionProfile.get_rep_level(id)
-	for n in range(1, 6):
-		var open: bool = rep_lvl >= n
-		var p := Label.new()
-		p.text = ("✓ Пассивка ур.%d — открыта" % n) if open else ("🔒 Пассивка ур.%d — нужна репутация ур.%d" % [n, n])
-		p.modulate = Color(1, 1, 1, 0.9) if open else Color(1, 1, 1, 0.45)
-		p.add_theme_font_size_override("font_size", 18)
-		char_list.add_child(p)
+	# пассивки: 5 штук, i-я открывается уровнем репутации i+1; тап включает/выключает
+	if not GameData.passive_defs(id).is_empty():
+		var act_n: int = PotionProfile.active_passives().size()
+		_char_header("Пассивки  (активно %d / %d)" % [act_n, GameData.PASSIVE_SLOTS], tcol)
+		char_list.add_child(_passive_row(id, tcol, true))
 
 	# ачивки гостя (по 3 градации: бронза/серебро/золото)
 	var achs: Array = GameData.npc_achievements(id)
@@ -2224,6 +2374,8 @@ func _show_account() -> void:
 	account_panel.visible = true
 	_set_topbar(false)
 	prog_strip.visible = false
+	if drop_handle != null:
+		drop_handle.visible = false
 	_populate_account()
 	Juice.fade_in(account_panel)
 
@@ -2357,6 +2509,68 @@ func _acc_change_nick(edit: LineEdit) -> void:
 # по пути "Card/V". VBox тянется на всю высоту и центрирует свой блок по
 # вертикали (разреженные экраны — по центру, коллекция — заполняет).
 const PANEL_INSET := 34.0    # отступ от края экрана — чтобы влезть внутрь рамки
+# Крупная квадратная кнопка экрана результата: надпись сверху, картинка снизу
+# (btn_<icon>.png, фолбэк — эмодзи). primary — золотая рамка «главного» действия.
+const ACT_BTN_SZ := 212.0
+const ACT_BTN_GAP := 18
+
+func _big_action_btn(text: String, icon_name: String, primary: bool, cb: Callable) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(ACT_BTN_SZ, ACT_BTN_SZ)
+	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	b.focus_mode = Control.FOCUS_NONE
+	b.tooltip_text = text
+	for st in ["normal", "hover", "pressed"]:
+		# ВАЖНО: фон непрозрачный — на просвечивающей подложке золотая кнопка
+		# сливалась с космосом за окном и выглядела грязной
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.17, 0.13, 0.06, 1.0) if primary else Color(0.09, 0.09, 0.14, 1.0)
+		sb.set_corner_radius_all(14)
+		sb.set_border_width_all(3 if primary else 2)
+		sb.border_color = UI_GOLD if primary else UI_BORDER
+		sb.shadow_color = Color(0, 0, 0, 0.45)
+		sb.shadow_size = 8
+		sb.set_content_margin_all(10.0)
+		b.add_theme_stylebox_override(st, sb)
+	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	b.pressed.connect(cb)
+
+	var col := VBoxContainer.new()
+	col.set_anchors_preset(Control.PRESET_FULL_RECT)
+	col.offset_left = 12; col.offset_top = 10
+	col.offset_right = -12; col.offset_bottom = -12
+	col.add_theme_constant_override("separation", 2)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(col)
+
+	var lab := Label.new()
+	lab.text = text
+	lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lab.add_theme_font_size_override("font_size", 28)
+	lab.add_theme_color_override("font_color", UI_GOLD if primary else UI_TXT)
+	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(lab)
+
+	var tex := load("res://assets/ui/%s.png" % icon_name) as Texture2D
+	if tex != null:
+		var pic := TextureRect.new()
+		pic.texture = tex
+		pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		pic.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col.add_child(pic)
+	else:
+		var em := Label.new()
+		em.text = "→" if primary else "⌂"
+		em.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		em.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		em.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		em.add_theme_font_size_override("font_size", 76)
+		em.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col.add_child(em)
+	return b
+
 func _make_center_panel(transparent: bool = false) -> Control:
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -2966,6 +3180,417 @@ func _apply_item_and_close(id: String, grade: int) -> void:
 	_use_item(id, grade)
 	items_panel.visible = false
 
+# ---------- Пассивки персонажей (панель ⚡ + карточки на странице гостя) ----------
+# До GameData.PASSIVE_SLOTS активных за цикл; состав замораживается после первого
+# выполненного заказа цикла (passives_locked). Открытие — по уровню репутации.
+const PASSIVE_BTN_SZ := 104.0    # квадратная кнопка-иконка (5 в ряд влезают в панель)
+const PASSIVE_BTN_GAP := 8
+const PASSIVE_POP_W := 460.0     # ширина контекстного меню пассивки
+var passives_panel: Control = null
+var passives_list: VBoxContainer = null
+var _passive_sel_npc: String = ""     # выбранная (раскрытая) пассивка: первый тап
+var _passive_sel_pid: String = ""
+var _passive_pop: Control = null      # само контекстное меню
+var _char_shown: Dictionary = {}      # гость, чья страница открыта (для перерисовки)
+var passives_slots_lab: Label = null
+var passives_note: Label = null
+
+func _open_passives() -> void:
+	if not GameData.prog_mech_unlocked("characters", _xp()):
+		_toast("Пассивки откроются с ростом лавки (ур.%d)" % GameData.mech_unlock_level("characters"), Color("ffcf5d"))
+		return
+	if passives_panel == null:
+		_build_passives_panel()
+	passives_panel.visible = true
+	Sfx.play("uiClick")
+	_clear_passive_sel()
+	_render_passives()
+
+func _build_passives_panel() -> void:
+	passives_panel = Control.new()
+	passives_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	passives_panel.visible = false
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.65)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	passives_panel.add_child(dim)
+	var card := PanelContainer.new()
+	card.anchor_left = 0.5; card.anchor_right = 0.5; card.anchor_top = 0.5; card.anchor_bottom = 0.5
+	card.offset_left = -320.0; card.offset_right = 320.0; card.offset_top = -440.0; card.offset_bottom = 440.0
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.09, 0.08, 0.13, 1.0)
+	sb.set_corner_radius_all(16); sb.set_border_width_all(2)
+	sb.border_color = Color(0.62, 0.78, 1.0)
+	sb.set_content_margin_all(18.0)
+	card.add_theme_stylebox_override("panel", sb)
+	passives_panel.add_child(card)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 8)
+	card.add_child(col)
+	var head := HBoxContainer.new()
+	var title := Label.new()
+	title.text = "⚡ ПАССИВКИ"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.add_theme_font_size_override("font_size", 24)
+	title.add_theme_color_override("font_color", Color("9ec7ff"))
+	head.add_child(title)
+	passives_slots_lab = Label.new()
+	passives_slots_lab.add_theme_font_size_override("font_size", 22)
+	passives_slots_lab.add_theme_color_override("font_color", Color("ffd75e"))
+	head.add_child(passives_slots_lab)
+	col.add_child(head)
+	passives_note = Label.new()
+	passives_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	passives_note.add_theme_font_size_override("font_size", 16)
+	col.add_child(passives_note)
+	var scroll := ScrollContainer.new()
+	scroll.scroll_deadzone = 14      # тач-драг пальцем поверх карточек
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	col.add_child(scroll)
+	passives_list = VBoxContainer.new()
+	passives_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	passives_list.add_theme_constant_override("separation", 10)
+	scroll.add_child(passives_list)
+	var close := Button.new()
+	close.text = "Закрыть"
+	close.custom_minimum_size = Vector2(0, 60)
+	close.focus_mode = Control.FOCUS_NONE
+	close.pressed.connect(func():
+		_clear_passive_sel()
+		passives_panel.visible = false)
+	col.add_child(close)
+	add_child(passives_panel)
+
+func _render_passives() -> void:
+	var active: Array = PotionProfile.active_passives()
+	passives_slots_lab.text = "%d / %d" % [active.size(), GameData.PASSIVE_SLOTS]
+	if passives_locked:
+		passives_note.text = "Цикл уже начался — состав меняется со следующего цикла."
+		passives_note.modulate = Color(1, 0.75, 0.45, 0.95)
+	elif active.size() >= GameData.PASSIVE_SLOTS:
+		passives_note.text = "Все слоты заняты — сними одну, чтобы выбрать другую."
+		passives_note.modulate = Color(1, 0.85, 0.4, 0.9)
+	else:
+		passives_note.text = "До %d пассивок на цикл. Состав фиксируется после первого заказа цикла." % GameData.PASSIVE_SLOTS
+		passives_note.modulate = Color(1, 1, 1, 0.6)
+	for c in passives_list.get_children():
+		c.queue_free()
+	var any := false
+	for npc_e in GameData.NPCS:
+		var id: String = String(npc_e["id"])
+		var lvl: int = PotionProfile.get_rep_level(id)
+		if lvl <= 0:
+			continue
+		if GameData.passive_defs(id).is_empty():
+			continue
+		any = true
+		var tcol: Color = GameData.TIER_COLORS.get(int(npc_e.get("tier", 1)), Color.WHITE)
+		var gh := HBoxContainer.new()
+		gh.add_theme_constant_override("separation", 10)
+		gh.add_child(_npc_icon(npc_e, 34.0, 26))
+		var gn := Label.new()
+		gn.text = String(npc_e["name"])
+		gn.add_theme_font_size_override("font_size", 20)
+		gn.add_theme_color_override("font_color", tcol)
+		gh.add_child(gn)
+		passives_list.add_child(gh)
+		passives_list.add_child(_passive_row(id, tcol, false))
+	if not any:
+		var empty := Label.new()
+		empty.text = "Пока нет открытых пассивок. Подними репутацию у гостей — каждый её уровень открывает новую."
+		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		empty.add_theme_font_size_override("font_size", 18)
+		empty.modulate = Color(1, 1, 1, 0.6)
+		passives_list.add_child(empty)
+
+# Иконка гостя для строк/заголовков: картинка npcicon_<id>.png, фолбэк — эмодзи.
+func _npc_icon(npc_e: Dictionary, sz: float, emoji_fs: int) -> Control:
+	var tex := load("res://assets/ui/npcicon_%s.png" % String(npc_e.get("id", ""))) as Texture2D
+	if tex != null:
+		var ir := TextureRect.new()
+		ir.texture = tex
+		ir.custom_minimum_size = Vector2(sz, sz)
+		ir.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		ir.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		ir.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		return ir
+	var l := Label.new()
+	l.text = String(npc_e.get("emoji", "🧪"))
+	l.custom_minimum_size = Vector2(sz, sz)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.add_theme_font_size_override("font_size", emoji_fs)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+# Ряд квадратных кнопок-пассивок одного гостя (все 5 в строку, только иконка).
+# show_locked=false → рисуем только открытые (панель ⚡), иначе все, с замками.
+func _passive_row(npc_id: String, tcol: Color, show_locked: bool) -> Control:
+	var defs: Array = GameData.passive_defs(npc_id)
+	var rep_lvl: int = PotionProfile.get_rep_level(npc_id)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", PASSIVE_BTN_GAP)
+	for i in defs.size():
+		var unlocked: bool = rep_lvl >= i + 1
+		if not unlocked and not show_locked:
+			continue
+		row.add_child(_passive_btn(npc_id, defs[i], unlocked, tcol))
+	return row
+
+# Квадратная кнопка пассивки: только иконка (картинка passive_<npc>_<pid>.png,
+# фолбэк — эмодзи). Первый тап открывает описание, повторный — включает/снимает.
+func _passive_btn(npc_id: String, pv: Dictionary, unlocked: bool, tcol: Color) -> Button:
+	var pid: String = String(pv["id"])
+	var on: bool = unlocked and PotionProfile.is_passive_active(npc_id, pid)
+	var sel: bool = _passive_sel_npc == npc_id and _passive_sel_pid == pid
+	var npc_scope: bool = String(pv["scope"]) == "npc"
+
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(PASSIVE_BTN_SZ, PASSIVE_BTN_SZ)
+	btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.tooltip_text = String(pv["name"]) if unlocked else "Закрыто"
+	var accent := UI_BORDER
+	var bg := Color(0.12, 0.12, 0.18, 0.92)
+	if not unlocked:
+		accent = Color(0.30, 0.30, 0.36, 0.7)
+		bg = Color(0.07, 0.07, 0.10, 0.85)
+	elif on:
+		accent = Color("6dff8f")
+		bg = Color(0.10, 0.21, 0.14, 0.95)
+	elif sel:
+		accent = Color("ffd75e")
+		bg = Color(0.18, 0.16, 0.12, 0.95)
+	else:
+		accent = Color(tcol.r, tcol.g, tcol.b, 0.55) if npc_scope else Color(0.62, 0.72, 0.95, 0.45)
+	for st in ["normal", "hover", "pressed", "disabled"]:
+		var sb := _panel_sb(accent, bg, 14)
+		sb.set_border_width_all(3 if (on or sel) else 2)
+		sb.set_content_margin_all(6.0)
+		btn.add_theme_stylebox_override(st, sb)
+	btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+
+	if unlocked:
+		var tex := load("res://assets/ui/passive_%s_%s.png" % [npc_id, pid]) as Texture2D
+		if tex != null:
+			btn.icon = tex
+			btn.expand_icon = true          # картинка масштабируется под кнопку
+		else:
+			btn.text = String(pv.get("icon", "⚡"))
+			btn.add_theme_font_size_override("font_size", 46)
+	else:
+		btn.text = "🔒"
+		btn.add_theme_font_size_override("font_size", 34)
+		btn.modulate = Color(1, 1, 1, 0.55)
+	btn.set_meta("pv_key", "%s|%s" % [npc_id, pid])
+	btn.set_meta("pv_key", "%s|%s" % [npc_id, pid])
+	btn.pressed.connect(_on_passive_pressed.bind(npc_id, pid))
+
+	# уголок-галочка у включённой: слот занят видно и без открытого описания
+	if on:
+		var chk := Label.new()
+		chk.text = "✓"
+		chk.add_theme_font_size_override("font_size", 22)
+		chk.add_theme_color_override("font_color", Color("6dff8f"))
+		chk.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chk.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		chk.offset_left = -26; chk.offset_top = 2; chk.offset_right = -6; chk.offset_bottom = 28
+		btn.add_child(chk)
+	return btn
+
+# Первый тап по кнопке — показать описание; повторный по той же — переключить.
+func _on_passive_pressed(npc_id: String, pid: String) -> void:
+	if not PotionProfile.passive_unlocked(npc_id, pid):
+		Sfx.play("bad")
+		var idx: int = GameData.passive_index(npc_id, pid)
+		_toast("Нужна репутация ур.%d с этим гостем" % (idx + 1), Color("ffcf5d"))
+		return
+	if _passive_sel_npc == npc_id and _passive_sel_pid == pid:
+		_toggle_passive(npc_id, pid)        # второй тап по той же — включить/снять
+		return
+	_passive_sel_npc = npc_id
+	_passive_sel_pid = pid
+	Sfx.play("tick")
+	_refresh_passive_views()
+	_show_passive_popover(npc_id, pid)
+
+func _clear_passive_sel() -> void:
+	_passive_sel_npc = ""
+	_passive_sel_pid = ""
+	_hide_passive_popover()
+
+func _hide_passive_popover() -> void:
+	if _passive_pop != null and is_instance_valid(_passive_pop):
+		_passive_pop.queue_free()
+	_passive_pop = null
+
+# Контекстное меню пассивки: название, эффект, область действия и подсказка
+# «нажми ещё раз». Висит рядом с кнопкой и НЕ перекрывает сами кнопки —
+# поэтому повторный тап по кнопке доходит до неё.
+func _show_passive_popover(npc_id: String, pid: String) -> void:
+	_hide_passive_popover()
+	var pv: Dictionary = GameData.passive_def(npc_id, pid)
+	if pv.is_empty():
+		return
+	var npc_e: Dictionary = GameData.npc_by_id(npc_id)
+	var tcol: Color = GameData.TIER_COLORS.get(int(npc_e.get("tier", 1)), Color.WHITE)
+	var on: bool = PotionProfile.is_passive_active(npc_id, pid)
+	var npc_scope: bool = String(pv["scope"]) == "npc"
+
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE   # мимо меню клики проходят насквозь
+
+	var card := PanelContainer.new()
+	var sb := _panel_sb(Color("6dff8f") if on else Color("ffd75e"), Color(0.07, 0.07, 0.11, 0.98), 14)
+	sb.set_content_margin_all(16.0)
+	sb.shadow_size = 16
+	card.add_theme_stylebox_override("panel", sb)
+	card.custom_minimum_size = Vector2(PASSIVE_POP_W, 0)
+	root.add_child(card)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 6)
+	card.add_child(col)
+
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 12)
+	var tex := load("res://assets/ui/passive_%s_%s.png" % [npc_id, pid]) as Texture2D
+	if tex != null:
+		var ir := TextureRect.new()
+		ir.texture = tex
+		ir.custom_minimum_size = Vector2(58, 58)
+		ir.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		ir.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		ir.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		head.add_child(ir)
+	else:
+		var em := Label.new()
+		em.text = String(pv.get("icon", "⚡"))
+		em.custom_minimum_size = Vector2(58, 58)
+		em.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		em.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		em.add_theme_font_size_override("font_size", 42)
+		head.add_child(em)
+	var nm := Label.new()
+	nm.text = String(pv["name"])
+	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nm.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	nm.add_theme_font_size_override("font_size", 23)
+	nm.add_theme_color_override("font_color", Color(0.97, 0.94, 1.0))
+	head.add_child(nm)
+	var x := Button.new()
+	x.text = "✕"
+	x.custom_minimum_size = Vector2(46, 46)
+	x.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	x.focus_mode = Control.FOCUS_NONE
+	x.add_theme_font_size_override("font_size", 22)
+	x.pressed.connect(func():
+		_clear_passive_sel()
+		_refresh_passive_views())
+	head.add_child(x)
+	col.add_child(head)
+
+	var ds := Label.new()
+	ds.text = String(pv["desc"])
+	ds.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ds.add_theme_font_size_override("font_size", 18)
+	ds.modulate = Color(1, 1, 1, 0.85)
+	col.add_child(ds)
+
+	var sc := Label.new()
+	sc.text = ("◆ Только заказы: %s" % String(npc_e.get("name", ""))) if npc_scope else "◆ Все заказы"
+	sc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sc.add_theme_font_size_override("font_size", 17)
+	sc.add_theme_color_override("font_color", tcol if npc_scope else Color(0.68, 0.78, 1.0))
+	col.add_child(sc)
+
+	var hint := Label.new()
+	if passives_locked:
+		hint.text = "Цикл начался — состав заморожен до следующего."
+		hint.add_theme_color_override("font_color", Color("ff9f6a"))
+	elif on:
+		hint.text = "Нажми на иконку ещё раз, чтобы снять"
+		hint.add_theme_color_override("font_color", Color("ff9f6a"))
+	elif PotionProfile.active_passives().size() >= GameData.PASSIVE_SLOTS:
+		hint.text = "Заняты все %d слота — сначала сними другую" % GameData.PASSIVE_SLOTS
+		hint.add_theme_color_override("font_color", Color("ffcf5d"))
+	else:
+		hint.text = "Нажми на иконку ещё раз, чтобы включить"
+		hint.add_theme_color_override("font_color", Color("6dff8f"))
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.add_theme_font_size_override("font_size", 17)
+	col.add_child(hint)
+
+	add_child(root)
+	_passive_pop = root
+	_place_passive_popover(card, npc_id, pid)
+
+# Ставим карточку под нажатой кнопкой (если не влезает — над ней).
+func _place_passive_popover(card: PanelContainer, npc_id: String, pid: String) -> void:
+	await get_tree().process_frame          # ждём, пока карточка посчитает размер
+	if not is_instance_valid(card):
+		return
+	var vp: Vector2 = get_viewport_rect().size
+	var sz: Vector2 = card.size
+	var pos: Vector2 = (vp - sz) * 0.5
+	var btn: Button = _find_passive_btn(npc_id, pid)
+	if btn != null and is_instance_valid(btn):
+		var r: Rect2 = btn.get_global_rect()
+		pos.x = clampf(r.position.x + r.size.x * 0.5 - sz.x * 0.5, 16.0, maxf(16.0, vp.x - sz.x - 16.0))
+		pos.y = r.position.y + r.size.y + 10.0
+		if pos.y + sz.y > vp.y - 16.0:
+			pos.y = r.position.y - sz.y - 10.0
+		pos.y = clampf(pos.y, 16.0, maxf(16.0, vp.y - sz.y - 16.0))
+	card.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	card.position = pos
+	Juice.pop(card)
+
+# Ищем кнопку пассивки среди живых рядов (панель ⚡ / страница гостя).
+func _find_passive_btn(npc_id: String, pid: String) -> Button:
+	var key := "%s|%s" % [npc_id, pid]
+	for host in [passives_list, char_list]:
+		if host == null or not is_instance_valid(host):
+			continue
+		for row in host.get_children():
+			for b in row.get_children():
+				if b is Button and b.has_meta("pv_key") and String(b.get_meta("pv_key")) == key:
+					return b
+	return null
+
+# Перерисовать открытые сейчас экраны с пассивками (без сброса прокрутки).
+func _refresh_passive_views() -> void:
+	if passives_panel != null and passives_panel.visible:
+		_render_passives()
+	if char_panel != null and char_panel.visible and not _char_shown.is_empty():
+		var sc := char_list.get_parent() as ScrollContainer
+		var y: int = sc.scroll_vertical if sc != null else 0
+		_show_char(_char_shown)
+		if sc != null:
+			sc.set_deferred("scroll_vertical", y)
+
+
+func _toggle_passive(npc_id: String, pid: String) -> void:
+	if passives_locked:
+		Sfx.play("bad")
+		_toast("Цикл начался — состав пассивок заморожен", Color("ffcf5d"))
+		return
+	var res: String = PotionProfile.toggle_passive(npc_id, pid)
+	if res == "full":
+		Sfx.play("bad")
+		_toast("Заняты все %d слота — сними другую" % GameData.PASSIVE_SLOTS, Color("ffcf5d"))
+		return
+	elif res == "locked":
+		Sfx.play("bad")
+		return
+	Sfx.play("brew" if res == "on" else "tick")
+	_refresh_passive_views()
+	_show_passive_popover(npc_id, pid)   # меню остаётся, подсказка меняется на обратную
+
 func _build_topbar() -> void:
 	topbar = PanelContainer.new()
 	topbar.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -2999,7 +3624,8 @@ func _build_topbar() -> void:
 	nav_lb_btn = _topbar_icon(row, "nav_leaderboard", "🏆", "Рейтинг", _open_leaderboard, true)
 	_topbar_nav.append(nav_lb_btn)
 	_topbar_nav.append(_topbar_icon(row, "nav_characters", "👥", "Персонажи", _show_chars, true))
-	_topbar_nav.append(_topbar_icon(row, "nav_skills", "⚡", "Пассивки", Callable(), false))
+	nav_passives_btn = _topbar_icon(row, "nav_skills", "⚡", "Пассивки", _open_passives, true)
+	_topbar_nav.append(nav_passives_btn)
 	_topbar_nav.append(_topbar_icon(row, "nav_profile", "👤", "Профиль", _show_account, true))
 	settings_btn = _topbar_icon(row, "nav_settings", "⚙", "Настройки", _open_settings, true)
 
@@ -3028,6 +3654,10 @@ func _topbar_icon(row: HBoxContainer, icon_name: String, glyph: String, tip: Str
 func _set_topbar(on: bool) -> void:
 	topbar.visible = on
 	prog_strip.visible = on
+	if drop_handle != null:
+		drop_handle.visible = on
+	if not on and _drop_shown:
+		_show_drop(false)
 	if on:
 		_refresh_topbar()
 		prog_widget.refresh()
@@ -3038,6 +3668,8 @@ func _refresh_topbar() -> void:
 		if is_instance_valid(b):
 			b.visible = (not daily_mode) or (b == nav_lb_btn)
 	prog_widget.visible = not daily_mode
+	if reward_track != null:
+		reward_track.visible = not daily_mode   # в дейлике полосы поощрений нет
 	tb_streak.visible = not daily_mode
 	tb_day.visible = not daily_mode
 	if _tb_stickers != null:
@@ -3047,11 +3679,13 @@ func _refresh_topbar() -> void:
 		_tb_info_spacer.visible = not daily_mode
 	_tb_info.alignment = BoxContainer.ALIGNMENT_CENTER if daily_mode else BoxContainer.ALIGNMENT_BEGIN
 	tb_rating.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER if daily_mode else HORIZONTAL_ALIGNMENT_LEFT
-	_sticker_icon_size = 48.0 if daily_mode else 34.0       # в дейлике крупнее
+	_sticker_icon_size = 72.0 if daily_mode else 64.0       # на выездной панели места много
 	var sk: Dictionary = PotionProfile.data.get("streaks", {})
 	tb_day.text = "День %d / %d   ·   ст.%d" % [day_num, cycle_days, stage + 1]
 	tb_streak.text = "🔥 %d" % int(sk.get("goodplus_current", 0))
 	topbar_coll_btn.disabled = not GameData.prog_mech_unlocked("collection", _xp())
+	if nav_passives_btn != null:
+		nav_passives_btn.disabled = not GameData.prog_mech_unlocked("characters", _xp())
 	if cycle_score != _tb_rating_shown:
 		Juice.count_up(tb_rating, _tb_rating_shown, cycle_score, "Рейтинг: %d")
 		_tb_rating_shown = cycle_score
@@ -3060,6 +3694,44 @@ func _refresh_topbar() -> void:
 	_refresh_cycle_stickers()
 
 # Иконки стикеров за цикл (идеал/годно/пойло/брак) + счётчики — как в браузере.
+# Отложенная отметка полосы: ставим, когда топбар снова на экране, чтобы игрок
+# увидел анимацию. Звук — свой на каждый исход.
+func _flush_pending_mark() -> void:
+	if _pending_mark.is_empty() or reward_track == null:
+		return
+	var m: Dictionary = _pending_mark
+	_pending_mark = {}
+	var grade_before: int = reward_track.final_grade()
+	await get_tree().create_timer(0.45).timeout
+	if not is_instance_valid(reward_track):
+		return
+	var kind: String = String(m["kind"])
+	reward_track.place(int(m["day"]), kind, String(m["npc"]))
+	match kind:
+		RewardTrack.KIND_HUNDRED: Sfx.play("trackHundred")
+		RewardTrack.KIND_PERFECT: Sfx.play("trackPerfect")
+		RewardTrack.KIND_GOOD: Sfx.play("trackGood")
+		RewardTrack.KIND_SWILL: Sfx.play("trackSwill")
+		_: Sfx.play("trackBad")
+	var grade_after: int = reward_track.final_grade()
+	if grade_after > grade_before:
+		await get_tree().create_timer(0.35).timeout
+		if grade_after >= 5:
+			Sfx.play("trackSecret")
+			_toast("✦ ЗВЁЗДНАЯ ПОЛОСА — пять идеалов подряд!", Color("c98cff"))
+		else:
+			Sfx.play("trackGrade")
+			if grade_after >= TRACK_REP_MIN_GRADE:
+				_toast("★ Полоса разгорелась: %s" % TRACK_GRADE_NAME[grade_after], Color("ffd75e"))
+
+# Итог цикла — сводка на весь проём окна, поэтому шрифт заметно крупнее, чем
+# у однострочной подписи обычного заказа.
+func _detail_style(big: bool) -> void:
+	result_detail.add_theme_font_size_override("font_size", 32 if big else FS_BODY)
+	result_detail.add_theme_constant_override("line_spacing", 12 if big else 3)
+	result_detail.add_theme_color_override("font_color", UI_TXT if big else UI_TXT_DIM)
+	result_detail.custom_minimum_size = Vector2(560 if big else 420, 0)
+
 func _refresh_cycle_stickers() -> void:
 	if _tb_stickers == null:
 		return
@@ -3098,9 +3770,12 @@ func _start_cycle() -> void:
 	cycle_stickers = {"perfect": 0, "good": 0, "swill": 0, "bad": 0}
 	pogrom_removed = []              # «Погром»: выбывшие возвращаются в новый цикл
 	banned_npcs = {}                # 🚫 баны умения сбрасываются на новый цикл
+	passives_locked = false         # состав пассивок снова можно менять
 	guaranteed_npc = ""
 	PotionProfile.reset_relations_cycle()   # связи: обиды/уходы — только за цикл
 	cycle_days = GameData.prog_cycle_days(_xp())   # длина цикла по прогрессии
+	if reward_track != null:
+		reward_track.reset(cycle_days)             # полоса поощрений — пустая
 	PotionProfile.reset_picks_cycle()
 	_new_day()
 
@@ -3362,6 +4037,8 @@ func _show_daily_end() -> void:
 	result_breakdown_box.visible = false
 	result_sticker.text = "Дейлик пройден!"
 	result_sticker.add_theme_color_override("font_color", Color("6dff8f"))
+	result_sticker.add_theme_font_size_override("font_size", 54)
+	_detail_style(true)
 	result_detail.text = "Рейтинг дня: %d\n🏆 Отправлено в топ дейлика" % sc
 	result_detail.visible = true
 	result_replay_btn.visible = false
@@ -4218,6 +4895,24 @@ func _show_cycle_end() -> void:
 		return
 	Sfx.play("weekEnd")              # итог цикла
 	cycle_active = false
+	# --- полоса поощрений: множитель рейтинга по итоговой градации ---
+	var track_grade: int = reward_track.final_grade() if reward_track != null else 2
+	var track_mult: float = float(TRACK_MULT[clampi(track_grade, 0, TRACK_MULT.size() - 1)])
+	var score_before_track: int = cycle_score
+	if cycle_score > 0:              # штраф/бонус не переворачивает минус в яму
+		cycle_score = int(round(float(cycle_score) * track_mult))
+	# идеальные отметки с 4-й градации доливают репутацию своим гостям
+	var rep_gifts: Dictionary = {}
+	if track_grade >= TRACK_REP_MIN_GRADE:
+		for pm in reward_track.perfect_marks():
+			var pid: String = String(pm.get("npc", ""))
+			if pid == "":
+				continue
+			var add: float = float(TRACK_REP_BONUS.get(String(pm.get("kind", "")), 0.0))
+			if add <= 0.0:
+				continue
+			PotionProfile.adjust_rep(pid, add)
+			rep_gifts[pid] = float(rep_gifts.get(pid, 0.0)) + add
 	# прогрессия: уровень и открытые NPC ДО начисления опыта
 	var xp_before: int = _xp()
 	var lvl_before: int = GameData.prog_level(xp_before)
@@ -4235,14 +4930,25 @@ func _show_cycle_end() -> void:
 	result_breakdown_box.visible = false
 	result_sticker.text = "Цикл пройден!"
 	result_sticker.add_theme_color_override("font_color", Color("6dff8f"))
+	result_sticker.add_theme_font_size_override("font_size", 54)
 	# отправляем рейтинг цикла в глобальный топ (онлайн если в аккаунте + локально)
 	_lb_save(PotionAuth.get_nickname(), cycle_score)
+	# пассивка-уникалка «tipsFlat» — плоские чаевые в конце цикла
+	var flat_tips: int = int(round(PotionProfile.passive_flat("tipsFlat")))
+	if flat_tips > 0 and GameData.prog_mech_unlocked("tips", xp_before):
+		PotionProfile.add_tips(flat_tips)
 	var lines: Array = [
-		"Рейтинг цикла: %d" % cycle_score,
+		"Полоса: %s   ×%s" % [TRACK_GRADE_NAME[clampi(track_grade, 0, 5)], _num_str(track_mult)],
+		("Рейтинг цикла: %d → %d" % [score_before_track, cycle_score]) if cycle_score != score_before_track else ("Рейтинг цикла: %d" % cycle_score),
 		"Циклов всего: %d" % int(res.get("cycles", 0)),
 		"Опыт: %d" % xp_after,
-		"🏆 Рейтинг отправлен в топ (открой 🏆)",
+		"🏆 Рейтинг отправлен в топ",
 	]
+	if flat_tips > 0 and GameData.prog_mech_unlocked("tips", xp_before):
+		lines.insert(1, "🪙 Пассивка: +%d чаевых" % flat_tips)
+	for gid in rep_gifts:
+		var ge: Dictionary = GameData.npc_by_id(String(gid))
+		lines.append("✨ +%s репутации: %s" % [_num_str(float(rep_gifts[gid])), ge.get("name", gid)])
 	# каскад тостов «в моменте»: повышение уровня, затем новые гости
 	var td: float = 0.5
 	if lvl_after > lvl_before:
@@ -4258,6 +4964,7 @@ func _show_cycle_end() -> void:
 				var tc: Color = GameData.TIER_COLORS.get(int(e.get("tier", 1)), Color.WHITE)
 				_toast.call_deferred("Новый гость: %s" % e["name"], tc, td)
 				td += 0.5
+	_detail_style(true)
 	result_detail.text = "\n".join(lines)
 	result_detail.visible = true
 	if PotionAuth.is_logged_in():
@@ -4392,6 +5099,8 @@ func _start_round(lvl: int) -> void:
 	order_mods = []
 	mod_chip.visible = false
 	item_fx = {}                   # эффекты предметов прошлого заказа сброшены
+	# пассивки фиксируются на весь заказ (в дейлике выключены, как умения/связи)
+	order_pfx = {} if daily_mode else PotionProfile.passive_fx(String(npc.get("id", "")))
 	if item_pending.has("memtime"): item_fx["memtime"] = item_pending["memtime"]  # Ясность → память
 	if item_pending.has("time"): item_fx["time"] = item_pending["time"]           # Секундомер → варка
 	item_pending = {}
@@ -4465,7 +5174,8 @@ func _start_round(lvl: int) -> void:
 	for key in ORDER:
 		value_labels[key].text = "?"
 	phase = "memorize"
-	phase_total = MEMORIZE_S + float(item_fx.get("memtime", 0.0))   # Тоник ясности
+	# пассивка memTime растягивает базу, предмет «Тоник ясности» добавляет сверху
+	phase_total = MEMORIZE_S * (1.0 + float(order_pfx.get("memTime", 0.0))) + float(item_fx.get("memtime", 0.0))
 	phase_left = phase_total
 	bulb_bar.set_fraction(0.0)      # лампы гаснут в начале, будут заполняться
 	Sfx.play("orderShow")           # заказ появился
@@ -4493,7 +5203,8 @@ func _slide_in_stools() -> void:
 
 func _start_recreate() -> void:
 	phase = "recreate"
-	phase_total = CRAFT_S + float(item_fx.get("time", 0.0))   # Секундомер
+	# пассивка craftTime растягивает (или ужимает, если < 0) базу; «Секундомер» — сверху
+	phase_total = CRAFT_S * (1.0 + float(order_pfx.get("craftTime", 0.0))) + float(item_fx.get("time", 0.0))
 	phase_left = phase_total
 	bulb_bar.set_fraction(1.0)      # все горят, дальше гаснут по таймеру
 	# активные ползунки — в случайное; неактивные держим на цели (не участвуют)
@@ -4888,11 +5599,21 @@ func _do_finish() -> void:
 
 	var outcome: Dictionary = PotionProfile.record_result(
 		npc["id"], tier, overall, grade, reward, "",
-		time_frac, level, order_focus, pos_mult, no_points, neg_mult, tip_mult, flat_bonus)
+		time_frac, level, order_focus, pos_mult, no_points, neg_mult, tip_mult, flat_bonus,
+		order_pfx)
+	passives_locked = true         # с первого выполненного заказа состав пассивок заморожен
+	# Полоса поощрений: 100% — именной стакан гостя, идеал — крупный золотой,
+	# годно — обычный, пойло — заглушка, брак — осколки. В дейлике полосы нет.
+	if not daily_mode:
+		var mark_kind: String = grade
+		if grade == "perfect" and overall >= 0.999:
+			mark_kind = RewardTrack.KIND_HUNDRED
+		_pending_mark = {"day": day_num - 1, "kind": mark_kind, "npc": String(npc.get("id", ""))}
 
 	# Фаза 7: заряд умения за каждые 3 идеала за цикл
 	if grade == "perfect" and cycle_active:
-		if PotionProfile.bump_perfect_charge(3):
+		# пассивка-уникалка «chargeAt2» снижает порог с 3 идеалов до 2
+		if PotionProfile.bump_perfect_charge(2 if PotionProfile.passive_flag("chargeAt2") else 3):
 			_toast("✨ +1 заряд умения", Color("ffd24d"))
 
 	# особый стикер по условию (или базовый случайный) — рейтинг цикла уже известен
@@ -5061,6 +5782,7 @@ func _show_result(overall: float, comps: Dictionary, grade: String, outcome: Dic
 	result_points_box.visible = true
 	result_breakdown_box.visible = true
 	result_sticker.text = "%s   %d%%" % [GRADE_LABEL.get(grade, "БРАК"), int(round(overall * 100.0))]
+	result_sticker.add_theme_font_size_override("font_size", 46)   # итог цикла ставит крупнее — возвращаем
 	result_sticker.add_theme_color_override("font_color", gcol)
 	result_sticker.add_theme_color_override("font_outline_color", Color(gcol.r, gcol.g, gcol.b, 0.5))
 
@@ -5111,6 +5833,7 @@ func _show_result(overall: float, comps: Dictionary, grade: String, outcome: Dic
 		var note: String = mech.result_note(self)
 		if note != "":
 			det += "\n" + note
+	_detail_style(false)
 	result_detail.text = det
 	result_detail.visible = true
 	if bool(outcome.get("level_up", false)):
@@ -5129,6 +5852,7 @@ func _show_result(overall: float, comps: Dictionary, grade: String, outcome: Dic
 	_set_topbar(true)
 	_scene_state("select")          # результат — в проёме окна (как выбор)
 	Juice.fade_in(result_panel)
+	_flush_pending_mark()
 	if result_sticker_tex.visible:
 		Juice.pop.call_deferred(result_sticker_tex)
 	Juice.pop.call_deferred(result_points_box)
