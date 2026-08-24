@@ -30,7 +30,7 @@ func result_note(_g) -> String: return ""                          # строк�
 static func make_arrow_btn(g, cb: Callable, anchor_y: float = 0.62) -> Button:
 	var b := Button.new()
 	b.text = "▸"
-	b.add_theme_font_size_override("font_size", 72)
+	b.add_theme_font_size_override("font_size", UI.FS_HERO)
 	b.focus_mode = Control.FOCUS_NONE
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.14, 0.12, 0.10, 0.9)
@@ -221,7 +221,7 @@ class FashionMech extends NpcMech:
 	func _next() -> void:
 		# УР.4: не пустит дальше, пока текущий не идеален
 		if g_ref.level == 4 and g_ref._key_score(order[idx]) < PERFECT:
-			g_ref._toast.call_deferred("👗 Модница: сначала доведи до идеала!", Color("ff9a6a"))
+			g_ref._toast.call_deferred("👗 Модница: сначала доведи до идеала!", UI.WARN)
 			Sfx.play("badPop")
 			return
 		idx = (idx + 1) % order.size()
@@ -437,7 +437,7 @@ class LogicMech extends NpcMech:
 		var box := VBoxContainer.new()
 		box.custom_minimum_size = Vector2(84, 300)
 		box.alignment = BoxContainer.ALIGNMENT_CENTER
-		box.add_theme_constant_override("separation", 10)
+		box.add_theme_constant_override("separation", UI.SP_S)
 		var up := _step_btn("▲")
 		var down := _step_btn("▼")
 		up.pressed.connect(_step.bind(k, 1))
@@ -453,7 +453,7 @@ class LogicMech extends NpcMech:
 		b.text = txt
 		b.focus_mode = Control.FOCUS_NONE
 		b.custom_minimum_size = Vector2(84, 120)
-		b.add_theme_font_size_override("font_size", 40)
+		b.add_theme_font_size_override("font_size", UI.FS_XXL)
 		b.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		return b
 
@@ -495,7 +495,7 @@ class RacerMech extends NpcMech:
 		idx = 0
 		done = 0
 		label = Label.new()
-		label.add_theme_font_size_override("font_size", 84)
+		label.add_theme_font_size_override("font_size", UI.FS_HERO)
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1041,7 +1041,7 @@ class GourmetMech extends NpcMech:
 			return true
 		# первая «какашка» — не финишируем, даём доделать
 		used_retry = true
-		g._toast.call_deferred("👅 Гурман морщится — доводи!", Color("ff9a6a"))
+		g._toast.call_deferred("👅 Гурман морщится — доводи!", UI.WARN)
 		Sfx.play("badPop")
 		return false
 
@@ -1449,19 +1449,19 @@ class InspectorMech extends NpcMech:
 		paper.add_theme_stylebox_override("panel", sb)
 		dossier.add_child(paper)
 		var col := VBoxContainer.new()
-		col.add_theme_constant_override("separation", 12)
+		col.add_theme_constant_override("separation", UI.SP_M)
 		paper.add_child(col)
 		var head := Label.new()
 		head.text = "ДЕЛО О ПРИЁМКЕ · ГИЛЬДИЯ"
 		head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		head.add_theme_font_size_override("font_size", 20)
+		head.add_theme_font_size_override("font_size", UI.FS_M)
 		head.add_theme_color_override("font_color", Color(0.42, 0.12, 0.10))
 		col.add_child(head)
 		var body := Label.new()
 		body.text = _build_text(g)
 		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		body.add_theme_font_size_override("font_size", 19)
+		body.add_theme_font_size_override("font_size", UI.FS_M)
 		body.add_theme_color_override("font_color", Color(0.16, 0.12, 0.08))
 		col.add_child(body)
 		var close := Button.new()
@@ -1516,7 +1516,7 @@ class EngineerMech extends NpcMech:
 				if row == null:
 					row = g.slider_cols[k].get_parent()
 		panel = HBoxContainer.new()
-		panel.add_theme_constant_override("separation", 14)
+		panel.add_theme_constant_override("separation", UI.SP_M)
 		panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		if row != null:
 			row.add_child(panel)
@@ -1527,7 +1527,7 @@ class EngineerMech extends NpcMech:
 		stop_btn.focus_mode = Control.FOCUS_NONE
 		stop_btn.custom_minimum_size = Vector2(220, 300)
 		stop_btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		stop_btn.add_theme_font_size_override("font_size", 46)
+		stop_btn.add_theme_font_size_override("font_size", UI.FS_XXL)
 		var sb := StyleBoxFlat.new()
 		sb.bg_color = Color(0.34, 0.07, 0.09, 1.0)
 		sb.set_corner_radius_all(18)
@@ -1547,7 +1547,7 @@ class EngineerMech extends NpcMech:
 		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		col.alignment = BoxContainer.ALIGNMENT_CENTER
-		col.add_theme_constant_override("separation", 10)
+		col.add_theme_constant_override("separation", UI.SP_S)
 		panel.add_child(col)
 		for k in keys:
 			var s = g.sliders[k]
@@ -2198,7 +2198,7 @@ class ChefMech extends NpcMech:
 		cards.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		g.add_child(cards)
 		var hb := HBoxContainer.new()
-		hb.add_theme_constant_override("separation", 16)
+		hb.add_theme_constant_override("separation", UI.SP_L)
 		cards.add_child(hb)
 		var list: Array = [liquid]
 		if not addon.is_empty(): list.append(addon)
@@ -2218,7 +2218,7 @@ class ChefMech extends NpcMech:
 		var vb := VBoxContainer.new()
 		vb.set_anchors_preset(Control.PRESET_FULL_RECT)
 		vb.offset_left = 8; vb.offset_right = -8; vb.offset_top = 8; vb.offset_bottom = -8
-		vb.add_theme_constant_override("separation", 6)
+		vb.add_theme_constant_override("separation", UI.SP_S)
 		p.add_child(vb)
 		var icon := TextureRect.new()
 		icon.texture = load(it["icon"])
@@ -2230,7 +2230,7 @@ class ChefMech extends NpcMech:
 		var nm := Label.new()
 		nm.text = it["name"]
 		nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		nm.add_theme_font_size_override("font_size", 22)
+		nm.add_theme_font_size_override("font_size", UI.FS_M)
 		nm.add_theme_color_override("font_color", Color(0.98, 0.92, 0.78))
 		vb.add_child(nm)
 		return p
@@ -2248,7 +2248,7 @@ class ChefMech extends NpcMech:
 		book_btn = Button.new()
 		book_btn.text = "📖 Рецепты"
 		book_btn.focus_mode = Control.FOCUS_NONE
-		book_btn.add_theme_font_size_override("font_size", 26)
+		book_btn.add_theme_font_size_override("font_size", UI.FS_L)
 		book_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 		book_btn.offset_left = -250.0; book_btn.offset_right = -14.0
 		book_btn.offset_top = 88.0; book_btn.offset_bottom = 150.0
@@ -2264,7 +2264,7 @@ class ChefMech extends NpcMech:
 			name_lbl = Label.new()
 			name_lbl.text = "🍸 " + "-".join(parts)
 			name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			name_lbl.add_theme_font_size_override("font_size", 32)
+			name_lbl.add_theme_font_size_override("font_size", UI.FS_XL)
 			name_lbl.add_theme_color_override("font_color", Color(1.0, 0.82, 0.4))
 			name_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 			name_lbl.add_theme_constant_override("outline_size", 6)

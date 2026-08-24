@@ -31,13 +31,13 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 
 	_title = Label.new()
-	_title.add_theme_font_size_override("font_size", 26)
+	_title.add_theme_font_size_override("font_size", UI.FS_L)
 	_title.add_theme_color_override("font_color", Color(0.95, 0.82, 0.5))
 	_title.position = Vector2(PAD, 0)
 	add_child(_title)
 
 	_xptext = Label.new()
-	_xptext.add_theme_font_size_override("font_size", 23)
+	_xptext.add_theme_font_size_override("font_size", UI.FS_L)
 	_xptext.modulate = Color(1, 1, 1, 0.8)
 	_xptext.custom_minimum_size = Vector2(220, 0)
 	_xptext.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -58,7 +58,7 @@ func _ready() -> void:
 	sb.content_margin_top = 10.0; sb.content_margin_bottom = 10.0
 	_popup.add_theme_stylebox_override("panel", sb)
 	_popup_label = Label.new()
-	_popup_label.add_theme_font_size_override("font_size", 19)
+	_popup_label.add_theme_font_size_override("font_size", UI.FS_M)
 	_popup_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_popup_label.custom_minimum_size = Vector2(260, 0)
 	_popup.add_child(_popup_label)

@@ -156,7 +156,7 @@ func _cell_alpha_cov(cr: Rect2, tr: Rect2, img: Image) -> float:
 func _build_ui() -> void:
 	_timer = Label.new()
 	_timer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_timer.add_theme_font_size_override("font_size", 22)
+	_timer.add_theme_font_size_override("font_size", UI.FS_M)
 	_timer.add_theme_color_override("font_color", Color(0.7, 0.85, 1.0))
 	_timer.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	_timer.offset_top = 8.0
@@ -165,7 +165,7 @@ func _build_ui() -> void:
 
 	_prompt = Label.new()
 	_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_prompt.add_theme_font_size_override("font_size", 22)
+	_prompt.add_theme_font_size_override("font_size", UI.FS_M)
 	_prompt.add_theme_color_override("font_color", Color(0.95, 0.98, 1.0))
 	_prompt.text = "Выберите все клетки с: %s" % _tgt_name
 	_prompt.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -176,7 +176,7 @@ func _build_ui() -> void:
 	_submit = Button.new()
 	_submit.text = "Проверить"
 	_submit.focus_mode = Control.FOCUS_NONE
-	_submit.add_theme_font_size_override("font_size", 22)
+	_submit.add_theme_font_size_override("font_size", UI.FS_M)
 	_submit.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	_submit.offset_top = -66.0
 	_submit.offset_bottom = -14.0
@@ -262,7 +262,7 @@ func show_result(pct: int, ok: bool) -> void:
 	res.text = "Капча закрыта на %d%%" % pct
 	res.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	res.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	res.add_theme_font_size_override("font_size", 40)
+	res.add_theme_font_size_override("font_size", UI.FS_XXL)
 	res.add_theme_color_override("font_color", Color(0.55, 1.0, 0.65) if ok else Color(1.0, 0.65, 0.55))
 	res.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(res)

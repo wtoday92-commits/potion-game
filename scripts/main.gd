@@ -271,27 +271,11 @@ func _startup_restore() -> void:
 	if start_panel.visible:
 		_refresh_hud()
 
-# Единый Theme: аккуратные кнопки (скруглённые, тёмные, неоновая кайма) и
-# крупный базовый шрифт под телефон. Кастомные контролы (TouchSlider, рамка)
-# рисуются сами и темой не затрагиваются.
+# Тема берётся из общей дизайн-системы (scripts/ui.gd): кегли, палитра,
+# подложки и кнопки заданы там один раз на всю игру. Кастомные контролы
+# (TouchSlider, рамка, калибратор) рисуются сами и темой не затрагиваются.
 func _make_theme() -> Theme:
-	var t := Theme.new()
-	t.default_font_size = 18
-	# тень у подписей — читаемость поверх арта прозрачных экранов
-	t.set_color("font_shadow_color", "Label", Color(0, 0, 0, 0.75))
-	t.set_constant("shadow_offset_x", "Label", 1)
-	t.set_constant("shadow_offset_y", "Label", 2)
-	t.set_constant("shadow_outline_size", "Label", 3)
-	t.set_color("font_color", "Button", Color(0.93, 0.91, 0.96))
-	t.set_color("font_disabled_color", "Button", Color(0.6, 0.6, 0.66, 0.5))
-	t.set_font_size("font_size", "Button", 18)
-	t.set_constant("outline_size", "Button", 0)
-	t.set_stylebox("normal", "Button", _btn_sb(Color(0.13, 0.12, 0.18, 0.95), Color(0.42, 0.36, 0.62, 0.55)))
-	t.set_stylebox("hover", "Button", _btn_sb(Color(0.19, 0.17, 0.26, 0.97), Color(0.62, 0.52, 0.95, 0.8)))
-	t.set_stylebox("pressed", "Button", _btn_sb(Color(0.08, 0.07, 0.12, 1.0), Color(0.62, 0.52, 0.95, 0.9)))
-	t.set_stylebox("disabled", "Button", _btn_sb(Color(0.10, 0.10, 0.13, 0.55), Color(0.3, 0.3, 0.36, 0.25)))
-	t.set_stylebox("focus", "Button", StyleBoxEmpty.new())
-	return t
+	return UI.build_theme()
 
 # Жирный вариант дефолтного шрифта (без .ttf — эмболдим встроенный).
 var _bold_font_cache: FontVariation
@@ -311,18 +295,6 @@ func _glow_label(l: Label, glow: Color) -> void:
 	l.add_theme_constant_override("shadow_offset_y", 2)
 	l.add_theme_constant_override("shadow_outline_size", 2)
 	l.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.85))
-
-func _btn_sb(bg: Color, border: Color) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = bg
-	sb.set_corner_radius_all(12)
-	sb.set_border_width_all(1)
-	sb.border_color = border
-	sb.content_margin_left = 16.0
-	sb.content_margin_right = 16.0
-	sb.content_margin_top = 10.0
-	sb.content_margin_bottom = 10.0
-	return sb
 
 # Камера-параллакс: три слоя двигаются масштабом+сдвигом с разной скоростью.
 # menu — только космос; select — камера в окне (окно почти во весь экран, по центру);
@@ -440,7 +412,7 @@ func _build_ui() -> void:
 	round_ui.offset_top = 18.0               # на игре топбар уезжает — лампы/надписи наверху
 	round_ui.offset_right = -36.0
 	round_ui.offset_bottom = -28.0
-	round_ui.add_theme_constant_override("separation", 14)
+	round_ui.add_theme_constant_override("separation", UI.SP_M)
 	add_child(round_ui)
 
 	# лампочки-таймер сверху (заполняются на «запомни», гаснут на «воссоздай»)
@@ -450,21 +422,21 @@ func _build_ui() -> void:
 	# надпись фазы — ПОД лампочками (в тёмном окне-космосе)
 	phase_label = Label.new()
 	phase_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	phase_label.add_theme_font_size_override("font_size", 30)
+	phase_label.add_theme_font_size_override("font_size", UI.FS_XL)
 	round_ui.add_child(phase_label)
-	_glow_label(phase_label, Color("6ec3ff"))
+	_glow_label(phase_label, UI.CYAN)
 
 	# чип активного эффекта Ир (бафф/дебафф) — «висит» весь заказ под надписью фазы
 	ir_chip = Label.new()
 	ir_chip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	ir_chip.add_theme_font_size_override("font_size", 18)
+	ir_chip.add_theme_font_size_override("font_size", UI.FS_S)
 	ir_chip.visible = false
 	round_ui.add_child(ir_chip)
 
 	# плашка фокуса/модификаторов заказа (Фаза 3) — «висит» весь заказ
 	mod_chip = Label.new()
 	mod_chip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	mod_chip.add_theme_font_size_override("font_size", 18)
+	mod_chip.add_theme_font_size_override("font_size", UI.FS_S)
 	mod_chip.visible = false
 	round_ui.add_child(mod_chip)
 
@@ -476,7 +448,7 @@ func _build_ui() -> void:
 	jar_stage.set_jar(jar)
 
 	var sliders_row := HBoxContainer.new()
-	sliders_row.add_theme_constant_override("separation", 6)
+	sliders_row.add_theme_constant_override("separation", UI.SP_S)
 	sliders_row.size_flags_vertical = Control.SIZE_SHRINK_END   # прижат к низу (зона «под столом»)
 	round_ui.add_child(sliders_row)
 
@@ -485,14 +457,14 @@ func _build_ui() -> void:
 		var col := VBoxContainer.new()
 		col.alignment = BoxContainer.ALIGNMENT_CENTER
 		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL   # колонки делят ширину поровну
-		col.add_theme_constant_override("separation", 4)
+		col.add_theme_constant_override("separation", UI.SP_XS)
 		sliders_row.add_child(col)
 		slider_cols[key] = col
 
 		var name_lbl := Label.new()
 		name_lbl.text = p["label"]
 		name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		name_lbl.add_theme_font_size_override("font_size", 20)
+		name_lbl.add_theme_font_size_override("font_size", UI.FS_M)
 		col.add_child(name_lbl)
 
 		var s := TouchSlider.new()
@@ -516,18 +488,18 @@ func _build_ui() -> void:
 	done_btn.text = "ГОТОВО!"
 	done_btn.custom_minimum_size = Vector2(460, 76)   # крупная тач-цель у самого низа
 	done_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	done_btn.add_theme_font_size_override("font_size", 26)
+	done_btn.add_theme_font_size_override("font_size", UI.FS_L)
 	done_btn.focus_mode = Control.FOCUS_NONE
 	for st in ["normal", "hover", "pressed"]:
 		done_btn.add_theme_stylebox_override(st, _tab_sb(true))
-	done_btn.add_theme_color_override("font_color", UI_GOLD)
+	done_btn.add_theme_color_override("font_color", UI.GOLD)
 	done_btn.pressed.connect(_on_done)
 	round_ui.add_child(done_btn)
 
 	# ---- экран выбора ----
 	select_panel = _make_center_panel(true)   # прозрачная — виден бар за окном
 	var sv := select_panel.get_node("Card/V") as VBoxContainer
-	sv.add_theme_constant_override("separation", 12)
+	sv.add_theme_constant_override("separation", UI.SP_M)
 
 	var sel_menu := Button.new()
 	sel_menu.text = "← К выбору"
@@ -539,7 +511,7 @@ func _build_ui() -> void:
 	var title := Label.new()
 	title.text = "К тебе заглянул посетитель"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_font_size_override("font_size", UI.FS_M)
 	sv.add_child(title)
 
 	# портрет в круглой металлической рамке (frame_round.png): кольцо поверх
@@ -583,7 +555,7 @@ func _build_ui() -> void:
 	npc_portrait.set_anchors_preset(Control.PRESET_FULL_RECT)
 	npc_portrait.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	npc_portrait.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	npc_portrait.add_theme_font_size_override("font_size", 72)
+	npc_portrait.add_theme_font_size_override("font_size", UI.FS_HERO)
 	frame.add_child(npc_portrait)
 
 	# кольцо-рамка поверх (маскирует портрет в круг), поворачивается каждый визит
@@ -598,12 +570,12 @@ func _build_ui() -> void:
 
 	npc_name = Label.new()
 	npc_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	npc_name.add_theme_font_size_override("font_size", 26)
+	npc_name.add_theme_font_size_override("font_size", UI.FS_L)
 	sv.add_child(npc_name)
 
 	tier_badge = Label.new()
 	tier_badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	tier_badge.add_theme_font_size_override("font_size", 18)
+	tier_badge.add_theme_font_size_override("font_size", UI.FS_S)
 	sv.add_child(tier_badge)
 
 	npc_flavor = Label.new()
@@ -633,13 +605,13 @@ func _build_ui() -> void:
 	result_info = VBoxContainer.new()
 	result_info.set_anchors_preset(Control.PRESET_TOP_LEFT)   # абсолютные offset'ы
 	result_info.alignment = BoxContainer.ALIGNMENT_CENTER
-	result_info.add_theme_constant_override("separation", 10)
+	result_info.add_theme_constant_override("separation", UI.SP_S)
 	result_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	result_panel.add_child(result_info)
 	result_actions = VBoxContainer.new()
 	result_actions.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	result_actions.alignment = BoxContainer.ALIGNMENT_CENTER
-	result_actions.add_theme_constant_override("separation", 12)
+	result_actions.add_theme_constant_override("separation", UI.SP_M)
 	result_panel.add_child(result_actions)
 	var rv := result_info
 	var ract := result_actions
@@ -665,17 +637,17 @@ func _build_ui() -> void:
 	# грейд крупно (цветом) + процент
 	result_sticker = Label.new()      # грейд «ГОДНО» / «ИДЕАЛ!» и т.п.
 	result_sticker.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	result_sticker.add_theme_font_size_override("font_size", 46)
+	result_sticker.add_theme_font_size_override("font_size", UI.FS_XXL)
 	rv.add_child(result_sticker)
-	_glow_label(result_sticker, Color("6dff8f"))
+	_glow_label(result_sticker, UI.OK)
 
 	# награда — в золотой панели (крупно)
 	result_points_box = PanelContainer.new()
 	result_points_box.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	result_points_box.add_theme_stylebox_override("panel", _panel_sb(UI_GOLD, UI_PANEL, 14))
+	result_points_box.add_theme_stylebox_override("panel", _panel_sb(UI.GOLD, UI.PANEL, 14))
 	result_points = Label.new()       # «+128 к рейтингу» / чаевые
 	result_points.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	result_points.add_theme_font_size_override("font_size", 24)
+	result_points.add_theme_font_size_override("font_size", UI.FS_L)
 	result_points.custom_minimum_size = Vector2(360, 0)
 	result_points_box.add_child(result_points)
 	rv.add_child(result_points_box)
@@ -683,10 +655,10 @@ func _build_ui() -> void:
 	# разбивка по параметрам — в карточке
 	result_breakdown_box = PanelContainer.new()
 	result_breakdown_box.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	result_breakdown_box.add_theme_stylebox_override("panel", _panel_sb(UI_BORDER, UI_PANEL, 14))
+	result_breakdown_box.add_theme_stylebox_override("panel", _panel_sb(UI.BORDER_C, UI.PANEL, 14))
 	result_breakdown = VBoxContainer.new()   # аккуратная разбивка по параметрам
 	result_breakdown.custom_minimum_size = Vector2(360, 0)
-	result_breakdown.add_theme_constant_override("separation", 3)
+	result_breakdown.add_theme_constant_override("separation", UI.SP_XS)
 	result_breakdown_box.add_child(result_breakdown)
 	rv.add_child(result_breakdown_box)
 
@@ -694,14 +666,14 @@ func _build_ui() -> void:
 	result_detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	result_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	result_detail.custom_minimum_size = Vector2(420, 0)
-	result_detail.add_theme_color_override("font_color", UI_TXT_DIM)
+	result_detail.add_theme_color_override("font_color", UI.TXT_DIM)
 	rv.add_child(result_detail)
 
 	# «Переиграть» (Ир): показывается только когда активен бафф/дебафф переигровки
 	result_replay_btn = Button.new()
 	result_replay_btn.custom_minimum_size = Vector2(468, 62)
 	result_replay_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	result_replay_btn.add_theme_font_size_override("font_size", 19)
+	result_replay_btn.add_theme_font_size_override("font_size", UI.FS_M)
 	result_replay_btn.focus_mode = Control.FOCUS_NONE
 	result_replay_btn.visible = false
 	result_replay_btn.pressed.connect(_ir_replay)
@@ -750,13 +722,13 @@ func _build_ui() -> void:
 	toast_layer.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	toast_layer.offset_top = CONTENT_TOP + 6.0
 	toast_layer.alignment = BoxContainer.ALIGNMENT_BEGIN
-	toast_layer.add_theme_constant_override("separation", 8)
+	toast_layer.add_theme_constant_override("separation", UI.SP_S)
 	toast_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(toast_layer)
 	# ---- DEV-кнопка (справа снизу): много прогресса/чаевых/репутации для тестов ----
 	var dev_btn := Button.new()
 	dev_btn.text = "DEV"
-	dev_btn.add_theme_font_size_override("font_size", 18)
+	dev_btn.add_theme_font_size_override("font_size", UI.FS_S)
 	dev_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	dev_btn.offset_left = -84.0
 	dev_btn.offset_top = -58.0
@@ -775,7 +747,7 @@ func _build_ui() -> void:
 		items_btn.expand_icon = true
 	else:
 		items_btn.text = "🎒"
-		items_btn.add_theme_font_size_override("font_size", 40)
+		items_btn.add_theme_font_size_override("font_size", UI.FS_XXL)
 	items_btn.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	items_btn.offset_left = 14.0
 	items_btn.offset_top = -98.0
@@ -799,29 +771,29 @@ func _dev_reset() -> void:
 	stage = 0; day_num = 1; perfect_streak_max = 0; good_streak_max = 0
 	_dev_close()
 	_show_start()
-	_toast("☢ Профиль сброшен — начинаем с нуля", Color("ff9a6a"))
+	_toast("☢ Профиль сброшен — начинаем с нуля", UI.WARN)
 
 func _dev_boost() -> void:
 	PotionProfile.dev_boost()
 	_refresh_hud()
 	if prog_strip.visible:
 		prog_widget.refresh()
-	_toast("DEV: +опыт лавки, +чаевые, реп. со всеми", Color("6dff8f"))
+	_toast("DEV: +опыт лавки, +чаевые, реп. со всеми", UI.OK)
 
 # Дев-панель: мгновенно прыгнуть в раунд любого гостя на любом УР (для теста механик).
 func _build_dev_panel() -> void:
 	_dev_panel = _make_center_panel()
 	var v := _dev_panel.get_node("Card/V") as VBoxContainer
-	v.add_theme_constant_override("separation", 8)
+	v.add_theme_constant_override("separation", UI.SP_S)
 	var title := Label.new()
 	title.text = "DEV — тест гостя"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_font_size_override("font_size", UI.FS_M)
 	v.add_child(title)
 	# выбор уровня сложности
 	var lvlrow := HBoxContainer.new()
 	lvlrow.alignment = BoxContainer.ALIGNMENT_CENTER
-	lvlrow.add_theme_constant_override("separation", 8)
+	lvlrow.add_theme_constant_override("separation", UI.SP_S)
 	v.add_child(lvlrow)
 	_dev_lvl_btns.clear()
 	for l in [1, 2, 3, 4]:
@@ -838,7 +810,7 @@ func _build_dev_panel() -> void:
 	v.add_child(boost)
 	var reset := Button.new()
 	reset.text = "☢ ПОЛНЫЙ СБРОС (с нуля)"
-	reset.add_theme_color_override("font_color", Color("ff6a6a"))
+	reset.add_theme_color_override("font_color", UI.BAD)
 	reset.pressed.connect(_dev_reset)
 	v.add_child(reset)
 	# список всех гостей — по кнопке прыгаем прямо в раунд
@@ -848,7 +820,7 @@ func _build_dev_panel() -> void:
 	v.add_child(scroll)
 	var grid := VBoxContainer.new()
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	grid.add_theme_constant_override("separation", 4)
+	grid.add_theme_constant_override("separation", UI.SP_XS)
 	scroll.add_child(grid)
 	for e in GameData.NPCS:
 		var nb := Button.new()
@@ -884,7 +856,7 @@ func _dev_start(e: Dictionary) -> void:
 	_start_round(_dev_level)
 
 # Всплывающий тост: панель с текстом, влетает сверху, держится и уходит.
-func _toast(text: String, col: Color = Color("6ec3ff"), delay: float = 0.0) -> void:
+func _toast(text: String, col: Color = UI.CYAN, delay: float = 0.0) -> void:
 	var p := PanelContainer.new()
 	p.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -900,7 +872,7 @@ func _toast(text: String, col: Color = Color("6ec3ff"), delay: float = 0.0) -> v
 	p.add_theme_stylebox_override("panel", sb)
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", 18)
+	l.add_theme_font_size_override("font_size", UI.FS_S)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(l)
@@ -939,7 +911,7 @@ func _build_prog_strip() -> void:
 	sb.content_margin_top = 6.0; sb.content_margin_bottom = 8.0
 	prog_strip.add_theme_stylebox_override("panel", sb)
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 6)
+	vb.add_theme_constant_override("separation", UI.SP_S)
 	prog_strip.add_child(vb)
 	prog_widget = ProgBar.new()
 	prog_widget.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -976,24 +948,24 @@ func _build_drop_bar() -> void:
 
 	var col := VBoxContainer.new()
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 14)
+	col.add_theme_constant_override("separation", UI.SP_M)
 	drop_bar.add_child(col)
 
 	tb_day = Label.new()
-	tb_day.add_theme_font_size_override("font_size", 32)
+	tb_day.add_theme_font_size_override("font_size", UI.FS_XL)
 	tb_day.add_theme_color_override("font_color", Color(0.95, 0.92, 1.0))
 	col.add_child(tb_day)
 
 	var info := HBoxContainer.new()
-	info.add_theme_constant_override("separation", 22)
+	info.add_theme_constant_override("separation", UI.SP_XL)
 	col.add_child(info)
 	_tb_info = info
 	tb_streak = Label.new()
-	tb_streak.add_theme_font_size_override("font_size", 30)
+	tb_streak.add_theme_font_size_override("font_size", UI.FS_XL)
 	tb_streak.modulate = Color(1.0, 0.7, 0.4)
 	info.add_child(tb_streak)
 	tb_rating = Label.new()
-	tb_rating.add_theme_font_size_override("font_size", 30)
+	tb_rating.add_theme_font_size_override("font_size", UI.FS_XL)
 	tb_rating.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info.add_child(tb_rating)
 	var sp := Control.new()
@@ -1003,13 +975,13 @@ func _build_drop_bar() -> void:
 	# стикеры за цикл — здесь места хватает, делаем крупными
 	_tb_stickers = HBoxContainer.new()
 	_tb_stickers.alignment = BoxContainer.ALIGNMENT_CENTER
-	_tb_stickers.add_theme_constant_override("separation", 22)
+	_tb_stickers.add_theme_constant_override("separation", UI.SP_XL)
 	col.add_child(_tb_stickers)
 
 	var hint := Label.new()
 	hint.text = "смахни вверх, чтобы убрать"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.add_theme_font_size_override("font_size", 16)
+	hint.add_theme_font_size_override("font_size", UI.FS_S)
 	hint.modulate = Color(1, 1, 1, 0.35)
 	col.add_child(hint)
 
@@ -1103,14 +1075,14 @@ func _show_drop(on: bool) -> void:
 func _build_start() -> void:
 	start_panel = _make_center_panel(true)    # прозрачная — виден космос/бар
 	var sv := start_panel.get_node("Card/V") as VBoxContainer
-	sv.add_theme_constant_override("separation", 16)
+	sv.add_theme_constant_override("separation", UI.SP_L)
 
 	var subtitle := Label.new()
 	subtitle.text = "SECTOR SEVEN SALOON"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	subtitle.add_theme_font_size_override("font_size", 52)
-	subtitle.add_theme_color_override("font_color", Color("ffe9a8"))
+	subtitle.add_theme_font_size_override("font_size", UI.FS_XXL)
+	subtitle.add_theme_color_override("font_color", UI.GOLD_DIM)
 	_title_font(subtitle)
 	sv.add_child(subtitle)
 	_glow_label(subtitle, Color("ff4fd8"))
@@ -1118,7 +1090,7 @@ func _build_start() -> void:
 	# HUD профиля: чипы чаевые / заказы / серия (иконки + число)
 	var hud := HBoxContainer.new()
 	hud.alignment = BoxContainer.ALIGNMENT_CENTER
-	hud.add_theme_constant_override("separation", 14)
+	hud.add_theme_constant_override("separation", UI.SP_M)
 	sv.add_child(hud)
 	hud_tips = _hud_chip(hud, "stat_tips")
 	hud_orders = _hud_chip(hud, "stat_orders")
@@ -1132,8 +1104,8 @@ func _build_start() -> void:
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	grid.add_theme_constant_override("h_separation", 14)
-	grid.add_theme_constant_override("v_separation", 14)
+	grid.add_theme_constant_override("h_separation", UI.SP_M)
+	grid.add_theme_constant_override("v_separation", UI.SP_M)
 	sv.add_child(grid)
 	var play := _menu_tile("ИГРАТЬ", "menu_play", true)
 	play.pressed.connect(_start_cycle)
@@ -1159,17 +1131,17 @@ func _build_start() -> void:
 func _audio_row(sv: VBoxContainer, label_text: String, is_music: bool) -> void:
 	# непрозрачная подложка: на контрастном фоне подписи иначе не читаются
 	var card := PanelContainer.new()
-	card.add_theme_stylebox_override("panel", _panel_sb(UI_BORDER, UI_PANEL2, 14))
+	card.add_theme_stylebox_override("panel", _panel_sb(UI.BORDER_C, UI.PANEL_2, 14))
 	card.custom_minimum_size = Vector2(440, 66)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 14)
+	row.add_theme_constant_override("separation", UI.SP_M)
 	card.add_child(row)
 	var lbl := Label.new()
 	lbl.text = label_text
 	lbl.custom_minimum_size = Vector2(150, 0)
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	lbl.add_theme_font_size_override("font_size", 24)
-	lbl.add_theme_color_override("font_color", UI_TXT)
+	lbl.add_theme_font_size_override("font_size", UI.FS_L)
+	lbl.add_theme_color_override("font_color", UI.TXT)
 	row.add_child(lbl)
 	var sl := HTouchSlider.new()               # крупный тач-слайдер вместо тонкого HSlider
 	sl.min_value = 0.0
@@ -1203,12 +1175,12 @@ func _on_sfx_drag_end(_value_changed: bool) -> void:
 # Чип HUD: «эмодзи + значение», значение обновляется в _refresh_hud().
 func _hud_chip(row: HBoxContainer, tex_name: String) -> Label:
 	var chip := PanelContainer.new()
-	chip.add_theme_stylebox_override("panel", _panel_sb(UI_BORDER, UI_PANEL2, 14))
+	chip.add_theme_stylebox_override("panel", _panel_sb(UI.BORDER_C, UI.PANEL_2, 14))
 	chip.custom_minimum_size = Vector2(0, 70)
 	chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var h := HBoxContainer.new()
 	h.alignment = BoxContainer.ALIGNMENT_CENTER
-	h.add_theme_constant_override("separation", 10)
+	h.add_theme_constant_override("separation", UI.SP_S)
 	chip.add_child(h)
 	var ic := TextureRect.new()
 	ic.texture = _ui(tex_name)
@@ -1218,8 +1190,8 @@ func _hud_chip(row: HBoxContainer, tex_name: String) -> Label:
 	ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	h.add_child(ic)
 	var lbl := Label.new()
-	lbl.add_theme_font_size_override("font_size", 30)
-	lbl.add_theme_color_override("font_color", UI_GOLD)
+	lbl.add_theme_font_size_override("font_size", UI.FS_XL)
+	lbl.add_theme_color_override("font_color", UI.GOLD)
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	lbl.text = "0"
 	h.add_child(lbl)
@@ -1234,27 +1206,27 @@ func _menu_tile(text: String, icon_name: String, primary: bool = false) -> Butto
 	b.focus_mode = Control.FOCUS_NONE
 	b.clip_contents = true
 	var tsb := StyleBoxFlat.new()
-	tsb.bg_color = Color(0.20, 0.15, 0.05, 1.0) if primary else UI_PANEL
+	tsb.bg_color = Color(0.20, 0.15, 0.05, 1.0) if primary else UI.PANEL
 	tsb.set_corner_radius_all(16)
 	tsb.set_border_width_all(3 if primary else 2)
-	tsb.border_color = UI_GOLD if primary else UI_BORDER
+	tsb.border_color = UI.GOLD if primary else UI.BORDER_C
 	if primary:
-		tsb.shadow_color = Color(UI_GOLD.r, UI_GOLD.g, UI_GOLD.b, 0.35)
+		tsb.shadow_color = Color(UI.GOLD.r, UI.GOLD.g, UI.GOLD.b, 0.35)
 		tsb.shadow_size = 10
 	for st in ["normal", "hover", "pressed"]:
 		b.add_theme_stylebox_override(st, tsb)
 	var v := VBoxContainer.new()
 	v.set_anchors_preset(Control.PRESET_FULL_RECT)
 	v.offset_left = 10; v.offset_right = -10; v.offset_top = 10; v.offset_bottom = -10
-	v.add_theme_constant_override("separation", 4)
+	v.add_theme_constant_override("separation", UI.SP_XS)
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	b.add_child(v)
 	var l := Label.new()
 	l.text = text
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.add_theme_font_size_override("font_size", 30 if primary else 25)
-	l.add_theme_color_override("font_color", UI_GOLD if primary else UI_TXT)
+	l.add_theme_font_size_override("font_size", UI.FS_XL if primary else 25)
+	l.add_theme_color_override("font_color", UI.GOLD if primary else UI.TXT)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_title_font(l)
 	v.add_child(l)
@@ -1294,7 +1266,7 @@ func _tile_locked(b: Button, locked: bool, note: String) -> void:
 	if ir != null and is_instance_valid(ir):
 		ir.modulate = Color(0.45, 0.45, 0.5, 0.85) if locked else Color.WHITE
 	if l != null and is_instance_valid(l):
-		l.add_theme_color_override("font_color", Color(0.6, 0.6, 0.66) if locked else UI_TXT)
+		l.add_theme_color_override("font_color", Color(0.6, 0.6, 0.66) if locked else UI.TXT)
 	b.modulate = Color(0.75, 0.75, 0.8, 1.0) if locked else Color.WHITE
 
 # Единая кнопка меню (primary — золотая заливка, secondary — обычная тема).
@@ -1302,8 +1274,8 @@ func _menu_button(text: String, primary: bool = false, h: float = 66.0, icon_nam
 	var b := Button.new()
 	b.text = text
 	b.custom_minimum_size = Vector2(440, h)
-	b.add_theme_font_size_override("font_size", 32 if primary else 26)
-	b.add_theme_constant_override("h_separation", 16)
+	b.add_theme_font_size_override("font_size", UI.FS_XL if primary else 26)
+	b.add_theme_constant_override("h_separation", UI.SP_L)
 	b.focus_mode = Control.FOCUS_NONE
 	if icon_name != "":
 		var t := _ui(icon_name)
@@ -1323,50 +1295,33 @@ func _menu_button(text: String, primary: bool = false, h: float = 66.0, icon_nam
 	if primary:
 		for st in ["normal", "hover", "pressed"]:
 			b.add_theme_stylebox_override(st, _tab_sb(true))
-		b.add_theme_color_override("font_color", UI_GOLD)
+		b.add_theme_color_override("font_color", UI.GOLD)
 	return b
 
 # ---------- экран коллекции ----------
 # Статичный каркас (заголовок, скролл, «назад») строится один раз; наполнение
 # (статы/альбом/список NPC) пересобирается каждый показ из живого профиля.
-# ============================================================
-# Дизайн-система (ядро) — единые роли цветов, размеры и панели.
-# Применяется в переверстанной Коллекции; далее раскатываем на остальные экраны.
-# ============================================================
-const UI_GOLD := Color("ffcf5d")          # акцент: заголовки, числа, валюта
-const UI_GOLD_DIM := Color(0.95, 0.82, 0.5)
-const UI_TXT := Color(0.95, 0.95, 1.0)     # основной текст
-const UI_TXT_DIM := Color(1, 1, 1, 0.62)   # подписи
-const UI_PANEL := Color(0.11, 0.12, 0.19, 0.96)  # карточка
-const UI_PANEL2 := Color(0.07, 0.08, 0.13, 1.0)  # вложенная/фон-ячейка
-const UI_BORDER := Color(0.34, 0.32, 0.5, 0.55)  # обводка панели
-const UI_OK := Color("6dff8f")             # успех
-const UI_BAD := Color("ff5d6a")            # штраф/провал
-const FS_TITLE := 30
-const FS_H := 25
-const FS_BODY := 19
-const FS_SMALL := 16
+# Роли цвета, кегли, отступы и подложки — в scripts/ui.gd (class_name UI).
 
 # Единый стайлбокс карточки-панели (скругление + тонкая обводка + мягкая тень).
-func _panel_sb(accent: Color = UI_BORDER, bg: Color = UI_PANEL, radius: int = 16) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
+# Подложка карточки поверх общей системы: единственное отличие от UI.surface() —
+# мягкая тень, она нужна карточкам, лежащим прямо на арте.
+func _panel_sb(accent: Color = UI.BORDER_C, bg: Color = UI.PANEL, radius: int = UI.R_L) -> StyleBoxFlat:
+	var sb := UI.surface(UI.Surface.CARD, accent)
 	sb.bg_color = bg
 	sb.set_corner_radius_all(radius)
-	sb.set_border_width_all(1)
-	sb.border_color = accent
 	sb.shadow_color = Color(0, 0, 0, 0.35)
 	sb.shadow_size = 6
-	sb.set_content_margin_all(14.0)
 	return sb
 
 # Плитка статистики: иконка сверху, крупное число золотом, подпись снизу.
-func _stat_tile(tex: Texture2D, number: String, label: String, accent: Color = UI_BORDER) -> PanelContainer:
+func _stat_tile(tex: Texture2D, number: String, label: String, accent: Color = UI.BORDER_C) -> PanelContainer:
 	var p := PanelContainer.new()
 	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	p.add_theme_stylebox_override("panel", _panel_sb(accent))
 	var v := VBoxContainer.new()
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	v.add_theme_constant_override("separation", 4)
+	v.add_theme_constant_override("separation", UI.SP_XS)
 	p.add_child(v)
 	if tex != null:
 		var ir := TextureRect.new()
@@ -1379,15 +1334,15 @@ func _stat_tile(tex: Texture2D, number: String, label: String, accent: Color = U
 	var num := Label.new()
 	num.text = number
 	num.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	num.add_theme_font_size_override("font_size", 38)
-	num.add_theme_color_override("font_color", UI_GOLD)
+	num.add_theme_font_size_override("font_size", UI.FS_XL)
+	num.add_theme_color_override("font_color", UI.GOLD)
 	v.add_child(num)
 	var lbl := Label.new()
 	lbl.text = label
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	lbl.add_theme_font_size_override("font_size", FS_SMALL)
-	lbl.add_theme_color_override("font_color", UI_TXT_DIM)
+	lbl.add_theme_font_size_override("font_size", UI.FS_S)
+	lbl.add_theme_color_override("font_color", UI.TXT_DIM)
 	v.add_child(lbl)
 	return p
 
@@ -1395,8 +1350,8 @@ func _stat_tile(tex: Texture2D, number: String, label: String, accent: Color = U
 func _coll_section(text: String) -> void:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", FS_H)
-	l.add_theme_color_override("font_color", UI_GOLD)
+	l.add_theme_font_size_override("font_size", UI.FS_L)
+	l.add_theme_color_override("font_color", UI.GOLD)
 	collection_list.add_child(l)
 
 # Подсказки-условия выпадения стикеров (для закрытых ячеек альбома).
@@ -1422,26 +1377,26 @@ func _build_collection() -> void:
 	var ccard := collection_panel.get_node("Card") as PanelContainer
 	ccard.offset_top = PANEL_INSET
 	var cv := collection_panel.get_node("Card/V") as VBoxContainer
-	cv.add_theme_constant_override("separation", 10)
+	cv.add_theme_constant_override("separation", UI.SP_S)
 
 	var title := Label.new()
 	title.text = "КОЛЛЕКЦИЯ"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", FS_TITLE)
-	title.add_theme_color_override("font_color", UI_GOLD)
+	title.add_theme_font_size_override("font_size", UI.FS_XL)
+	title.add_theme_color_override("font_color", UI.GOLD)
 	cv.add_child(title)
-	_glow_label(title, UI_GOLD)
+	_glow_label(title, UI.GOLD)
 
 	# вкладки-пилюли (сегмент-контрол): активная — золото, остальные — приглушены
 	var tabrow := HBoxContainer.new()
-	tabrow.add_theme_constant_override("separation", 8)
+	tabrow.add_theme_constant_override("separation", UI.SP_S)
 	cv.add_child(tabrow)
 	coll_tab_btns.clear()
 	for tab in [["stats", "Статистика"], ["ribbon", "Лента"], ["stickers", "Стикеры"], ["ach", "Ачивки"]]:
 		var b := Button.new()
 		b.text = tab[1]
 		b.custom_minimum_size = Vector2(0, 64)
-		b.add_theme_font_size_override("font_size", FS_BODY)
+		b.add_theme_font_size_override("font_size", UI.FS_M)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.focus_mode = Control.FOCUS_NONE
 		b.set_meta("tab", tab[0])
@@ -1458,32 +1413,29 @@ func _build_collection() -> void:
 
 	collection_list = VBoxContainer.new()
 	collection_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	collection_list.add_theme_constant_override("separation", 12)
+	collection_list.add_theme_constant_override("separation", UI.SP_M)
 	scroll.add_child(collection_list)
 
 	var back := Button.new()
 	back.text = "← Назад"
 	back.custom_minimum_size = Vector2(0, 68)
-	back.add_theme_font_size_override("font_size", FS_BODY)
+	back.add_theme_font_size_override("font_size", UI.FS_M)
 	back.focus_mode = Control.FOCUS_NONE
 	back.pressed.connect(_close_collection)
 	cv.add_child(back)
 
 # Стайлбокс вкладки-пилюли (активная — золото-заливка + золотая кайма).
+# Вкладка/кнопка-выбор: те же две роли, что и у кнопок в системе.
 func _tab_sb(active: bool) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(UI_GOLD.r, UI_GOLD.g, UI_GOLD.b, 0.18) if active else UI_PANEL2
-	sb.set_corner_radius_all(12)
-	sb.set_border_width_all(2 if active else 1)
-	sb.border_color = UI_GOLD if active else UI_BORDER
-	sb.set_content_margin_all(8.0)
+	var sb := UI.button(UI.Btn.PRIMARY if active else UI.Btn.QUIET)
+	sb.set_content_margin_all(float(UI.SP_S))
 	return sb
 
 # Клик по «Коллекции»: закрыта прогрессией → короткая подсказка вместо перехода.
 func _try_collection() -> void:
 	var note: String = String(coll_btn.get_meta("lock_note", ""))
 	if note != "":
-		_toast(note, Color("ffb36a"))
+		_toast(note, UI.WARN)
 		return
 	_show_collection()
 
@@ -1518,7 +1470,7 @@ func _set_collection_tab(tab: String) -> void:
 		var on: bool = b.get_meta("tab") == tab
 		for st in ["normal", "hover", "pressed"]:
 			b.add_theme_stylebox_override(st, _tab_sb(on))
-		b.add_theme_color_override("font_color", UI_GOLD if on else UI_TXT_DIM)
+		b.add_theme_color_override("font_color", UI.GOLD if on else UI.TXT_DIM)
 	_populate_collection()
 
 func _populate_collection() -> void:
@@ -1541,20 +1493,20 @@ func _fill_stats_tab() -> void:
 	_coll_section("Всего")
 	var g1 := _stat_grid(2)
 	g1.add_child(_stat_tile(_ui("stat_orders"), str(int(st.get("total_orders", 0))), "Заказов"))
-	g1.add_child(_stat_tile(_ui("stat_tips"), str(int(tips.get("lifetime", 0))), "Чаевых всего", UI_GOLD))
+	g1.add_child(_stat_tile(_ui("stat_tips"), str(int(tips.get("lifetime", 0))), "Чаевых всего", UI.GOLD))
 	g1.add_child(_stat_tile(_ui("stat_visitors"), "%d/%d" % [met, GameData.NPCS.size()], "Посетителей"))
 	g1.add_child(_stat_tile(_ui("stat_cycles"), str(int(st.get("cycles_completed", 0))), "Циклов пройдено"))
 	collection_list.add_child(g1)
 
 	_coll_section("Лучшие серии")
 	var g2 := _stat_grid(2)
-	g2.add_child(_stat_tile(_ui("stat_streak"), str(int(sk.get("perfect_best", 0))), "Идеалов подряд", UI_GOLD))
-	g2.add_child(_stat_tile(_ui("stat_shield"), str(int(sk.get("goodplus_best", 0))), "Без брака подряд", UI_OK))
+	g2.add_child(_stat_tile(_ui("stat_streak"), str(int(sk.get("perfect_best", 0))), "Идеалов подряд", UI.GOLD))
+	g2.add_child(_stat_tile(_ui("stat_shield"), str(int(sk.get("goodplus_best", 0))), "Без брака подряд", UI.OK))
 	collection_list.add_child(g2)
 
 	_coll_section("Смеси по грейдам")
 	var g3 := _stat_grid(4)
-	var gcol := {"perfect": UI_GOLD, "good": UI_OK, "swill": Color("ffa24d"), "bad": UI_BAD}
+	var gcol := {"perfect": UI.GOLD, "good": UI.OK, "swill": Color("ffa24d"), "bad": UI.BAD}
 	for cat in ["perfect", "good", "swill", "bad"]:
 		var thumb := load(GameData.sticker_path(String(GameData.STICKERS[cat][0]))) as Texture2D
 		g3.add_child(_stat_tile(thumb, str(int(life.get(cat, 0))), GRADE_LABEL.get(cat, cat), gcol[cat]))
@@ -1565,8 +1517,8 @@ func _stat_grid(cols: int) -> GridContainer:
 	var g := GridContainer.new()
 	g.columns = cols
 	g.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	g.add_theme_constant_override("h_separation", 12)
-	g.add_theme_constant_override("v_separation", 12)
+	g.add_theme_constant_override("h_separation", UI.SP_M)
+	g.add_theme_constant_override("v_separation", UI.SP_M)
 	return g
 
 # Заголовочный шрифт (Russo One) — для крупных заголовков/названий.
@@ -1592,8 +1544,8 @@ func _fill_stickers_tab() -> void:
 		var got: Array = seen.get(cat, [])
 		var sub := Label.new()
 		sub.text = "%s   ·   %d/%d" % [GRADE_LABEL.get(cat, cat), mini(got.size(), all.size()), all.size()]
-		sub.add_theme_font_size_override("font_size", FS_BODY)
-		sub.add_theme_color_override("font_color", UI_TXT_DIM)
+		sub.add_theme_font_size_override("font_size", UI.FS_M)
+		sub.add_theme_color_override("font_color", UI.TXT_DIM)
 		collection_list.add_child(sub)
 		_sticker_grid(all, got)
 
@@ -1642,14 +1594,14 @@ func _ach_card(a: Dictionary) -> Control:
 		if val >= int(th): filled += 1
 	var unlocked: bool = filled > 0
 
-	var accent: Color = Color(UI_GOLD.r, UI_GOLD.g, UI_GOLD.b, 0.85) if unlocked else UI_BORDER
+	var accent: Color = Color(UI.GOLD.r, UI.GOLD.g, UI.GOLD.b, 0.85) if unlocked else UI.BORDER_C
 	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.add_theme_stylebox_override("panel", _panel_sb(accent))
 
 	var col := VBoxContainer.new()
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 6)
+	col.add_theme_constant_override("separation", UI.SP_S)
 	card.add_child(col)
 
 	var ic := TextureRect.new()
@@ -1666,20 +1618,20 @@ func _ach_card(a: Dictionary) -> Control:
 	nm.text = a["name"] if unlocked else "???"
 	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	nm.add_theme_font_size_override("font_size", FS_SMALL + 1)
-	nm.add_theme_color_override("font_color", UI_GOLD if unlocked else UI_TXT_DIM)
+	nm.add_theme_font_size_override("font_size", UI.FS_S + 1)
+	nm.add_theme_color_override("font_color", UI.GOLD if unlocked else UI.TXT_DIM)
 	col.add_child(nm)
 
 	# точки-ступени
 	var dots := HBoxContainer.new()
 	dots.alignment = BoxContainer.ALIGNMENT_CENTER
-	dots.add_theme_constant_override("separation", 4)
+	dots.add_theme_constant_override("separation", UI.SP_XS)
 	for i in n_tiers:
 		var d := Panel.new()
 		d.custom_minimum_size = Vector2(18, 18)
 		var dsb := StyleBoxFlat.new()
 		dsb.set_corner_radius_all(9)
-		dsb.bg_color = UI_GOLD if i < filled else Color(1, 1, 1, 0.12)
+		dsb.bg_color = UI.GOLD if i < filled else Color(1, 1, 1, 0.12)
 		d.add_theme_stylebox_override("panel", dsb)
 		dots.add_child(d)
 	col.add_child(dots)
@@ -1689,12 +1641,12 @@ func _ach_card(a: Dictionary) -> Control:
 		var prev: int = int(thresholds[filled - 1]) if filled > 0 else 0
 		var next: int = int(thresholds[filled])
 		var frac: float = clampf(float(val - prev) / maxf(1.0, float(next - prev)), 0.0, 1.0)
-		col.add_child(_mini_bar(frac, UI_GOLD))
+		col.add_child(_mini_bar(frac, UI.GOLD))
 		var pr := Label.new()
 		pr.text = "%d / %d" % [val, next]
 		pr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		pr.add_theme_font_size_override("font_size", FS_SMALL)
-		pr.add_theme_color_override("font_color", UI_TXT_DIM)
+		pr.add_theme_font_size_override("font_size", UI.FS_S)
+		pr.add_theme_color_override("font_color", UI.TXT_DIM)
 		col.add_child(pr)
 	return card
 
@@ -1716,14 +1668,14 @@ func _mini_bar(frac: float, col: Color, h: float = 12.0) -> ProgressBar:
 func _coll_header(text: String) -> void:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", 26)
+	l.add_theme_font_size_override("font_size", UI.FS_L)
 	l.add_theme_color_override("font_color", Color(0.95, 0.82, 0.5))
 	collection_list.add_child(l)
 
 func _coll_line(text: String) -> void:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", 19)
+	l.add_theme_font_size_override("font_size", UI.FS_M)
 	l.modulate = Color(1, 1, 1, 0.85)
 	collection_list.add_child(l)
 
@@ -1733,27 +1685,27 @@ const STICKER_COLS := 5      # телефон: крупные слоты, 5 в �
 func _sticker_grid(all: Array, got: Array) -> void:
 	var grid := GridContainer.new()
 	grid.columns = STICKER_COLS
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 8)
+	grid.add_theme_constant_override("h_separation", UI.SP_S)
+	grid.add_theme_constant_override("v_separation", UI.SP_S)
 	for name in all:
 		var cell := PanelContainer.new()
 		cell.custom_minimum_size = Vector2(104, 104)
 		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		if got.has(name):
-			cell.add_theme_stylebox_override("panel", _panel_sb(Color(UI_GOLD.r, UI_GOLD.g, UI_GOLD.b, 0.4), UI_PANEL2, 12))
+			cell.add_theme_stylebox_override("panel", _panel_sb(Color(UI.GOLD.r, UI.GOLD.g, UI.GOLD.b, 0.4), UI.PANEL_2, 12))
 			var tr := TextureRect.new()
 			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 			tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 			tr.texture = load(GameData.sticker_path(name)) as Texture2D
 			cell.add_child(tr)
 		else:
-			cell.add_theme_stylebox_override("panel", _panel_sb(UI_BORDER, Color(0.05, 0.05, 0.09, 0.7), 12))
+			cell.add_theme_stylebox_override("panel", _panel_sb(UI.BORDER_C, Color(0.05, 0.05, 0.09, 0.7), 12))
 			cell.tooltip_text = String(STICKER_HINTS.get(name, "выпадает случайно за этот грейд"))
 			var lock := Label.new()
 			lock.text = "🔒"
 			lock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			lock.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-			lock.add_theme_font_size_override("font_size", 34)
+			lock.add_theme_font_size_override("font_size", UI.FS_XL)
 			lock.modulate = Color(1, 1, 1, 0.28)
 			cell.add_child(lock)
 		grid.add_child(cell)
@@ -1775,15 +1727,15 @@ func _fill_ribbon_tab() -> void:
 
 # добавить прогресс-бар прямо в список коллекции
 func col_add_mini_bar(frac: float, h: float) -> void:
-	collection_list.add_child(_mini_bar(frac, UI_GOLD, h))
+	collection_list.add_child(_mini_bar(frac, UI.GOLD, h))
 
 # приглушённая подпись-подсказка в коллекции
 func _coll_hint(text: String) -> void:
 	var l := Label.new()
 	l.text = text
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.add_theme_font_size_override("font_size", FS_SMALL)
-	l.add_theme_color_override("font_color", UI_TXT_DIM)
+	l.add_theme_font_size_override("font_size", UI.FS_S)
+	l.add_theme_color_override("font_color", UI.TXT_DIM)
 	collection_list.add_child(l)
 
 # Сетка ленты: заполненные слоты — иконкой идеала, текущий — приглушённо (дробно).
@@ -1793,8 +1745,8 @@ func _ribbon_grid(count: float, total: int) -> void:
 	var frac: float = count - float(filled)
 	var grid := GridContainer.new()
 	grid.columns = STICKER_COLS
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 8)
+	grid.add_theme_constant_override("h_separation", UI.SP_S)
+	grid.add_theme_constant_override("v_separation", UI.SP_S)
 	for i in total:
 		if i < filled:
 			grid.add_child(_ribbon_slot(icon, 1.0))
@@ -1827,8 +1779,8 @@ func _plat_row(plat: int) -> void:
 	var icon := load(GameData.sticker_path("perfect1")) as Texture2D
 	var grid := GridContainer.new()
 	grid.columns = STICKER_COLS
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 8)
+	grid.add_theme_constant_override("h_separation", UI.SP_S)
+	grid.add_theme_constant_override("v_separation", UI.SP_S)
 	var show: int = mini(plat, STICKER_COLS)
 	for i in show:
 		var tr := TextureRect.new()
@@ -1855,9 +1807,9 @@ func _npc_row(npc_e: Dictionary) -> void:
 	btn.custom_minimum_size = Vector2(0, 104)
 	btn.disabled = not met
 	btn.focus_mode = Control.FOCUS_NONE
-	var accent: Color = Color(tcol.r, tcol.g, tcol.b, 0.5) if met else UI_BORDER
+	var accent: Color = Color(tcol.r, tcol.g, tcol.b, 0.5) if met else UI.BORDER_C
 	for st in ["normal", "hover", "pressed", "disabled"]:
-		btn.add_theme_stylebox_override(st, _panel_sb(accent, UI_PANEL if met else Color(0.07, 0.07, 0.11, 0.85)))
+		btn.add_theme_stylebox_override(st, _panel_sb(accent, UI.PANEL if met else Color(0.07, 0.07, 0.11, 0.85)))
 	btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	if met:
 		btn.pressed.connect(_show_char.bind(npc_e))
@@ -1865,7 +1817,7 @@ func _npc_row(npc_e: Dictionary) -> void:
 	var row := HBoxContainer.new()
 	row.set_anchors_preset(Control.PRESET_FULL_RECT)
 	row.offset_left = 12; row.offset_top = 8; row.offset_right = -12; row.offset_bottom = -8
-	row.add_theme_constant_override("separation", 16)
+	row.add_theme_constant_override("separation", UI.SP_L)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(row)
 
@@ -1883,7 +1835,7 @@ func _npc_row(npc_e: Dictionary) -> void:
 		e.custom_minimum_size = Vector2(84, 84)
 		e.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		e.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		e.add_theme_font_size_override("font_size", 46)
+		e.add_theme_font_size_override("font_size", UI.FS_XXL)
 		e.text = npc_e.get("emoji", "❓") if met else "❓"
 		e.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(e)
@@ -1891,11 +1843,11 @@ func _npc_row(npc_e: Dictionary) -> void:
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 4)
+	col.add_theme_constant_override("separation", UI.SP_XS)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var nm := Label.new()
 	nm.text = npc_e["name"] if met else "???"
-	nm.add_theme_font_size_override("font_size", 22)
+	nm.add_theme_font_size_override("font_size", UI.FS_M)
 	nm.add_theme_color_override("font_color", tcol if met else Color(1, 1, 1, 0.4))
 	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(nm)
@@ -1917,26 +1869,26 @@ func _build_chars() -> void:
 	# на ВЕСЬ экран (топбар скрыт), а не окном снизу
 	(chars_panel.get_node("Card") as PanelContainer).offset_top = PANEL_INSET
 	var cv := chars_panel.get_node("Card/V") as VBoxContainer
-	cv.add_theme_constant_override("separation", 12)
+	cv.add_theme_constant_override("separation", UI.SP_M)
 	var title := Label.new()
 	title.text = "ПЕРСОНАЖИ"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", FS_TITLE)
-	title.add_theme_color_override("font_color", UI_GOLD)
+	title.add_theme_font_size_override("font_size", UI.FS_XL)
+	title.add_theme_color_override("font_color", UI.GOLD)
 	cv.add_child(title)
-	_glow_label(title, UI_GOLD)
+	_glow_label(title, UI.GOLD)
 	var scroll := TouchScroll.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	cv.add_child(scroll)
 	chars_list = VBoxContainer.new()
 	chars_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	chars_list.add_theme_constant_override("separation", 10)
+	chars_list.add_theme_constant_override("separation", UI.SP_S)
 	scroll.add_child(chars_list)
 	var back := Button.new()
 	back.text = "← Назад"
 	back.custom_minimum_size = Vector2(0, 68)
-	back.add_theme_font_size_override("font_size", FS_BODY)
+	back.add_theme_font_size_override("font_size", UI.FS_M)
 	back.focus_mode = Control.FOCUS_NONE
 	back.pressed.connect(_close_overlay)
 	cv.add_child(back)
@@ -1972,7 +1924,7 @@ func _close_overlay() -> void:
 func _rep_bar_ctl(value: float, tcol: Color, font: int = 16) -> Control:
 	var rb: Dictionary = GameData.rep_bar(value)
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 2)
+	box.add_theme_constant_override("separation", UI.SP_XS)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var lbl := Label.new()
 	lbl.add_theme_font_size_override("font_size", font)
@@ -1999,7 +1951,7 @@ func _build_char() -> void:
 	char_panel = _make_center_panel()
 	(char_panel.get_node("Card") as PanelContainer).offset_top = PANEL_INSET   # на весь экран (топбар скрыт)
 	var cv := char_panel.get_node("Card/V") as VBoxContainer
-	cv.add_theme_constant_override("separation", 10)
+	cv.add_theme_constant_override("separation", UI.SP_S)
 
 	var scroll := TouchScroll.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -2007,7 +1959,7 @@ func _build_char() -> void:
 	cv.add_child(scroll)
 	char_list = VBoxContainer.new()
 	char_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	char_list.add_theme_constant_override("separation", 10)
+	char_list.add_theme_constant_override("separation", UI.SP_S)
 	scroll.add_child(char_list)
 
 	var back := Button.new()
@@ -2032,32 +1984,32 @@ func _show_char(npc_e: Dictionary) -> void:
 
 	# шапка: КРУПНЫЙ прямоугольный портрет слева + имя/репутация/досье справа
 	var head := HBoxContainer.new()
-	head.add_theme_constant_override("separation", 18)
+	head.add_theme_constant_override("separation", UI.SP_L)
 	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(_portrait_card(npc_e, 300.0))
 	var hcol := VBoxContainer.new()
 	hcol.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hcol.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	hcol.add_theme_constant_override("separation", 8)
+	hcol.add_theme_constant_override("separation", UI.SP_S)
 	var nm := Label.new()
 	nm.text = npc_e["name"]
 	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	nm.add_theme_font_size_override("font_size", 34)
+	nm.add_theme_font_size_override("font_size", UI.FS_XL)
 	nm.add_theme_color_override("font_color", tcol)
 	_title_font(nm)
 	hcol.add_child(nm)
 	hcol.add_child(_rep_bar_ctl(PotionProfile.get_rep(id), tcol, 18))
 	var doss_head := Label.new()
 	doss_head.text = "ДОСЬЕ"
-	doss_head.add_theme_font_size_override("font_size", FS_SMALL)
+	doss_head.add_theme_font_size_override("font_size", UI.FS_S)
 	doss_head.add_theme_color_override("font_color", tcol)
 	hcol.add_child(doss_head)
 	var doss_txt := Label.new()
 	doss_txt.text = GameData.dossier(id)
 	doss_txt.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	doss_txt.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	doss_txt.add_theme_font_size_override("font_size", 18)
-	doss_txt.add_theme_color_override("font_color", UI_TXT)
+	doss_txt.add_theme_font_size_override("font_size", UI.FS_S)
+	doss_txt.add_theme_color_override("font_color", UI.TXT)
 	hcol.add_child(doss_txt)
 	head.add_child(hcol)
 	char_list.add_child(head)
@@ -2077,8 +2029,8 @@ func _show_char(npc_e: Dictionary) -> void:
 		_char_header("Ачивки  (%d / %d)" % [opened, achs.size() * 3], tcol)
 		var grid := GridContainer.new()
 		grid.columns = 2
-		grid.add_theme_constant_override("h_separation", 10)
-		grid.add_theme_constant_override("v_separation", 10)
+		grid.add_theme_constant_override("h_separation", UI.SP_S)
+		grid.add_theme_constant_override("v_separation", UI.SP_S)
 		for a in achs:
 			grid.add_child(_npc_ach_card(a, ns))
 		char_list.add_child(grid)
@@ -2228,13 +2180,13 @@ func _npc_ach_card(ach: Dictionary, ns: Dictionary) -> Control:
 
 	var col := VBoxContainer.new()
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 5)
+	col.add_theme_constant_override("separation", UI.SP_XS)
 	card.add_child(col)
 
 	var ic := Label.new()   # иконка ачивки — эмодзи
 	ic.text = String(ach.get("icon", "🏅")) if unlocked else "❓"
 	ic.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	ic.add_theme_font_size_override("font_size", 56)
+	ic.add_theme_font_size_override("font_size", UI.FS_HERO)
 	if not unlocked:
 		ic.modulate = Color(1, 1, 1, 0.5)
 	col.add_child(ic)
@@ -2243,18 +2195,18 @@ func _npc_ach_card(ach: Dictionary, ns: Dictionary) -> Control:
 	nm.text = String(ach.get("name", "")) if unlocked else "???"
 	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	nm.add_theme_font_size_override("font_size", 18)
+	nm.add_theme_font_size_override("font_size", UI.FS_S)
 	nm.modulate = Color(1, 1, 1, 1) if unlocked else Color(1, 1, 1, 0.5)
 	col.add_child(nm)
 
 	# 3 медали-градации
 	var medals := HBoxContainer.new()
 	medals.alignment = BoxContainer.ALIGNMENT_CENTER
-	medals.add_theme_constant_override("separation", 4)
+	medals.add_theme_constant_override("separation", UI.SP_XS)
 	for i in t_list.size():
 		var m := Label.new()
 		m.text = TIER_MEDAL[i] if i < TIER_MEDAL.size() else "•"
-		m.add_theme_font_size_override("font_size", 22)
+		m.add_theme_font_size_override("font_size", UI.FS_M)
 		m.modulate = Color(1, 1, 1, 1) if i < tier else Color(1, 1, 1, 0.2)
 		medals.add_child(m)
 	col.add_child(medals)
@@ -2263,7 +2215,7 @@ func _npc_ach_card(ach: Dictionary, ns: Dictionary) -> Control:
 	var sub := Label.new()
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	sub.add_theme_font_size_override("font_size", 20)
+	sub.add_theme_font_size_override("font_size", UI.FS_M)
 	sub.modulate = Color(1, 1, 1, 0.55)
 	if tier < t_list.size():
 		if unlocked:
@@ -2278,7 +2230,7 @@ func _npc_ach_card(ach: Dictionary, ns: Dictionary) -> Control:
 func _char_header(text: String, tcol: Color) -> void:
 	var l := Label.new()
 	l.text = text.to_upper()
-	l.add_theme_font_size_override("font_size", 18)
+	l.add_theme_font_size_override("font_size", UI.FS_S)
 	l.add_theme_color_override("font_color", tcol)
 	char_list.add_child(l)
 
@@ -2297,29 +2249,29 @@ func _build_account() -> void:
 	card.anchor_left = 0.5; card.anchor_right = 0.5; card.anchor_top = 0.5; card.anchor_bottom = 0.5
 	card.offset_left = -322.0; card.offset_right = 322.0
 	card.offset_top = -440.0; card.offset_bottom = 440.0
-	card.add_theme_stylebox_override("panel", _panel_sb(UI_BORDER, UI_PANEL, 18))
+	card.add_theme_stylebox_override("panel", _panel_sb(UI.BORDER_C, UI.PANEL, 18))
 	var cv := card.get_node("V") as VBoxContainer
 	cv.alignment = BoxContainer.ALIGNMENT_BEGIN
-	cv.add_theme_constant_override("separation", 12)
+	cv.add_theme_constant_override("separation", UI.SP_M)
 	var title := Label.new()
 	title.text = "ПРОФИЛЬ"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", FS_TITLE)
-	title.add_theme_color_override("font_color", UI_GOLD)
+	title.add_theme_font_size_override("font_size", UI.FS_XL)
+	title.add_theme_color_override("font_color", UI.GOLD)
 	cv.add_child(title)
-	_glow_label(title, UI_GOLD)
+	_glow_label(title, UI.GOLD)
 	var scroll := TouchScroll.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	cv.add_child(scroll)
 	account_list = VBoxContainer.new()
 	account_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	account_list.add_theme_constant_override("separation", 12)
+	account_list.add_theme_constant_override("separation", UI.SP_M)
 	scroll.add_child(account_list)
 	var back := Button.new()
 	back.text = "← Меню"
 	back.custom_minimum_size = Vector2(0, 68)
-	back.add_theme_font_size_override("font_size", FS_BODY)
+	back.add_theme_font_size_override("font_size", UI.FS_M)
 	back.focus_mode = Control.FOCUS_NONE
 	back.pressed.connect(_show_start)
 	cv.add_child(back)
@@ -2327,9 +2279,9 @@ func _build_account() -> void:
 # Шапка профиля: крупная иконка + ник (золото) + статус.
 func _acc_header(status: String, status_col: Color) -> void:
 	var head := PanelContainer.new()
-	head.add_theme_stylebox_override("panel", _panel_sb(status_col, UI_PANEL2, 14))
+	head.add_theme_stylebox_override("panel", _panel_sb(status_col, UI.PANEL_2, 14))
 	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 14)
+	h.add_theme_constant_override("separation", UI.SP_M)
 	head.add_child(h)
 	var ic := TextureRect.new()
 	ic.texture = _ui("nav_profile")
@@ -2341,15 +2293,15 @@ func _acc_header(status: String, status_col: Color) -> void:
 	var v := VBoxContainer.new()
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	v.add_theme_constant_override("separation", 2)
+	v.add_theme_constant_override("separation", UI.SP_XS)
 	var nick := Label.new()
 	nick.text = PotionAuth.get_nickname()
-	nick.add_theme_font_size_override("font_size", FS_H)
-	nick.add_theme_color_override("font_color", UI_GOLD)
+	nick.add_theme_font_size_override("font_size", UI.FS_L)
+	nick.add_theme_color_override("font_color", UI.GOLD)
 	v.add_child(nick)
 	var stl := Label.new()
 	stl.text = status
-	stl.add_theme_font_size_override("font_size", FS_SMALL)
+	stl.add_theme_font_size_override("font_size", UI.FS_S)
 	stl.add_theme_color_override("font_color", status_col)
 	v.add_child(stl)
 	h.add_child(v)
@@ -2373,19 +2325,19 @@ func _populate_account() -> void:
 	for c in account_list.get_children():
 		c.queue_free()
 	if PotionAuth.is_logged_in():
-		_acc_header("В аккаунте · синхронизация между устройствами", UI_OK)
+		_acc_header("В аккаунте · синхронизация между устройствами", UI.OK)
 		account_list.add_child(_acc_nick_row())
 		var out := Button.new()
 		out.text = "Выйти"
 		out.custom_minimum_size = Vector2(0, 64)
-		out.add_theme_font_size_override("font_size", FS_BODY)
+		out.add_theme_font_size_override("font_size", UI.FS_M)
 		out.focus_mode = Control.FOCUS_NONE
 		out.pressed.connect(_acc_logout)
 		account_list.add_child(out)
 		return
 
 	# --- гость ---
-	_acc_header("Гость · прогресс на этом устройстве", UI_GOLD)
+	_acc_header("Гость · прогресс на этом устройстве", UI.GOLD)
 	account_list.add_child(_acc_nick_row())
 
 	var rem := CheckBox.new()
@@ -2396,7 +2348,7 @@ func _populate_account() -> void:
 
 	# вкладки Вход / Регистрация
 	var tabs := HBoxContainer.new()
-	tabs.add_theme_constant_override("separation", 8)
+	tabs.add_theme_constant_override("separation", UI.SP_S)
 	for t in [["login", "Вход"], ["register", "Регистрация"]]:
 		var b := Button.new()
 		b.text = t[1]
@@ -2448,7 +2400,7 @@ func _submit_auth(is_reg: bool, login_edit: LineEdit, pw_edit: LineEdit, nick_ed
 		_refresh_hud()
 		_populate_account()          # покажет «Вошёл: …»
 	else:
-		msg.add_theme_color_override("font_color", Color("ff6a6a"))
+		msg.add_theme_color_override("font_color", UI.BAD)
 		msg.text = str(res.get("message", "Ошибка"))
 
 func _acc_line(text: String, col: Color, font: int = 16) -> void:
@@ -2469,7 +2421,7 @@ func _acc_input(placeholder: String, secret: bool) -> LineEdit:
 
 func _acc_nick_row() -> Control:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
+	row.add_theme_constant_override("separation", UI.SP_S)
 	var edit := LineEdit.new()
 	edit.text = PotionAuth.get_nickname()
 	edit.custom_minimum_size = Vector2(0, 60)
@@ -2517,7 +2469,7 @@ func _big_action_btn(text: String, icon_name: String, primary: bool, cb: Callabl
 		sb.bg_color = Color(0.17, 0.13, 0.06, 1.0) if primary else Color(0.09, 0.09, 0.14, 1.0)
 		sb.set_corner_radius_all(14)
 		sb.set_border_width_all(3 if primary else 2)
-		sb.border_color = UI_GOLD if primary else UI_BORDER
+		sb.border_color = UI.GOLD if primary else UI.BORDER_C
 		sb.shadow_color = Color(0, 0, 0, 0.45)
 		sb.shadow_size = 8
 		sb.set_content_margin_all(10.0)
@@ -2529,15 +2481,15 @@ func _big_action_btn(text: String, icon_name: String, primary: bool, cb: Callabl
 	col.set_anchors_preset(Control.PRESET_FULL_RECT)
 	col.offset_left = 12; col.offset_top = 10
 	col.offset_right = -12; col.offset_bottom = -12
-	col.add_theme_constant_override("separation", 2)
+	col.add_theme_constant_override("separation", UI.SP_XS)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	b.add_child(col)
 
 	var lab := Label.new()
 	lab.text = text
 	lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lab.add_theme_font_size_override("font_size", 28)
-	lab.add_theme_color_override("font_color", UI_GOLD if primary else UI_TXT)
+	lab.add_theme_font_size_override("font_size", UI.FS_L)
+	lab.add_theme_color_override("font_color", UI.GOLD if primary else UI.TXT)
 	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(lab)
 
@@ -2556,7 +2508,7 @@ func _big_action_btn(text: String, icon_name: String, primary: bool, cb: Callabl
 		em.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		em.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		em.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		em.add_theme_font_size_override("font_size", 76)
+		em.add_theme_font_size_override("font_size", UI.FS_HERO)
 		em.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		col.add_child(em)
 	return b
@@ -2600,11 +2552,11 @@ func _make_center_panel(transparent: bool = false) -> Control:
 func _build_day() -> void:
 	day_panel = _make_center_panel(true)      # прозрачная — виден космос/бар
 	var dv := day_panel.get_node("Card/V") as VBoxContainer
-	dv.add_theme_constant_override("separation", 12)
+	dv.add_theme_constant_override("separation", UI.SP_M)
 
 	# карточки по центру; снизу — зарезервированное место под умения/угловые кнопки
 	day_cards = VBoxContainer.new()
-	day_cards.add_theme_constant_override("separation", 18)
+	day_cards.add_theme_constant_override("separation", UI.SP_L)
 	day_cards.alignment = BoxContainer.ALIGNMENT_CENTER
 	day_cards.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	day_cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -2625,7 +2577,7 @@ func _build_day() -> void:
 	to_menu.text = "← Меню"
 	to_menu.tooltip_text = "Бросить цикл"
 	to_menu.custom_minimum_size = Vector2(120, 66)
-	to_menu.add_theme_font_size_override("font_size", 20)
+	to_menu.add_theme_font_size_override("font_size", UI.FS_M)
 	to_menu.focus_mode = Control.FOCUS_NONE
 	to_menu.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	to_menu.offset_left = -152.0; to_menu.offset_right = -18.0
@@ -2691,32 +2643,32 @@ func _build_leaderboard_panel() -> void:
 	var card := PanelContainer.new()
 	card.anchor_left = 0.5; card.anchor_right = 0.5; card.anchor_top = 0.5; card.anchor_bottom = 0.5
 	card.offset_left = -322.0; card.offset_right = 322.0; card.offset_top = -440.0; card.offset_bottom = 440.0
-	var sb := _panel_sb(UI_GOLD, UI_PANEL, 18)
+	var sb := _panel_sb(UI.GOLD, UI.PANEL, 18)
 	sb.set_content_margin_all(20.0)
 	card.add_theme_stylebox_override("panel", sb)
 	lb_panel.add_child(card)
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 12)
+	col.add_theme_constant_override("separation", UI.SP_M)
 	card.add_child(col)
 	var title := Label.new()
 	title.text = "ГЛОБАЛЬНЫЙ РЕЙТИНГ"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", FS_TITLE)
-	title.add_theme_color_override("font_color", UI_GOLD)
+	title.add_theme_font_size_override("font_size", UI.FS_XL)
+	title.add_theme_color_override("font_color", UI.GOLD)
 	col.add_child(title)
-	_glow_label(title, UI_GOLD)
+	_glow_label(title, UI.GOLD)
 	var scroll := TouchScroll.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	col.add_child(scroll)
 	lb_list = VBoxContainer.new()
 	lb_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	lb_list.add_theme_constant_override("separation", 8)
+	lb_list.add_theme_constant_override("separation", UI.SP_S)
 	scroll.add_child(lb_list)
 	var close := Button.new()
 	close.text = "Закрыть"
 	close.custom_minimum_size = Vector2(0, 68)
-	close.add_theme_font_size_override("font_size", FS_BODY)
+	close.add_theme_font_size_override("font_size", UI.FS_M)
 	close.focus_mode = Control.FOCUS_NONE
 	close.pressed.connect(func(): lb_panel.visible = false)
 	col.add_child(close)
@@ -2733,8 +2685,8 @@ func _render_leaderboard(rows: Array, highlight: int) -> void:
 	if rows.is_empty():
 		var l := Label.new()
 		l.text = "Пока пусто — стань первым!"
-		l.add_theme_color_override("font_color", UI_TXT_DIM)
-		l.add_theme_font_size_override("font_size", FS_BODY)
+		l.add_theme_color_override("font_color", UI.TXT_DIM)
+		l.add_theme_font_size_override("font_size", UI.FS_M)
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		lb_list.add_child(l)
 		return
@@ -2743,38 +2695,38 @@ func _render_leaderboard(rows: Array, highlight: int) -> void:
 		rank += 1
 		var me: bool = highlight >= 0 and int(e.get("score", -999)) == highlight
 		var medal: Color = LB_MEDAL.get(rank, Color.TRANSPARENT)
-		var accent: Color = UI_OK if me else (medal if rank <= 3 else UI_BORDER)
+		var accent: Color = UI.OK if me else (medal if rank <= 3 else UI.BORDER_C)
 		var rowp := PanelContainer.new()
-		rowp.add_theme_stylebox_override("panel", _panel_sb(accent, UI_PANEL2 if not me else Color(UI_OK.r, UI_OK.g, UI_OK.b, 0.12), 10))
+		rowp.add_theme_stylebox_override("panel", _panel_sb(accent, UI.PANEL_2 if not me else Color(UI.OK.r, UI.OK.g, UI.OK.b, 0.12), 10))
 		var r := HBoxContainer.new()
-		r.add_theme_constant_override("separation", 12)
+		r.add_theme_constant_override("separation", UI.SP_M)
 		rowp.add_child(r)
 		# ранг-бейдж (медаль у топ-3)
 		var rk := Label.new()
 		rk.text = "%d" % rank
 		rk.custom_minimum_size = Vector2(38, 0)
 		rk.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		rk.add_theme_font_size_override("font_size", 20)
-		rk.add_theme_color_override("font_color", medal if rank <= 3 else UI_TXT_DIM)
+		rk.add_theme_font_size_override("font_size", UI.FS_M)
+		rk.add_theme_color_override("font_color", medal if rank <= 3 else UI.TXT_DIM)
 		r.add_child(rk)
 		var n := Label.new()
 		n.text = str(e.get("name", "?"))
 		n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		n.add_theme_font_size_override("font_size", FS_BODY)
-		n.add_theme_color_override("font_color", UI_OK if me else UI_TXT)
+		n.add_theme_font_size_override("font_size", UI.FS_M)
+		n.add_theme_color_override("font_color", UI.OK if me else UI.TXT)
 		r.add_child(n)
 		var dt := Label.new()
 		dt.text = str(e.get("date", ""))
-		dt.add_theme_font_size_override("font_size", FS_SMALL)
-		dt.add_theme_color_override("font_color", UI_TXT_DIM)
+		dt.add_theme_font_size_override("font_size", UI.FS_S)
+		dt.add_theme_color_override("font_color", UI.TXT_DIM)
 		dt.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		r.add_child(dt)
 		var s := Label.new()
 		s.text = str(int(e.get("score", 0)))
 		s.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		s.custom_minimum_size = Vector2(80, 0)
-		s.add_theme_font_size_override("font_size", 20)
-		s.add_theme_color_override("font_color", UI_GOLD)
+		s.add_theme_font_size_override("font_size", UI.FS_M)
+		s.add_theme_color_override("font_color", UI.GOLD)
 		r.add_child(s)
 		lb_list.add_child(rowp)
 
@@ -2785,7 +2737,7 @@ var shop_balance: Label = null
 
 func _open_shop() -> void:
 	if not GameData.prog_mech_unlocked("shop", _xp()):
-		_toast("Магазин откроется с ростом лавки (ур.4)", Color("ffcf5d"))
+		_toast("Магазин откроется с ростом лавки (ур.4)", UI.GOLD)
 		return
 	if shop_panel == null:
 		_build_shop_panel()
@@ -2813,18 +2765,18 @@ func _build_shop_panel() -> void:
 	card.add_theme_stylebox_override("panel", sb)
 	shop_panel.add_child(card)
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 10)
+	col.add_theme_constant_override("separation", UI.SP_S)
 	card.add_child(col)
 	var head := HBoxContainer.new()
 	var title := Label.new()
 	title.text = "🛒 ЛАВКА"
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	title.add_theme_font_size_override("font_size", 24)
-	title.add_theme_color_override("font_color", Color("ffcf5d"))
+	title.add_theme_font_size_override("font_size", UI.FS_L)
+	title.add_theme_color_override("font_color", UI.GOLD)
 	head.add_child(title)
 	shop_balance = Label.new()
-	shop_balance.add_theme_font_size_override("font_size", 20)
-	shop_balance.add_theme_color_override("font_color", Color("ffd75e"))
+	shop_balance.add_theme_font_size_override("font_size", UI.FS_M)
+	shop_balance.add_theme_color_override("font_color", UI.GOLD)
 	head.add_child(shop_balance)
 	col.add_child(head)
 	var scroll := TouchScroll.new()
@@ -2832,7 +2784,7 @@ func _build_shop_panel() -> void:
 	col.add_child(scroll)
 	shop_list = VBoxContainer.new()
 	shop_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	shop_list.add_theme_constant_override("separation", 10)
+	shop_list.add_theme_constant_override("separation", UI.SP_S)
 	scroll.add_child(shop_list)
 	var close := Button.new()
 	close.text = "Закрыть"
@@ -2871,7 +2823,7 @@ func _render_shop() -> void:
 		bsb.set_content_margin_all(12.0)
 		block.add_theme_stylebox_override("panel", bsb)
 		var hb := HBoxContainer.new()
-		hb.add_theme_constant_override("separation", 20)
+		hb.add_theme_constant_override("separation", UI.SP_XL)
 		block.add_child(hb)
 		# крупная иконка предмета (×2, картинка item_<id>.png, фолбэк — эмодзи)
 		var ic := _item_icon_node(it, 120.0, 64)
@@ -2880,26 +2832,26 @@ func _render_shop() -> void:
 		# инфо выбранного грейда
 		var vb := VBoxContainer.new()
 		vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		vb.add_theme_constant_override("separation", 3)
+		vb.add_theme_constant_override("separation", UI.SP_XS)
 		hb.add_child(vb)
 		var nm := Label.new()
 		nm.text = "%s · Тир %d" % [it["name"], sel + 1]
-		nm.add_theme_font_size_override("font_size", 22)
+		nm.add_theme_font_size_override("font_size", UI.FS_M)
 		nm.add_theme_color_override("font_color", Color(0.95, 0.9, 1.0))
 		vb.add_child(nm)
 		var ds := Label.new()
 		ds.text = String(it["desc"])
 		ds.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		ds.add_theme_font_size_override("font_size", 17)
+		ds.add_theme_font_size_override("font_size", UI.FS_S)
 		ds.modulate = Color(1, 1, 1, 0.55)
 		vb.add_child(ds)
 		var ef := Label.new()
 		ef.text = "Эффект: %s" % String(g["label"])
-		ef.add_theme_font_size_override("font_size", 19)
-		ef.add_theme_color_override("font_color", Color("6dff8f"))
+		ef.add_theme_font_size_override("font_size", UI.FS_M)
+		ef.add_theme_color_override("font_color", UI.OK)
 		vb.add_child(ef)
 		var buyrow := HBoxContainer.new()
-		buyrow.add_theme_constant_override("separation", 10)
+		buyrow.add_theme_constant_override("separation", UI.SP_S)
 		var buy := Button.new()
 		buy.text = "Купить · 🪙 %d" % int(g["price"])
 		buy.focus_mode = Control.FOCUS_NONE
@@ -2907,14 +2859,14 @@ func _render_shop() -> void:
 		buyrow.add_child(buy)
 		var have := Label.new()
 		have.text = "в сумке: %d" % PotionProfile.item_count(id, sel)
-		have.add_theme_font_size_override("font_size", 18)
+		have.add_theme_font_size_override("font_size", UI.FS_S)
 		have.modulate = Color(1, 1, 1, 0.6)
 		have.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		buyrow.add_child(have)
 		vb.add_child(buyrow)
 		# селектор тира 1/2/3 справа
 		var sel_col := VBoxContainer.new()
-		sel_col.add_theme_constant_override("separation", 4)
+		sel_col.add_theme_constant_override("separation", UI.SP_XS)
 		for gi in grades.size():
 			var gb := Button.new()
 			gb.text = str(gi + 1)
@@ -2922,7 +2874,7 @@ func _render_shop() -> void:
 			gb.focus_mode = Control.FOCUS_NONE
 			gb.disabled = not (gi in avail)
 			if gi == sel:
-				gb.add_theme_color_override("font_color", Color("6ec3ff"))
+				gb.add_theme_color_override("font_color", UI.CYAN)
 			gb.pressed.connect(_shop_pick_grade.bind(id, gi))
 			sel_col.add_child(gb)
 		hb.add_child(sel_col)
@@ -2939,7 +2891,7 @@ func _buy_item(id: String, grade: int, price: int) -> void:
 		_render_shop()
 	else:
 		Sfx.play("bad")
-		_toast("Не хватает чаевых", Color("ff6a6a"))
+		_toast("Не хватает чаевых", UI.BAD)
 
 # Панель применения предметов в игре: показывает предметы из инвентаря, подходящие
 # текущей фазе (select — эффекты след. заказу; craft — текущему).
@@ -2967,32 +2919,32 @@ func _build_items_panel() -> void:
 	var card := PanelContainer.new()
 	card.anchor_left = 0.5; card.anchor_right = 0.5; card.anchor_top = 0.5; card.anchor_bottom = 0.5
 	card.offset_left = -322.0; card.offset_right = 322.0; card.offset_top = -430.0; card.offset_bottom = 430.0
-	var sb := _panel_sb(UI_BORDER, UI_PANEL, 18)
+	var sb := _panel_sb(UI.BORDER_C, UI.PANEL, 18)
 	sb.set_content_margin_all(20.0)
 	card.add_theme_stylebox_override("panel", sb)
 	items_panel.add_child(card)
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 14)
+	col.add_theme_constant_override("separation", UI.SP_M)
 	card.add_child(col)
 	var title := Label.new()
 	title.text = "ИНВЕНТАРЬ"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", FS_TITLE)
-	title.add_theme_color_override("font_color", UI_GOLD)
+	title.add_theme_font_size_override("font_size", UI.FS_XL)
+	title.add_theme_color_override("font_color", UI.GOLD)
 	col.add_child(title)
-	_glow_label(title, UI_GOLD)
+	_glow_label(title, UI.GOLD)
 	var scroll := TouchScroll.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	col.add_child(scroll)
 	items_list = VBoxContainer.new()
 	items_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	items_list.add_theme_constant_override("separation", 12)
+	items_list.add_theme_constant_override("separation", UI.SP_M)
 	scroll.add_child(items_list)
 	var close := Button.new()
 	close.text = "ЗАКРЫТЬ"
 	close.custom_minimum_size = Vector2(0, 72)
-	close.add_theme_font_size_override("font_size", 24)
+	close.add_theme_font_size_override("font_size", UI.FS_L)
 	close.focus_mode = Control.FOCUS_NONE
 	close.pressed.connect(func(): items_panel.visible = false)
 	col.add_child(close)
@@ -3017,7 +2969,7 @@ func _render_items() -> void:
 		var l := Label.new()
 		l.text = "Инвентарь пуст.\nКупи предметы в 🛒 Лавке."
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		l.add_theme_font_size_override("font_size", 22)
+		l.add_theme_font_size_override("font_size", UI.FS_M)
 		l.modulate = Color(1, 1, 1, 0.55)
 		items_list.add_child(l)
 
@@ -3047,17 +2999,17 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	var usable: bool = String(it["use"]) == kind
 	var card := PanelContainer.new()
 	# применимый сейчас — золотая рамка, иначе обычная
-	card.add_theme_stylebox_override("panel", _panel_sb(UI_GOLD if usable else UI_BORDER, UI_PANEL, 12))
+	card.add_theme_stylebox_override("panel", _panel_sb(UI.GOLD if usable else UI.BORDER_C, UI.PANEL, 12))
 
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 14)
+	row.add_theme_constant_override("separation", UI.SP_M)
 	card.add_child(row)
 
 	# крупная иконка в скруглённой подложке
 	var icon_box := PanelContainer.new()
 	icon_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var ibsb := StyleBoxFlat.new()
-	ibsb.bg_color = UI_PANEL2
+	ibsb.bg_color = UI.PANEL_2
 	ibsb.set_corner_radius_all(12)
 	ibsb.set_content_margin_all(10.0)
 	icon_box.add_theme_stylebox_override("panel", ibsb)
@@ -3066,20 +3018,20 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 
 	var body := VBoxContainer.new()
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	body.add_theme_constant_override("separation", 4)
+	body.add_theme_constant_override("separation", UI.SP_XS)
 	row.add_child(body)
 
 	# имя + грейд
 	var name_row := HBoxContainer.new()
-	name_row.add_theme_constant_override("separation", 6)
+	name_row.add_theme_constant_override("separation", UI.SP_S)
 	var nm := Label.new()
 	nm.text = String(it["name"])
-	nm.add_theme_font_size_override("font_size", 26)
+	nm.add_theme_font_size_override("font_size", UI.FS_L)
 	nm.add_theme_color_override("font_color", Color(0.97, 0.97, 1.0))
 	name_row.add_child(nm)
 	var gnote := Label.new()
 	gnote.text = "· Грейд %d (%s)" % [gi + 1, String(it["grades"][gi]["label"])]
-	gnote.add_theme_font_size_override("font_size", 20)
+	gnote.add_theme_font_size_override("font_size", UI.FS_M)
 	gnote.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
 	gnote.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	name_row.add_child(gnote)
@@ -3088,7 +3040,7 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	# описание
 	var desc := Label.new()
 	desc.text = String(it["desc"])
-	desc.add_theme_font_size_override("font_size", 21)
+	desc.add_theme_font_size_override("font_size", UI.FS_M)
 	desc.add_theme_color_override("font_color", Color(1, 1, 1, 0.72))
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.add_child(desc)
@@ -3096,18 +3048,18 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	# строка эффекта — зелёным
 	var eff := Label.new()
 	eff.text = _item_effect_desc(it, gi)
-	eff.add_theme_font_size_override("font_size", 21)
+	eff.add_theme_font_size_override("font_size", UI.FS_M)
 	eff.add_theme_color_override("font_color", Color("8affc0"))
 	eff.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.add_child(eff)
 
 	# действие: кнопка + счётчик + подсказка по фазе
 	var act := HBoxContainer.new()
-	act.add_theme_constant_override("separation", 10)
+	act.add_theme_constant_override("separation", UI.SP_S)
 	var use := Button.new()
 	use.text = "Применить"
 	use.custom_minimum_size = Vector2(190, 60)
-	use.add_theme_font_size_override("font_size", 24)
+	use.add_theme_font_size_override("font_size", UI.FS_L)
 	use.focus_mode = Control.FOCUS_NONE
 	use.disabled = not usable
 	if usable:
@@ -3115,14 +3067,14 @@ func _item_card(it: Dictionary, gi: int, cnt: int, kind: String) -> PanelContain
 	act.add_child(use)
 	var owned := Label.new()
 	owned.text = "×%d" % cnt
-	owned.add_theme_font_size_override("font_size", 24)
+	owned.add_theme_font_size_override("font_size", UI.FS_L)
 	owned.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))
 	owned.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	act.add_child(owned)
 	if not usable:
 		var hint := Label.new()
 		hint.text = "(во время варки)" if String(it["use"]) == "craft" else "(на выбор дня)"
-		hint.add_theme_font_size_override("font_size", 18)
+		hint.add_theme_font_size_override("font_size", UI.FS_S)
 		hint.add_theme_color_override("font_color", Color(1, 1, 1, 0.5))
 		hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		act.add_child(hint)
@@ -3184,7 +3136,7 @@ var passives_note: Label = null
 
 func _open_passives() -> void:
 	if not GameData.prog_mech_unlocked("characters", _xp()):
-		_toast("Пассивки откроются с ростом лавки (ур.%d)" % GameData.mech_unlock_level("characters"), Color("ffcf5d"))
+		_toast("Пассивки откроются с ростом лавки (ур.%d)" % GameData.mech_unlock_level("characters"), UI.GOLD)
 		return
 	if passives_panel == null:
 		_build_passives_panel()
@@ -3213,23 +3165,23 @@ func _build_passives_panel() -> void:
 	card.add_theme_stylebox_override("panel", sb)
 	passives_panel.add_child(card)
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 8)
+	col.add_theme_constant_override("separation", UI.SP_S)
 	card.add_child(col)
 	var head := HBoxContainer.new()
 	var title := Label.new()
 	title.text = "⚡ ПАССИВКИ"
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	title.add_theme_font_size_override("font_size", 24)
+	title.add_theme_font_size_override("font_size", UI.FS_L)
 	title.add_theme_color_override("font_color", Color("9ec7ff"))
 	head.add_child(title)
 	passives_slots_lab = Label.new()
-	passives_slots_lab.add_theme_font_size_override("font_size", 22)
-	passives_slots_lab.add_theme_color_override("font_color", Color("ffd75e"))
+	passives_slots_lab.add_theme_font_size_override("font_size", UI.FS_M)
+	passives_slots_lab.add_theme_color_override("font_color", UI.GOLD)
 	head.add_child(passives_slots_lab)
 	col.add_child(head)
 	passives_note = Label.new()
 	passives_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	passives_note.add_theme_font_size_override("font_size", 16)
+	passives_note.add_theme_font_size_override("font_size", UI.FS_S)
 	col.add_child(passives_note)
 	var scroll := TouchScroll.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -3237,7 +3189,7 @@ func _build_passives_panel() -> void:
 	col.add_child(scroll)
 	passives_list = VBoxContainer.new()
 	passives_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	passives_list.add_theme_constant_override("separation", 10)
+	passives_list.add_theme_constant_override("separation", UI.SP_S)
 	scroll.add_child(passives_list)
 	var close := Button.new()
 	close.text = "Закрыть"
@@ -3274,11 +3226,11 @@ func _render_passives() -> void:
 		any = true
 		var tcol: Color = GameData.TIER_COLORS.get(int(npc_e.get("tier", 1)), Color.WHITE)
 		var gh := HBoxContainer.new()
-		gh.add_theme_constant_override("separation", 10)
+		gh.add_theme_constant_override("separation", UI.SP_S)
 		gh.add_child(_npc_icon(npc_e, 34.0, 26))
 		var gn := Label.new()
 		gn.text = String(npc_e["name"])
-		gn.add_theme_font_size_override("font_size", 20)
+		gn.add_theme_font_size_override("font_size", UI.FS_M)
 		gn.add_theme_color_override("font_color", tcol)
 		gh.add_child(gn)
 		passives_list.add_child(gh)
@@ -3287,7 +3239,7 @@ func _render_passives() -> void:
 		var empty := Label.new()
 		empty.text = "Пока нет открытых пассивок. Подними репутацию у гостей — каждый её уровень открывает новую."
 		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		empty.add_theme_font_size_override("font_size", 18)
+		empty.add_theme_font_size_override("font_size", UI.FS_S)
 		empty.modulate = Color(1, 1, 1, 0.6)
 		passives_list.add_child(empty)
 
@@ -3339,16 +3291,16 @@ func _passive_btn(npc_id: String, pv: Dictionary, unlocked: bool, tcol: Color) -
 	btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.tooltip_text = String(pv["name"]) if unlocked else "Закрыто"
-	var accent := UI_BORDER
+	var accent := UI.BORDER_C
 	var bg := Color(0.12, 0.12, 0.18, 0.92)
 	if not unlocked:
 		accent = Color(0.30, 0.30, 0.36, 0.7)
 		bg = Color(0.07, 0.07, 0.10, 0.85)
 	elif on:
-		accent = Color("6dff8f")
+		accent = UI.OK
 		bg = Color(0.10, 0.21, 0.14, 0.95)
 	elif sel:
-		accent = Color("ffd75e")
+		accent = UI.GOLD
 		bg = Color(0.18, 0.16, 0.12, 0.95)
 	else:
 		accent = Color(tcol.r, tcol.g, tcol.b, 0.55) if npc_scope else Color(0.62, 0.72, 0.95, 0.45)
@@ -3366,10 +3318,10 @@ func _passive_btn(npc_id: String, pv: Dictionary, unlocked: bool, tcol: Color) -
 			btn.expand_icon = true          # картинка масштабируется под кнопку
 		else:
 			btn.text = String(pv.get("icon", "⚡"))
-			btn.add_theme_font_size_override("font_size", 46)
+			btn.add_theme_font_size_override("font_size", UI.FS_XXL)
 	else:
 		btn.text = "🔒"
-		btn.add_theme_font_size_override("font_size", 34)
+		btn.add_theme_font_size_override("font_size", UI.FS_XL)
 		btn.modulate = Color(1, 1, 1, 0.55)
 	btn.set_meta("pv_key", "%s|%s" % [npc_id, pid])
 	btn.set_meta("pv_key", "%s|%s" % [npc_id, pid])
@@ -3379,8 +3331,8 @@ func _passive_btn(npc_id: String, pv: Dictionary, unlocked: bool, tcol: Color) -
 	if on:
 		var chk := Label.new()
 		chk.text = "✓"
-		chk.add_theme_font_size_override("font_size", 22)
-		chk.add_theme_color_override("font_color", Color("6dff8f"))
+		chk.add_theme_font_size_override("font_size", UI.FS_M)
+		chk.add_theme_color_override("font_color", UI.OK)
 		chk.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		chk.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 		chk.offset_left = -26; chk.offset_top = 2; chk.offset_right = -6; chk.offset_bottom = 28
@@ -3392,7 +3344,7 @@ func _on_passive_pressed(npc_id: String, pid: String) -> void:
 	if not PotionProfile.passive_unlocked(npc_id, pid):
 		Sfx.play("bad")
 		var idx: int = GameData.passive_index(npc_id, pid)
-		_toast("Нужна репутация ур.%d с этим гостем" % (idx + 1), Color("ffcf5d"))
+		_toast("Нужна репутация ур.%d с этим гостем" % (idx + 1), UI.GOLD)
 		return
 	if _passive_sel_npc == npc_id and _passive_sel_pid == pid:
 		_toggle_passive(npc_id, pid)        # второй тап по той же — включить/снять
@@ -3431,7 +3383,7 @@ func _show_passive_popover(npc_id: String, pid: String) -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE   # мимо меню клики проходят насквозь
 
 	var card := PanelContainer.new()
-	var sb := _panel_sb(Color("6dff8f") if on else Color("ffd75e"), Color(0.07, 0.07, 0.11, 0.98), 14)
+	var sb := _panel_sb(UI.OK if on else UI.GOLD, Color(0.07, 0.07, 0.11, 0.98), 14)
 	sb.set_content_margin_all(16.0)
 	sb.shadow_size = 16
 	card.add_theme_stylebox_override("panel", sb)
@@ -3439,11 +3391,11 @@ func _show_passive_popover(npc_id: String, pid: String) -> void:
 	root.add_child(card)
 
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 6)
+	col.add_theme_constant_override("separation", UI.SP_S)
 	card.add_child(col)
 
 	var head := HBoxContainer.new()
-	head.add_theme_constant_override("separation", 12)
+	head.add_theme_constant_override("separation", UI.SP_M)
 	var tex := load("res://assets/ui/passive_%s_%s.png" % [npc_id, pid]) as Texture2D
 	if tex != null:
 		var ir := TextureRect.new()
@@ -3459,14 +3411,14 @@ func _show_passive_popover(npc_id: String, pid: String) -> void:
 		em.custom_minimum_size = Vector2(58, 58)
 		em.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		em.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		em.add_theme_font_size_override("font_size", 42)
+		em.add_theme_font_size_override("font_size", UI.FS_XXL)
 		head.add_child(em)
 	var nm := Label.new()
 	nm.text = String(pv["name"])
 	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	nm.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	nm.add_theme_font_size_override("font_size", 23)
+	nm.add_theme_font_size_override("font_size", UI.FS_L)
 	nm.add_theme_color_override("font_color", Color(0.97, 0.94, 1.0))
 	head.add_child(nm)
 	var x := Button.new()
@@ -3474,7 +3426,7 @@ func _show_passive_popover(npc_id: String, pid: String) -> void:
 	x.custom_minimum_size = Vector2(46, 46)
 	x.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	x.focus_mode = Control.FOCUS_NONE
-	x.add_theme_font_size_override("font_size", 22)
+	x.add_theme_font_size_override("font_size", UI.FS_M)
 	x.pressed.connect(func():
 		_clear_passive_sel()
 		_refresh_passive_views())
@@ -3484,32 +3436,32 @@ func _show_passive_popover(npc_id: String, pid: String) -> void:
 	var ds := Label.new()
 	ds.text = String(pv["desc"])
 	ds.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	ds.add_theme_font_size_override("font_size", 18)
+	ds.add_theme_font_size_override("font_size", UI.FS_S)
 	ds.modulate = Color(1, 1, 1, 0.85)
 	col.add_child(ds)
 
 	var sc := Label.new()
 	sc.text = ("◆ Только заказы: %s" % String(npc_e.get("name", ""))) if npc_scope else "◆ Все заказы"
 	sc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	sc.add_theme_font_size_override("font_size", 17)
+	sc.add_theme_font_size_override("font_size", UI.FS_S)
 	sc.add_theme_color_override("font_color", tcol if npc_scope else Color(0.68, 0.78, 1.0))
 	col.add_child(sc)
 
 	var hint := Label.new()
 	if passives_locked:
 		hint.text = "Цикл начался — состав заморожен до следующего."
-		hint.add_theme_color_override("font_color", Color("ff9f6a"))
+		hint.add_theme_color_override("font_color", UI.WARN)
 	elif on:
 		hint.text = "Нажми на иконку ещё раз, чтобы снять"
-		hint.add_theme_color_override("font_color", Color("ff9f6a"))
+		hint.add_theme_color_override("font_color", UI.WARN)
 	elif PotionProfile.active_passives().size() >= GameData.PASSIVE_SLOTS:
 		hint.text = "Заняты все %d слота — сначала сними другую" % GameData.PASSIVE_SLOTS
-		hint.add_theme_color_override("font_color", Color("ffcf5d"))
+		hint.add_theme_color_override("font_color", UI.GOLD)
 	else:
 		hint.text = "Нажми на иконку ещё раз, чтобы включить"
-		hint.add_theme_color_override("font_color", Color("6dff8f"))
+		hint.add_theme_color_override("font_color", UI.OK)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint.add_theme_font_size_override("font_size", 17)
+	hint.add_theme_font_size_override("font_size", UI.FS_S)
 	col.add_child(hint)
 
 	add_child(root)
@@ -3563,12 +3515,12 @@ func _refresh_passive_views() -> void:
 func _toggle_passive(npc_id: String, pid: String) -> void:
 	if passives_locked:
 		Sfx.play("bad")
-		_toast("Цикл начался — состав пассивок заморожен", Color("ffcf5d"))
+		_toast("Цикл начался — состав пассивок заморожен", UI.GOLD)
 		return
 	var res: String = PotionProfile.toggle_passive(npc_id, pid)
 	if res == "full":
 		Sfx.play("bad")
-		_toast("Заняты все %d слота — сними другую" % GameData.PASSIVE_SLOTS, Color("ffcf5d"))
+		_toast("Заняты все %d слота — сними другую" % GameData.PASSIVE_SLOTS, UI.GOLD)
 		return
 	elif res == "locked":
 		Sfx.play("bad")
@@ -3599,7 +3551,7 @@ func _build_topbar() -> void:
 
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 8)   # 7 иконок должны влезать без съезда
+	row.add_theme_constant_override("separation", UI.SP_S)   # 7 иконок должны влезать без съезда
 	topbar.add_child(row)
 
 	# крупные тач-иконки (день/серия/рейтинг переехали под прогрессию)
@@ -3631,7 +3583,7 @@ func _topbar_icon(row: HBoxContainer, icon_name: String, glyph: String, tip: Str
 		b.add_theme_color_override("icon_disabled_color", Color(1, 1, 1, 0.35))
 	else:
 		b.text = glyph
-		b.add_theme_font_size_override("font_size", 34)
+		b.add_theme_font_size_override("font_size", UI.FS_XL)
 	if enabled and cb.is_valid():
 		b.pressed.connect(cb)
 	row.add_child(b)
@@ -3708,14 +3660,14 @@ func _flush_pending_mark() -> void:
 		else:
 			Sfx.play("trackGrade")
 			if grade_after >= TRACK_REP_MIN_GRADE:
-				_toast("★ Полоса разгорелась: %s" % TRACK_GRADE_NAME[grade_after], Color("ffd75e"))
+				_toast("★ Полоса разгорелась: %s" % TRACK_GRADE_NAME[grade_after], UI.GOLD)
 
 # Итог цикла — сводка на весь проём окна, поэтому шрифт заметно крупнее, чем
 # у однострочной подписи обычного заказа.
 func _detail_style(big: bool) -> void:
-	result_detail.add_theme_font_size_override("font_size", 32 if big else FS_BODY)
+	result_detail.add_theme_font_size_override("font_size", UI.FS_XL if big else UI.FS_M)
 	result_detail.add_theme_constant_override("line_spacing", 12 if big else 3)
-	result_detail.add_theme_color_override("font_color", UI_TXT if big else UI_TXT_DIM)
+	result_detail.add_theme_color_override("font_color", UI.TXT if big else UI.TXT_DIM)
 	result_detail.custom_minimum_size = Vector2(560 if big else 420, 0)
 
 func _refresh_cycle_stickers() -> void:
@@ -3725,7 +3677,7 @@ func _refresh_cycle_stickers() -> void:
 		c.queue_free()
 	for cat in ["perfect", "good", "swill", "bad"]:
 		var chip := HBoxContainer.new()
-		chip.add_theme_constant_override("separation", 3)
+		chip.add_theme_constant_override("separation", UI.SP_XS)
 		var ic := TextureRect.new()
 		ic.custom_minimum_size = Vector2(_sticker_icon_size, _sticker_icon_size)
 		ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -3736,7 +3688,7 @@ func _refresh_cycle_stickers() -> void:
 		chip.add_child(ic)
 		var l := Label.new()
 		l.text = str(int(cycle_stickers.get(cat, 0)))
-		l.add_theme_font_size_override("font_size", 26 if _sticker_icon_size >= 44.0 else 20)
+		l.add_theme_font_size_override("font_size", UI.FS_L if _sticker_icon_size >= 44.0 else 20)
 		l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		chip.add_child(l)
 		_tb_stickers.add_child(chip)
@@ -3830,16 +3782,16 @@ func _open_settings() -> void:
 	cc.add_child(panel)
 	var vb := VBoxContainer.new()
 	vb.custom_minimum_size = Vector2(460, 0)
-	vb.add_theme_constant_override("separation", 16)
+	vb.add_theme_constant_override("separation", UI.SP_L)
 	panel.add_child(vb)
 	var title := Label.new()
 	title.text = "Настройки"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 28)
+	title.add_theme_font_size_override("font_size", UI.FS_L)
 	title.add_theme_color_override("font_color", Color(0.98, 0.9, 0.72))
 	vb.add_child(title)
 	# язык (RU/EN) — переключатель (EN-тексты пока не портированы, храним выбор)
-	var lang_btn := _diff_button("Язык:  RU", Color("6ec3ff"))
+	var lang_btn := _diff_button("Язык:  RU", UI.CYAN)
 	var cur_lang: String = String(PotionProfile.data.get("settings", {}).get("lang", "ru"))
 	lang_btn.text = "Язык:  %s" % cur_lang.to_upper()
 	lang_btn.pressed.connect(func():
@@ -3856,10 +3808,10 @@ func _open_settings() -> void:
 
 func _settings_slider(label: String, is_music: bool) -> Control:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
+	row.add_theme_constant_override("separation", UI.SP_M)
 	var l := Label.new()
 	l.text = label
-	l.add_theme_font_size_override("font_size", 20)
+	l.add_theme_font_size_override("font_size", UI.FS_M)
 	l.custom_minimum_size = Vector2(140, 0)
 	row.add_child(l)
 	var sl := HSlider.new()
@@ -3904,21 +3856,21 @@ func _open_daily_diff() -> void:
 	cc.add_child(panel)
 	var vb := VBoxContainer.new()
 	vb.custom_minimum_size = Vector2(480, 0)
-	vb.add_theme_constant_override("separation", 12)
+	vb.add_theme_constant_override("separation", UI.SP_M)
 	panel.add_child(vb)
 	var title := Label.new()
 	title.text = "Особый заказ дня"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 28)
+	title.add_theme_font_size_override("font_size", UI.FS_L)
 	title.add_theme_color_override("font_color", Color(0.98, 0.9, 0.72))
 	vb.add_child(title)
 	var sub := Label.new()
 	sub.text = "Сегодня у всех одинаковый набор гостей.\nВыбери сложность:"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.add_theme_font_size_override("font_size", 22)
+	sub.add_theme_font_size_override("font_size", UI.FS_M)
 	sub.add_theme_color_override("font_color", Color(0.8, 0.85, 0.95))
 	vb.add_child(sub)
-	var diff_cols := {"easy": Color("5dff8f"), "mid": Color("6ec3ff"), "hard": Color("c07bff")}
+	var diff_cols := {"easy": UI.OK, "mid": UI.CYAN, "hard": Color("c07bff")}
 	for key in ["easy", "mid", "hard"]:
 		var b := _diff_button(String(DAILY_PROFILES[key]["label"]), diff_cols[key])
 		b.pressed.connect(func():
@@ -3936,7 +3888,7 @@ func _diff_button(text: String, col: Color) -> Button:
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size = Vector2(0, 58)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.add_theme_font_size_override("font_size", 22)
+	b.add_theme_font_size_override("font_size", UI.FS_M)
 	b.add_theme_color_override("font_color", col)
 	b.add_theme_color_override("font_hover_color", col.lightened(0.2))
 	b.add_theme_color_override("font_pressed_color", col)
@@ -4022,8 +3974,8 @@ func _show_daily_end() -> void:
 	result_points_box.visible = false
 	result_breakdown_box.visible = false
 	result_sticker.text = "Дейлик пройден!"
-	result_sticker.add_theme_color_override("font_color", Color("6dff8f"))
-	result_sticker.add_theme_font_size_override("font_size", 54)
+	result_sticker.add_theme_color_override("font_color", UI.OK)
+	result_sticker.add_theme_font_size_override("font_size", UI.FS_HERO)
 	_detail_style(true)
 	result_detail.text = "Рейтинг дня: %d\n🏆 Отправлено в топ дейлика" % sc
 	result_detail.visible = true
@@ -4068,7 +4020,7 @@ func _build_skill_dock(parent: Node) -> void:
 	strip.add_child(cc)
 	var wrap := HBoxContainer.new()
 	wrap.alignment = BoxContainer.ALIGNMENT_CENTER
-	wrap.add_theme_constant_override("separation", 10)
+	wrap.add_theme_constant_override("separation", UI.SP_S)
 	cc.add_child(wrap)
 	skill_dock = strip
 	skill_btns = {}
@@ -4091,12 +4043,12 @@ func _build_skill_dock(parent: Node) -> void:
 			b.add_child(ic)
 		else:
 			b.text = d["icon"]
-			b.add_theme_font_size_override("font_size", 30)
+			b.add_theme_font_size_override("font_size", UI.FS_XL)
 		wrap.add_child(b)
 		skill_btns[String(d["id"])] = b
 	# заряды умений — крупные круглые жетоны (раньше были неясные полоски)
 	var pipbox := HBoxContainer.new()
-	pipbox.add_theme_constant_override("separation", 8)
+	pipbox.add_theme_constant_override("separation", UI.SP_S)
 	pipbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	wrap.add_child(pipbox)
 	skill_pips = []
@@ -4126,21 +4078,21 @@ func _refresh_skill_dock() -> void:
 		var p: Panel = skill_pips[i]
 		var full: bool = i < charges
 		var psb := StyleBoxFlat.new()
-		psb.bg_color = Color("ffd24d") if full else Color(0.16, 0.16, 0.2, 0.9)
+		psb.bg_color = UI.GOLD if full else Color(0.16, 0.16, 0.2, 0.9)
 		psb.set_corner_radius_all(11)
 		psb.set_border_width_all(2)
-		psb.border_color = Color("ffd24d") if full else Color(1, 1, 1, 0.25)
+		psb.border_color = UI.GOLD if full else Color(1, 1, 1, 0.25)
 		p.add_theme_stylebox_override("panel", psb)
 
 func _use_skill(id: String) -> void:
 	if PotionProfile.get_charges() <= 0:
-		Sfx.play("badPop"); _toast("Нет зарядов умений", Color("ff9a6a")); return
+		Sfx.play("badPop"); _toast("Нет зарядов умений", UI.WARN); return
 	match id:
 		"refresh":
 			if not PotionProfile.spend_charge():
 				return
 			_refresh_day()
-			_toast("🔄 Гости дня обновлены", Color("6ec3ff"))
+			_toast("🔄 Гости дня обновлены", UI.CYAN)
 			_refresh_skill_dock()
 		"grade":
 			_grade_bump()
@@ -4173,7 +4125,7 @@ func _grade_bump() -> void:
 		if int(day_choices[i].get("tier", 1)) < 4:
 			idxs.append(i)
 	if idxs.is_empty():
-		Sfx.play("badPop"); _toast("Некому поднимать грейд", Color("ff9a6a")); return
+		Sfx.play("badPop"); _toast("Некому поднимать грейд", UI.WARN); return
 	if not PotionProfile.spend_charge():
 		return
 	var i: int = idxs[randi() % idxs.size()]
@@ -4182,7 +4134,7 @@ func _grade_bump() -> void:
 	day_choices[i] = GameData.grade_up_cfg(prev, int(prev.get("tier", 1)) + 1)
 	day_order_mods[String(day_choices[i].get("id", ""))] = day_order_mods.get(pid, {})
 	_rebuild_day_cards()
-	_toast("🔁 Грейд поднят: %s" % String(day_choices[i].get("name", "")), Color("ffd24d"))
+	_toast("🔁 Грейд поднят: %s" % String(day_choices[i].get("name", "")), UI.GOLD)
 
 func _rebuild_day_cards() -> void:
 	for c in day_cards.get_children():
@@ -4233,12 +4185,12 @@ func _open_skill_picker(mode: String) -> void:
 	var box := VBoxContainer.new()
 	box.set_anchors_preset(Control.PRESET_FULL_RECT)
 	box.offset_left = 24; box.offset_right = -24; box.offset_top = 80; box.offset_bottom = -24
-	box.add_theme_constant_override("separation", 12)
+	box.add_theme_constant_override("separation", UI.SP_M)
 	ov.add_child(box)
 	var title := Label.new()
 	title.text = "Кто там? Выбери гостя" if mode == "who" else "Этих не пускайте (до 3)"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 26)
+	title.add_theme_font_size_override("font_size", UI.FS_L)
 	title.add_theme_color_override("font_color", Color(0.95, 0.98, 1.0))
 	box.add_child(title)
 	var scroll := TouchScroll.new()
@@ -4247,23 +4199,23 @@ func _open_skill_picker(mode: String) -> void:
 	box.add_child(scroll)
 	var grid := GridContainer.new()
 	grid.columns = 3
-	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 10)
+	grid.add_theme_constant_override("h_separation", UI.SP_S)
+	grid.add_theme_constant_override("v_separation", UI.SP_S)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(grid)
 	for id in ids:
 		grid.add_child(_pick_cell(_npc_by_id(id)))
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 16)
+	row.add_theme_constant_override("separation", UI.SP_L)
 	box.add_child(row)
 	var cancel := Button.new()
-	cancel.text = "Отмена"; cancel.add_theme_font_size_override("font_size", 22)
+	cancel.text = "Отмена"; cancel.add_theme_font_size_override("font_size", UI.FS_M)
 	cancel.custom_minimum_size = Vector2(160, 56)
 	cancel.pressed.connect(_close_skill_picker)
 	row.add_child(cancel)
 	var confirm := Button.new()
-	confirm.text = "Готово"; confirm.add_theme_font_size_override("font_size", 22)
+	confirm.text = "Готово"; confirm.add_theme_font_size_override("font_size", UI.FS_M)
 	confirm.custom_minimum_size = Vector2(160, 56)
 	confirm.pressed.connect(_skill_pick_confirm)
 	row.add_child(confirm)
@@ -4279,7 +4231,7 @@ func _pick_cell(cfg: Dictionary) -> Control:
 	var vb := VBoxContainer.new()
 	vb.set_anchors_preset(Control.PRESET_FULL_RECT)
 	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vb.add_theme_constant_override("separation", 4)
+	vb.add_theme_constant_override("separation", UI.SP_XS)
 	b.add_child(vb)
 	var tex := load(GameData.portrait_path(cfg)) as Texture2D
 	if tex:
@@ -4293,7 +4245,7 @@ func _pick_cell(cfg: Dictionary) -> Control:
 	var nm := Label.new()
 	nm.text = String(cfg.get("name", ""))
 	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	nm.add_theme_font_size_override("font_size", 21)
+	nm.add_theme_font_size_override("font_size", UI.FS_M)
 	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vb.add_child(nm)
 	return b
@@ -4323,11 +4275,11 @@ func _skill_pick_confirm() -> void:
 		return
 	if _pick_mode == "who":
 		guaranteed_npc = String(sel[0])
-		_toast("👀 Гость придёт в ближайших днях", Color("6ec3ff"))
+		_toast("👀 Гость придёт в ближайших днях", UI.CYAN)
 	else:
 		for id in sel:
 			banned_npcs[String(id)] = true
-		_toast("🚫 Не появятся до конца цикла", Color("ff9a6a"))
+		_toast("🚫 Не появятся до конца цикла", UI.WARN)
 	Sfx.play("cardPick")
 	_close_skill_picker()
 	_refresh_skill_dock()
@@ -4482,13 +4434,13 @@ func _day_card(npc_e: Dictionary) -> Control:
 
 	var icol := VBoxContainer.new()
 	icol.alignment = BoxContainer.ALIGNMENT_CENTER
-	icol.add_theme_constant_override("separation", 8)
+	icol.add_theme_constant_override("separation", UI.SP_S)
 	icol.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	info.add_child(icol)
 
 	var name_l := Label.new()
 	name_l.text = String(npc_e["name"])
-	name_l.add_theme_font_size_override("font_size", 23)
+	name_l.add_theme_font_size_override("font_size", UI.FS_L)
 	name_l.add_theme_color_override("font_color", Color(0.98, 0.97, 1.0))
 	name_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	icol.add_child(name_l)
@@ -4496,7 +4448,7 @@ func _day_card(npc_e: Dictionary) -> Control:
 	var flavors: Array = npc_e.get("flavors", [""])
 	var quote_l := Label.new()
 	quote_l.text = "«%s»" % String(flavors[0])
-	quote_l.add_theme_font_size_override("font_size", 20)
+	quote_l.add_theme_font_size_override("font_size", UI.FS_M)
 	quote_l.add_theme_color_override("font_color", Color(0.82, 0.83, 0.9))
 	quote_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	quote_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -4513,7 +4465,7 @@ func _day_card(npc_e: Dictionary) -> Control:
 	diff.offset_top = 16.0
 	diff.offset_bottom = -16.0
 	diff.alignment = BoxContainer.ALIGNMENT_CENTER
-	diff.add_theme_constant_override("separation", 8)
+	diff.add_theme_constant_override("separation", UI.SP_S)
 	diff.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	diff.visible = false
 	_fill_diff_group(diff, npc_e, tier, tcol)
@@ -4594,7 +4546,7 @@ func _fill_diff_group(diff: HBoxContainer, npc_e: Dictionary, tier: int, tcol: C
 
 # Один блок сложности — узкая тач-кнопка с вертикальным текстом.
 func _diff_block(npc_e: Dictionary, lvl: int, tcol: Color, ideal: int, locked: bool) -> Button:
-	var bc: Color = Color("ff5d6a") if lvl == 4 else tcol   # УР.4 — красный
+	var bc: Color = UI.BAD if lvl == 4 else tcol   # УР.4 — красный
 	var b := Button.new()
 	b.custom_minimum_size = Vector2(78, 0)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -4610,12 +4562,12 @@ func _diff_block(npc_e: Dictionary, lvl: int, tcol: Color, ideal: int, locked: b
 	var v := VBoxContainer.new()
 	v.set_anchors_preset(Control.PRESET_FULL_RECT)
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	v.add_theme_constant_override("separation", 1)
+	v.add_theme_constant_override("separation", UI.SP_XS)
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var tag := Label.new()
 	tag.text = "УР.%d%s" % [lvl, " ⚠" if lvl == 4 else ""]
 	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	tag.add_theme_font_size_override("font_size", 19)
+	tag.add_theme_font_size_override("font_size", UI.FS_M)
 	tag.add_theme_color_override("font_color", bc if not locked else Color(bc.r, bc.g, bc.b, 0.6))
 	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(tag)
@@ -4625,18 +4577,18 @@ func _diff_block(npc_e: Dictionary, lvl: int, tcol: Color, ideal: int, locked: b
 	sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if locked:
 		sub.text = "нужна\nрепутация\nур.%d" % GameData.REP_L4_UNLOCK_LEVEL
-		sub.add_theme_font_size_override("font_size", 20)
+		sub.add_theme_font_size_override("font_size", UI.FS_M)
 		sub.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
 		v.add_child(sub)
 	else:
 		sub.text = "за идеал:"
-		sub.add_theme_font_size_override("font_size", 20)
+		sub.add_theme_font_size_override("font_size", UI.FS_M)
 		sub.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))
 		v.add_child(sub)
 		var val := Label.new()
 		val.text = "+%d" % ideal
 		val.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		val.add_theme_font_size_override("font_size", 21)
+		val.add_theme_font_size_override("font_size", UI.FS_M)
 		val.add_theme_color_override("font_color", Color(0.98, 0.97, 1.0))
 		val.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		v.add_child(val)
@@ -4697,9 +4649,9 @@ func _apply_relation_pick(chosen_id: String) -> void:
 				PotionProfile.adjust_rep(other, -base * float(scale))
 				var nm: String = String(_npc_by_id(other).get("name", ""))
 				if bump["just_left"]:
-					_toast("🚪 %s обиделся и ушёл до конца цикла" % nm, Color("ff6a6a"))
+					_toast("🚪 %s обиделся и ушёл до конца цикла" % nm, UI.BAD)
 				elif bump["just_offended"]:
-					_toast("😤 %s обиделся — стикеры будут нечестные" % nm, Color("ff9a6a"))
+					_toast("😤 %s обиделся — стикеры будут нечестные" % nm, UI.WARN)
 
 # Модификаторы задания — полосы во всю ширину панели (иконка + название капсом),
 # у каждого свой цвет; «без модификатора» — красным.
@@ -4709,17 +4661,17 @@ func _mod_rows(npc_id: String) -> Array:
 	var mods: Array = om.get("mods", [])
 	var rows: Array = []
 	if focus == "" and mods.is_empty():
-		rows.append(_mod_row(null, "✕", "без модификатора", Color("ff5d6a")))
+		rows.append(_mod_row(null, "✕", "без модификатора", UI.BAD))
 		return rows
 	if focus != "":
 		var fm: Dictionary = GameData.FOCUS_META[focus]
 		var tex := load("res://assets/ui/%s.png" % FOCUS_IMG.get(focus, "bubble")) as Texture2D
-		rows.append(_mod_row(tex, "", "фокус: %s" % fm["name"], Color("6ec3ff")))
+		rows.append(_mod_row(tex, "", "фокус: %s" % fm["name"], UI.CYAN))
 	for m in mods:
 		var mm: Dictionary = GameData.MOD_META[m]
 		# картинка mod_<key>.png (иконка вместо эмодзи), фолбэк — эмодзи из MOD_META
 		var mtex := load("res://assets/ui/mod_%s.png" % m) as Texture2D
-		rows.append(_mod_row(mtex, String(mm["icon"]), String(mm["name"]), Color("ffcf5d")))
+		rows.append(_mod_row(mtex, String(mm["icon"]), String(mm["name"]), UI.GOLD))
 	return rows
 
 func _mod_row(tex: Texture2D, emoji: String, text: String, col: Color) -> PanelContainer:
@@ -4734,7 +4686,7 @@ func _mod_row(tex: Texture2D, emoji: String, text: String, col: Color) -> PanelC
 	sb.content_margin_top = 8.0; sb.content_margin_bottom = 8.0
 	p.add_theme_stylebox_override("panel", sb)
 	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 7)
+	h.add_theme_constant_override("separation", UI.SP_S)
 	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if tex != null:
 		var ir := TextureRect.new()
@@ -4751,7 +4703,7 @@ func _mod_row(tex: Texture2D, emoji: String, text: String, col: Color) -> PanelC
 		h.add_child(el)
 	var l := Label.new()
 	l.text = text.to_upper()
-	l.add_theme_font_size_override("font_size", 20)
+	l.add_theme_font_size_override("font_size", UI.FS_M)
 	l.add_theme_color_override("font_color", col)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	h.add_child(l)
@@ -4915,8 +4867,8 @@ func _show_cycle_end() -> void:
 	result_points_box.visible = false      # у итога цикла нет очков-за-заказ/разбивки
 	result_breakdown_box.visible = false
 	result_sticker.text = "Цикл пройден!"
-	result_sticker.add_theme_color_override("font_color", Color("6dff8f"))
-	result_sticker.add_theme_font_size_override("font_size", 54)
+	result_sticker.add_theme_color_override("font_color", UI.OK)
+	result_sticker.add_theme_font_size_override("font_size", UI.FS_HERO)
 	# отправляем рейтинг цикла в глобальный топ (онлайн если в аккаунте + локально)
 	_lb_save(PotionAuth.get_nickname(), cycle_score)
 	# пассивка-уникалка «tipsFlat» — плоские чаевые в конце цикла
@@ -4939,7 +4891,7 @@ func _show_cycle_end() -> void:
 	var td: float = 0.5
 	if lvl_after > lvl_before:
 		for lv in range(lvl_before + 1, lvl_after + 1):
-			_toast.call_deferred("★ Лавка выросла до ур.%d!" % lv, Color("ffcf5d"), td)
+			_toast.call_deferred("★ Лавка выросла до ур.%d!" % lv, UI.GOLD, td)
 			td += 0.5
 	var new_npcs: Array = []
 	for id in GameData.prog_unlocked_npcs(xp_after):
@@ -5242,7 +5194,7 @@ func _show_ir_chip() -> void:
 	var m: Dictionary = IR_META[ir_effect_id]
 	ir_chip.text = "%s %s" % [m["icon"], m["name"]]
 	ir_chip.add_theme_color_override("font_color",
-		Color("6dff8f") if ir_effect_kind == "buff" else Color("ff9a6a"))
+		UI.OK if ir_effect_kind == "buff" else UI.WARN)
 	ir_chip.visible = true
 
 # «Последний из Ир»: игровые эффекты выбранного заказу баффа/дебаффа (по ir_effect_id).
@@ -5251,20 +5203,20 @@ func _apply_ir_effect() -> void:
 	match ir_effect_id:
 		"time_plus":
 			phase_total += 4.0; phase_left += 4.0
-			_toast("🌅 Подаренные секунды: +4с", Color("6dff8f"))
+			_toast("🌅 Подаренные секунды: +4с", UI.OK)
 		"gift":
 			var ks: Array = active.duplicate(); ks.shuffle()
 			for i in mini(2, ks.size()):
 				var k: String = ks[i]
 				sliders[k].set_value_no_signal(float(target[k]))
 				_on_slider_changed(float(target[k]), k)
-			_toast("🌅 Рука Ир: 2 регулятора выставлены", Color("6dff8f"))
+			_toast("🌅 Рука Ир: 2 регулятора выставлены", UI.OK)
 		"time_minus":
 			phase_total = maxf(4.0, phase_total - 2.0); phase_left = maxf(2.0, phase_left - 2.0)
-			_toast("🌫 Украденные секунды: −2с", Color("ff9a6a"))
+			_toast("🌫 Украденные секунды: −2с", UI.WARN)
 		"mono":
 			jar.set_mono(true)                    # банка ч-б + подмылена
-			_toast("🌫 Выцветший мир", Color("ff9a6a"))
+			_toast("🌫 Выцветший мир", UI.WARN)
 
 # ---------- Фаза 3: фокус-заказы и модификаторы ----------
 # Бросок модификаторов для КОНКРЕТНОГО гостя (при формировании дня, чтобы показать
@@ -5341,7 +5293,7 @@ func _use_item(id: String, grade: int) -> void:
 		"speedlock": item_fx["speedlock"] = float(g["lock"])
 		"jigger": _apply_jigger(int(g["n"]))
 	Sfx.play("uiClick")
-	_toast("%s %s применён" % [it["icon"], it["name"]], Color("6dff8f"))
+	_toast("%s %s применён" % [it["icon"], it["name"]], UI.OK)
 
 # «Джиггер»: отключает n случайных активных регуляторов — они больше не оцениваются.
 func _apply_jigger(n: int) -> void:
@@ -5365,7 +5317,7 @@ func _show_mod_chip() -> void:
 		mod_chip.visible = false
 		return
 	mod_chip.text = "   ".join(parts)
-	mod_chip.add_theme_color_override("font_color", Color("ffcf5d"))
+	mod_chip.add_theme_color_override("font_color", UI.GOLD)
 	mod_chip.visible = true
 
 # ---------- таймеры фаз ----------
@@ -5602,7 +5554,7 @@ func _do_finish() -> void:
 	if grade == "perfect" and cycle_active:
 		# пассивка-уникалка «chargeAt2» снижает порог с 3 идеалов до 2
 		if PotionProfile.bump_perfect_charge(2 if PotionProfile.passive_flag("chargeAt2") else 3):
-			_toast("✨ +1 заряд умения", Color("ffd24d"))
+			_toast("✨ +1 заряд умения", UI.GOLD)
 
 	# особый стикер по условию (или базовый случайный) — рейтинг цикла уже известен
 	var score_after: int = cycle_score + int(outcome.get("points", 0))
@@ -5632,7 +5584,7 @@ func _do_finish() -> void:
 			var oid: String = String(e.get("id", ""))
 			if oid != "" and oid != myid:
 				PotionProfile.adjust_rep(oid, -2.0)
-		_toast.call_deferred("💥 Погром: «%s» ушёл и подпортил репутацию гостям дня" % String(npc.get("name", "")), Color("ff9a6a"))
+		_toast.call_deferred("💥 Погром: «%s» ушёл и подпортил репутацию гостям дня" % String(npc.get("name", "")), UI.WARN)
 
 	# для перехода дня/цикла
 	last_grade = grade
@@ -5742,8 +5694,8 @@ func _ir_replay() -> void:
 const GRADE_LABEL := {"perfect": "ИДЕАЛ!", "good": "ГОДНО", "swill": "ПОЙЛО", "bad": "БРАК"}
 
 const GRADE_COLOR := {
-	"perfect": Color("6ec3ff"), "good": Color("6dff8f"),
-	"swill": Color("ffcf5d"), "bad": Color("ff6a6a"),
+	"perfect": UI.CYAN, "good": UI.OK,
+	"swill": UI.GOLD, "bad": UI.BAD,
 }
 func _show_result(overall: float, comps: Dictionary, grade: String, outcome: Dictionary, sticker_name: String) -> void:
 	phase = "result"
@@ -5770,7 +5722,7 @@ func _show_result(overall: float, comps: Dictionary, grade: String, outcome: Dic
 	result_points_box.visible = true
 	result_breakdown_box.visible = true
 	result_sticker.text = "%s   %d%%" % [GRADE_LABEL.get(grade, "БРАК"), int(round(overall * 100.0))]
-	result_sticker.add_theme_font_size_override("font_size", 46)   # итог цикла ставит крупнее — возвращаем
+	result_sticker.add_theme_font_size_override("font_size", UI.FS_XXL)   # итог цикла ставит крупнее — возвращаем
 	result_sticker.add_theme_color_override("font_color", gcol)
 	result_sticker.add_theme_color_override("font_outline_color", Color(gcol.r, gcol.g, gcol.b, 0.5))
 
@@ -5786,10 +5738,10 @@ func _show_result(overall: float, comps: Dictionary, grade: String, outcome: Dic
 		if speed_pct > 0:
 			txt += "\n⚡ бонус за скорость: +%d%%" % speed_pct
 		result_points.text = txt
-		result_points.add_theme_color_override("font_color", Color("6dff8f"))
+		result_points.add_theme_color_override("font_color", UI.OK)
 	elif points < 0:
 		result_points.text = "%d к рейтингу" % points     # минус уже в числе
-		result_points.add_theme_color_override("font_color", Color("ff6a6a"))
+		result_points.add_theme_color_override("font_color", UI.BAD)
 	else:
 		result_points.text = "рейтинг не начислен"
 		result_points.add_theme_color_override("font_color", Color(1, 1, 1, 0.45))
@@ -5804,7 +5756,7 @@ func _show_result(overall: float, comps: Dictionary, grade: String, outcome: Dic
 		var nl := Label.new()
 		var focused: bool = key in focus_keys
 		nl.text = ("%s " % GameData.FOCUS_META[order_focus]["icon"] if focused else "") + PARAMS[key]["label"]
-		nl.modulate = Color("ffcf5d") if focused else Color(1, 1, 1, 0.8)
+		nl.modulate = UI.GOLD if focused else Color(1, 1, 1, 0.8)
 		nl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		rowb.add_child(nl)
 		var vl := Label.new()
@@ -5849,8 +5801,8 @@ func _show_result(overall: float, comps: Dictionary, grade: String, outcome: Dic
 
 # Цвет процента: чем выше — тем «холоднее»/зеленее.
 func _pct_color(pct: int) -> Color:
-	if pct >= 95: return Color("6ec3ff")
-	if pct >= 80: return Color("6dff8f")
+	if pct >= 95: return UI.CYAN
+	if pct >= 80: return UI.OK
 	if pct >= 60: return Color("cfe86a")
 	return Color("ff8a6a")
 
