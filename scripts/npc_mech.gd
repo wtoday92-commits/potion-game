@@ -1169,6 +1169,7 @@ class SwarmMech extends NpcMech:
 		layer = Control.new()
 		layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+		layer.set_meta("mech_layer", true)     # чтобы новый заказ снёс «залипший» слой
 		g.jar_stage.add_child(layer)
 		var pool: Array = targets.duplicate()          # все цели по одному разу
 		var extras: Array = range(_texs.size()); extras.shuffle()
@@ -1206,6 +1207,8 @@ class SwarmMech extends NpcMech:
 			elif zone.position.y < 0.3: start.y = -110.0          # НАД банкой → сверху
 			else: start.y = sz.y + 120.0                          # снизу (стол)
 			part.position = start - part.size * 0.5
+			part.push_others = true       # детали расталкиваются, а не слипаются в кучу
+			part.push_bounds = true       # и не уезжают за пределы сцены
 			part.dropped.connect(_on_dropped)
 			parts.append(part)
 			var tw2: Tween = part.create_tween()
@@ -1241,6 +1244,7 @@ class SwarmMech extends NpcMech:
 			nc.y = clampf(nc.y, z.position.y * sz.y, (z.position.y + z.size.y) * sz.y)
 			var tw: Tween = p.create_tween()
 			tw.tween_property(p, "position", nc - p.size * 0.5, 0.7).set_trans(Tween.TRANS_SINE)
+			p.drift_tw = tw
 
 	func _inside(part) -> bool:
 		if layer == null or layer.size.x <= 0.0:
@@ -1599,6 +1603,9 @@ class CollectorMech extends NpcMech:
 		var vsize: float = (float(g_ref.target["volume"]) - float(vp["min"])) / (float(vp["max"]) - float(vp["min"]))
 		var bp: Dictionary = g_ref.PARAMS["bsize"]
 		var bfrac: float = (float(g_ref.target["bsize"]) - float(bp["min"])) / (float(bp["max"]) - float(bp["min"]))
+		# ВАЖНО: та же посуда, что и в заказе — иначе на показе один бокал,
+		# а в сетке совсем другой, и «найди свою банку» превращается в лотерею
+		jar.set_glass(g_ref.jar.glass_idx)
 		jar.set_potion(color_v, vsize, count_v, bfrac, randi(), 0.72)
 		btn.pressed.connect(_choose.bind(is_correct))
 		return btn

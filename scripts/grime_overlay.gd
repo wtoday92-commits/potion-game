@@ -14,7 +14,8 @@ const REFOG_EVERY := 2.4            # период дозагрязнения, �
 const REFOG_BLOTCHES := 4           # сколько бляшек за тик
 const REFOG_R := 66.0              # радиус бляшки (пиксели)
 
-var sponge_r: float = 58.0          # радиус губки (пиксели)
+var sponge_r: float = 76.0          # радиус губки (пиксели)
+var _last_p: Vector2 = Vector2.INF  # прошлая точка протирки (для непрерывного следа)
 var refog_on: bool = false          # УР.4: экран снова пачкается со временем
 var _refog_t: float = 0.0
 
@@ -118,13 +119,16 @@ func clean_fraction() -> float:
 func _cell_size() -> Vector2:
 	return Vector2(size.x / float(COLS), size.y / float(ROWS))
 
-func _wipe_at(p: Vector2) -> void:
-	var cs := _cell_size()
-	if cs.x <= 0.0 or cs.y <= 0.0:
-		return
+# Стереть кружок в точке p. Перебираем только ячейки в габаритах кружка —
+# полный обход 44×64 на каждый шаг следа был бы слишком дорогим.
+func _wipe_dot(p: Vector2, cs: Vector2) -> bool:
+	var c0: int = maxi(0, int(floorf((p.x - sponge_r) / cs.x)))
+	var c1: int = mini(COLS - 1, int(ceilf((p.x + sponge_r) / cs.x)))
+	var r0: int = maxi(0, int(floorf((p.y - sponge_r) / cs.y)))
+	var r1: int = mini(ROWS - 1, int(ceilf((p.y + sponge_r) / cs.y)))
 	var changed := false
-	for r in ROWS:
-		for c in COLS:
+	for r in range(r0, r1 + 1):
+		for c in range(c0, c1 + 1):
 			var i: int = r * COLS + c
 			if not _dirty[i]:
 				continue
@@ -133,19 +137,37 @@ func _wipe_at(p: Vector2) -> void:
 				_dirty[i] = false
 				_mask_img.set_pixel(c, r, Color(0, 0, 0))
 				changed = true
+	return changed
+
+# Протирка ОТРЕЗКОМ от прошлой точки к текущей: палец между кадрами проходит
+# десятки пикселей, и стирание точками оставляло дырявый пунктир — казалось,
+# что губка мелкая и тормозит.
+func _wipe_to(p: Vector2) -> void:
+	var cs := _cell_size()
+	if cs.x <= 0.0 or cs.y <= 0.0:
+		return
+	var changed: bool = _wipe_dot(p, cs)
+	if _last_p.x != INF:
+		var d: float = _last_p.distance_to(p)
+		var steps: int = mini(24, int(d / maxf(sponge_r * 0.45, 1.0)))
+		for s in range(1, steps + 1):
+			if _wipe_dot(_last_p.lerp(p, float(s) / float(steps + 1)), cs):
+				changed = true
+	_last_p = p
 	if changed:
 		_mask_tex.update(_mask_img)
 
 func _gui_input(event: InputEvent) -> void:
-	if event is InputEventScreenTouch and event.pressed:
-		_wipe_at(event.position)
+	if event is InputEventScreenTouch or (event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT):
+		if event.pressed:
+			_last_p = Vector2.INF        # новый мазок — след начинается заново
+			_wipe_to(event.position)
+		else:
+			_last_p = Vector2.INF
 		accept_event()
 	elif event is InputEventScreenDrag:
-		_wipe_at(event.position)
-		accept_event()
-	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-		_wipe_at(event.position)
+		_wipe_to(event.position)
 		accept_event()
 	elif event is InputEventMouseMotion and (event.button_mask & MOUSE_BUTTON_MASK_LEFT):
-		_wipe_at(event.position)
+		_wipe_to(event.position)
 		accept_event()
