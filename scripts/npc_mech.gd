@@ -1079,8 +1079,8 @@ class SwarmMech extends NpcMech:
 		"swarm_08_royalblue.png", "swarm_09_coral.png", "swarm_10_amber.png", "swarm_11_rust.png",
 		"swarm_12_silver.png", "swarm_13_cream.png", "swarm_14_charcoal.png",
 	]
-	const S_MEM := 74.0     # размер детали-образца внутри банки
-	const S_FLY := 92.0     # размер летающих деталей (крупно — читаемо на телефоне)
+	const S_MEM := 50.0     # размер детали-образца внутри бокала
+	const S_FLY := 62.0     # размер летающих деталей
 	var _texs: Array = []
 	var g_ref
 	var layer: Control = null           # разлетевшиеся детали на «ВОССОЗДАЙ»
@@ -1124,6 +1124,14 @@ class SwarmMech extends NpcMech:
 		var holder: Control = g.jar.inner_holder()
 		var jw: float = JarStage.JAR_W             # фиксированный размер банки (без завязки на layout)
 		var jh: float = JarStage.JAR_H
+		# Границы ЧАШИ выбранного бокала (доли размера сосуда). У высоких бокалов
+		# низ чаши сильно выше низа картинки — без этого детали ложились на ножку.
+		var mx: float = S_MEM * 0.5 / jw + 0.02
+		var my: float = S_MEM * 0.5 / jh + 0.02
+		var x0: float = g.jar.I_LEFT + mx
+		var x1: float = g.jar.I_RIGHT - mx
+		var y0: float = g.jar.I_TOP + (g.jar.I_BOT - g.jar.I_TOP) * 0.34 + my
+		var y1: float = g.jar.I_BOT - my
 		var placed: Array = []
 		for i in n_target:
 			var mp := DragPart.new()
@@ -1131,14 +1139,13 @@ class SwarmMech extends NpcMech:
 			mp.set_part_size(S_MEM)
 			mp.set_texture_part(_texs[int(targets[i])], int(targets[i]))
 			mp.mouse_filter = Control.MOUSE_FILTER_IGNORE  # образец не таскаем (после _ready)
-			# rejection sampling в зоне жидкости (доли от размера банки)
-			var best := Vector2(0.49 * jw, 0.62 * jh)
-			for _attempt in 18:
-				var cand := Vector2(randf_range(0.30, 0.68) * jw, randf_range(0.42, 0.84) * jh)
+			var best := Vector2((x0 + x1) * 0.5 * jw, (y0 + y1) * 0.5 * jh)
+			for _attempt in 24:
+				var cand := Vector2(randf_range(x0, x1) * jw, randf_range(y0, y1) * jh)
 				best = cand
 				var ok := true
 				for pp in placed:
-					if cand.distance_to(pp) < S_MEM * 0.9:
+					if cand.distance_to(pp) < S_MEM * 0.85:
 						ok = false
 						break
 				if ok:
@@ -1156,14 +1163,15 @@ class SwarmMech extends NpcMech:
 		g.sliders["count"].set_value_no_signal(0.0)
 		g._apply_to_jar(g._current_values())        # перерисовать банку пустой (без сгустков)
 		var sz: Vector2 = g.jar_stage.size
-		# 1) детали образца резко разлетаются за пределы экрана (из банки — в координаты сцены)
+		# 1) детали образца быстро тают в прозрачность (раньше улетали за экран
+		#    и при обрыве твина оставались висеть посреди сцены)
 		for mp in mem_parts:
-			mp.reparent(g.jar_stage)                       # keep_global → остаётся на месте
-			var dir: Vector2 = (mp.center() - sz * 0.5)
-			dir = dir.normalized() if dir.length() > 1.0 else Vector2(randf_range(-1, 1), randf_range(-1, 1)).normalized()
+			mp.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			var tw: Tween = mp.create_tween()
-			tw.tween_property(mp, "position", mp.position + dir * sz.length(), 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
-			tw.tween_callback(mp.queue_free)
+			tw.set_parallel(true)
+			tw.tween_property(mp, "modulate:a", 0.0, 0.22)
+			tw.tween_property(mp, "scale", Vector2(0.6, 0.6), 0.22).set_trans(Tween.TRANS_SINE)
+			tw.chain().tween_callback(mp.queue_free)
 		mem_parts.clear()
 		# 2) влетают детали: все цели + обманки (все уникальны, максимум = число картинок)
 		layer = Control.new()
@@ -1180,40 +1188,54 @@ class SwarmMech extends NpcMech:
 			if not (s in targets):
 				pool.append(s)
 		pool.shuffle()
-		var placed: Array = []                         # центры уже размещённых (анти-наложение)
+		# Раскладываем по зонам СЕТКОЙ с джиттером: чистый рандом сбивал детали
+		# в кучки и оставлял полупустые куски зоны.
+		var by_zone: Array = []
+		for _z in ZONES.size():
+			by_zone.append([])
 		for i in pool.size():
-			var part := DragPart.new()
-			layer.add_child(part)
-			part.set_part_size(S_FLY)
-			part.set_texture_part(_texs[int(pool[i])], int(pool[i]))
-			var zone: Rect2 = ZONES[i % ZONES.size()]
-			part.home_zone = zone
-			# позиция в зоне без наложения на уже поставленные детали
-			var dst := _rand_in_zone(zone, sz)
-			for _attempt in 22:
-				var cand := _rand_in_zone(zone, sz)
-				dst = cand
-				var ok := true
-				for pc in placed:
-					if cand.distance_to(pc) < S_FLY * 0.95:
-						ok = false
-						break
-				if ok:
-					break
-			placed.append(dst)
-			var start := dst
-			if zone.position.x < 0.2: start.x = -110.0            # влетает слева
-			elif zone.position.x > 0.7: start.x = sz.x + 110.0    # справа
-			elif zone.position.y < 0.3: start.y = -110.0          # НАД банкой → сверху
-			else: start.y = sz.y + 120.0                          # снизу (стол)
-			part.position = start - part.size * 0.5
-			part.push_others = true       # детали расталкиваются, а не слипаются в кучу
-			part.push_bounds = true       # и не уезжают за пределы сцены
-			part.dropped.connect(_on_dropped)
-			parts.append(part)
-			var tw2: Tween = part.create_tween()
-			tw2.tween_interval(0.06 * float(i))                   # с интервалами, не все разом
-			tw2.tween_property(part, "position", dst - part.size * 0.5, 0.5).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+			by_zone[i % ZONES.size()].append(int(pool[i]))
+		var idx: int = 0
+		for zi in ZONES.size():
+			var zone: Rect2 = ZONES[zi]
+			var ids: Array = by_zone[zi]
+			if ids.is_empty():
+				continue
+			var zw: float = zone.size.x * sz.x
+			var zh: float = zone.size.y * sz.y
+			# число колонок — по пропорциям зоны, чтобы ячейки были близки к квадрату
+			var cols: int = clampi(int(round(sqrt(float(ids.size()) * maxf(zw, 1.0) / maxf(zh, 1.0)))), 1, ids.size())
+			var rows: int = int(ceil(float(ids.size()) / float(cols)))
+			for j in ids.size():
+				var part := DragPart.new()
+				layer.add_child(part)
+				part.set_part_size(S_FLY)
+				part.set_texture_part(_texs[int(ids[j])], int(ids[j]))
+				part.home_zone = zone
+				var cxi: int = j % cols
+				var ryi: int = j / cols
+				var cw: float = zw / float(cols)
+				var chh: float = zh / float(rows)
+				var jit: float = 0.22                       # лёгкий разброс, чтобы не выглядело таблицей
+				var dst := Vector2(
+					zone.position.x * sz.x + cw * (float(cxi) + 0.5 + randf_range(-jit, jit)),
+					zone.position.y * sz.y + chh * (float(ryi) + 0.5 + randf_range(-jit, jit)))
+				part.position = dst - part.size * 0.5
+				part.push_others = true       # детали расталкиваются, а не слипаются в кучу
+				part.push_bounds = true       # и не уезжают за пределы сцены
+				part.dropped.connect(_on_dropped)
+				parts.append(part)
+				# появление: вырастают на месте с лёгким баунсом (влёт из-за экрана
+				# на телефоне читался как «что-то пронеслось мимо»)
+				part.pivot_offset = part.size * 0.5
+				part.scale = Vector2.ZERO
+				part.modulate.a = 0.0
+				var tw2: Tween = part.create_tween()
+				tw2.tween_interval(0.035 * float(idx))
+				tw2.set_parallel(true)
+				tw2.tween_property(part, "scale", Vector2.ONE, 0.42).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+				tw2.tween_property(part, "modulate:a", 1.0, 0.18)
+				idx += 1
 		# детали слегка «летают» по своим зонам (на УР.4 — активнее)
 		drift_timer = Timer.new()
 		drift_timer.wait_time = 0.9
@@ -1461,15 +1483,19 @@ class InspectorMech extends NpcMech:
 
 # ============================================================
 # Инженер навигатора: фазы показа нет — цель показана ЗОНАМИ на треках. Ползунок
-# не тянется: по треку синусоидой бегает указатель, «СТОП» фиксирует значение =
-# его позиция. Оценка обычная (по близости). Порт LEVEL4_FX.engineer.
-# Красная зона-ловушка (УР.4) — TODO.
+# не тянется: по горизонтальной направляющей ходит каретка, одна большая кнопка
+# «СТОП» слева фиксирует её. Треки проходятся ПО ОЧЕРЕДИ сверху вниз. На УР.4
+# на направляющей есть красные зоны-ловушки: попал — ноль по этой величине.
 # ============================================================
 class EngineerMech extends NpcMech:
 	const PERIOD := {1: 2.2, 2: 1.9, 3: 1.6, 4: 1.4}
 	var g_ref
 	var tracks: Dictionary = {}     # key -> EngTrack
-	var btns: Array = []
+	var keys: Array = []            # порядок прохождения, сверху вниз
+	var cur: int = -1
+	var panel: HBoxContainer = null
+	var stop_btn: Button = null
+	var reds: Array = []            # ключи, где поймали красную зону
 
 	func skip_memorize(_g) -> bool:
 		return true
@@ -1477,51 +1503,131 @@ class EngineerMech extends NpcMech:
 	func craft_start(g) -> void:
 		g_ref = g
 		var per: float = float(PERIOD.get(g.level, 1.9))
-		for k in g.active:
-			_make_track(k, per)
+		var with_reds: bool = g.level >= 4          # ловушки — только на УР.4
+		keys = []
+		for k in g.ORDER:
+			if k in g.active:
+				keys.append(k)
+		# прячем штатные колонки-ползунки и занимаем их место своей раскладкой
+		var row: Control = null
+		for k in g.ORDER:
+			if g.slider_cols.has(k):
+				g.slider_cols[k].visible = false
+				if row == null:
+					row = g.slider_cols[k].get_parent()
+		panel = HBoxContainer.new()
+		panel.add_theme_constant_override("separation", 14)
+		panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if row != null:
+			row.add_child(panel)
 
-	func _make_track(k: String, per: float) -> void:
-		var col: VBoxContainer = g_ref.slider_cols[k]
-		var s = g_ref.sliders[k]
-		s.visible = false
-		var track := EngTrack.new()
-		track.custom_minimum_size = s.custom_minimum_size
-		track.setup(s.min_value, s.max_value, s.step, float(g_ref.target[k]), per)
-		col.add_child(track)
-		col.move_child(track, s.get_index())
-		track.fixed.connect(_on_fixed.bind(k))
-		var btn := Button.new()
-		btn.text = "СТОП"
-		btn.focus_mode = Control.FOCUS_NONE
-		btn.custom_minimum_size = Vector2(0, 44)
-		btn.pressed.connect(_stop_track.bind(track, btn))
-		col.add_child(btn)
-		tracks[k] = track
-		btns.append(btn)
+		# слева — одна большая кнопка СТОП
+		stop_btn = Button.new()
+		stop_btn.text = "СТОП"
+		stop_btn.focus_mode = Control.FOCUS_NONE
+		stop_btn.custom_minimum_size = Vector2(220, 300)
+		stop_btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		stop_btn.add_theme_font_size_override("font_size", 46)
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.34, 0.07, 0.09, 1.0)
+		sb.set_corner_radius_all(18)
+		sb.set_border_width_all(4)
+		sb.border_color = Color(0.95, 0.30, 0.28)
+		sb.shadow_color = Color(0.9, 0.2, 0.2, 0.35)
+		sb.shadow_size = 12
+		for st in ["normal", "hover", "pressed", "disabled"]:
+			stop_btn.add_theme_stylebox_override(st, sb)
+		stop_btn.add_theme_color_override("font_color", Color(1.0, 0.88, 0.84))
+		stop_btn.add_theme_color_override("font_disabled_color", Color(1, 1, 1, 0.35))
+		stop_btn.pressed.connect(_on_stop)
+		panel.add_child(stop_btn)
 
-	func _stop_track(track, btn) -> void:
-		track.fix()
-		btn.disabled = true
+		# справа — треки столбиком, без подписей
+		var col := VBoxContainer.new()
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		col.alignment = BoxContainer.ALIGNMENT_CENTER
+		col.add_theme_constant_override("separation", 10)
+		panel.add_child(col)
+		for k in keys:
+			var s = g.sliders[k]
+			s.visible = false
+			var track := EngTrack.new()
+			track.custom_minimum_size = Vector2(300, 56)
+			track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			track.size_flags_vertical = Control.SIZE_EXPAND_FILL
+			track.hue_track = (k == "color" or k == "colorB")
+			track.setup(s.min_value, s.max_value, s.step, float(g.target[k]), per, with_reds)
+			track.fixed.connect(_on_fixed.bind(k))
+			col.add_child(track)
+			tracks[k] = track
+		_activate(0)
+
+	# Каретка ходит только по текущему треку; следующий оживает после СТОПа.
+	func _activate(i: int) -> void:
+		cur = i
+		if cur >= keys.size():
+			cur = -1
+			if is_instance_valid(stop_btn):
+				stop_btn.text = "ГОТОВО"
+				stop_btn.disabled = false
+			return
+		var t = tracks[keys[cur]]
+		if is_instance_valid(t):
+			t.arm()
+		if is_instance_valid(stop_btn):
+			stop_btn.disabled = false
+
+	func _on_stop() -> void:
+		if cur < 0:                       # все треки пройдены — кнопка сдаёт заказ
+			g_ref._on_done()
+			return
+		if is_instance_valid(stop_btn):
+			stop_btn.disabled = true      # пока каретка догорает — повторный тап не считаем
 		Sfx.play("uiClick")
+		tracks[keys[cur]].fix()
 
-	func _on_fixed(value: float, k: String) -> void:
-		g_ref.sliders[k].set_value_no_signal(value)
-		g_ref._on_slider_changed(value, k)
+	func _on_fixed(value: float, hit_red: bool, k: String) -> void:
+		var v: float = value
+		if hit_red:
+			v = _worst_value(k)           # красная зона — ноль по этой величине
+			reds.append(k)
+			Sfx.play("bad")
+		else:
+			Sfx.play("tick")
+		g_ref.sliders[k].set_value_no_signal(v)
+		g_ref._on_slider_changed(v, k)
+		_activate(cur + 1)
+
+	# Значение, максимально далёкое от цели: для спектра — противоположная точка
+	# круга, для остальных — дальний край шкалы.
+	func _worst_value(k: String) -> float:
+		var s = g_ref.sliders[k]
+		var t: float = float(g_ref.target[k])
+		if k == "color" or k == "colorB":
+			var span: float = s.max_value - s.min_value
+			return s.min_value + fposmod(t - s.min_value + span * 0.5, span)
+		return s.min_value if (t - s.min_value) > (s.max_value - t) else s.max_value
 
 	func stop(g) -> void:
-		for b in btns:
-			if is_instance_valid(b):
-				b.queue_free()
-		btns.clear()
-		for k in tracks:
-			if is_instance_valid(tracks[k]):
-				tracks[k].queue_free()
+		if panel != null and is_instance_valid(panel):
+			panel.queue_free()
+		panel = null
+		stop_btn = null
+		tracks.clear()
+		keys.clear()
+		reds.clear()
+		cur = -1
+		for k in g.ORDER:
+			if g.slider_cols.has(k):
+				g.slider_cols[k].visible = k in g.active
 			if g.sliders.has(k):
 				g.sliders[k].visible = true
-		tracks.clear()
 
 	func result_note(_g) -> String:
-		return "🎯 Инженер: лови указатель кнопкой «СТОП»"
+		if not reds.is_empty():
+			return "🎯 Инженер: каретка встала в красной зоне — %d парам. в ноль" % reds.size()
+		return "🎯 Инженер: калибровка по очереди, кнопкой «СТОП»"
 
 # ============================================================
 # Коллекционер Гз: регуляторов нет — сетка готовых зелий, найди совпадающее с

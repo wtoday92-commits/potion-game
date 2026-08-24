@@ -1570,7 +1570,7 @@ func _stat_grid(cols: int) -> GridContainer:
 	return g
 
 # Заголовочный шрифт (Russo One) — для крупных заголовков/названий.
-const FONT_TITLE := preload("res://assets/fonts/RussoOne-Regular.ttf")
+const FONT_TITLE := preload("res://assets/fonts/pobeda-bold.ttf")
 func _title_font(l: Label) -> Label:
 	l.add_theme_font_override("font", FONT_TITLE)
 	return l
@@ -2046,11 +2046,6 @@ func _show_char(npc_e: Dictionary) -> void:
 	nm.add_theme_color_override("font_color", tcol)
 	_title_font(nm)
 	hcol.add_child(nm)
-	var rep_lab := Label.new()
-	rep_lab.text = "Репутация · ур.%d" % PotionProfile.get_rep_level(id)
-	rep_lab.add_theme_font_size_override("font_size", FS_SMALL)
-	rep_lab.add_theme_color_override("font_color", UI_TXT_DIM)
-	hcol.add_child(rep_lab)
 	hcol.add_child(_rep_bar_ctl(PotionProfile.get_rep(id), tcol, 18))
 	var doss_head := Label.new()
 	doss_head.text = "ДОСЬЕ"
