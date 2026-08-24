@@ -16,6 +16,9 @@ const SFX_KEYS := [
 	"bubble", "cardPick", "colorShift", "countdown", "dock", "liquidDown",
 	"liquidUp", "meow", "orderShow", "pawClick", "perfect", "stir", "tick",
 	"uiClick", "weekEnd",
+	# полоса поощрений цикла: установка отметки за результат дня
+	"trackGood", "trackPerfect", "trackHundred", "trackSwill", "trackBad",
+	"trackGrade", "trackSecret",
 ]
 # события без своего файла → ближайший по смыслу существующий
 const _FALLBACK := {"good": "perfect", "badClear": "badPop"}
