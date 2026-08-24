@@ -20,14 +20,12 @@ const GLASSES := [
 		"top": 0.0745, "bot": 0.8406, "left": 0.1526, "right": 0.8295},
 	{"id": "curvy",  "tex": "res://assets/bottle/glass_curvy.png", "mask": "res://assets/bottle/glass_curvy_int.png",
 		"top": 0.0406, "bot": 0.6953, "left": 0.1412, "right": 0.8263},
-	{"id": "bottle", "tex": "res://assets/bottle/bottle.png",      "mask": "res://assets/bottle/bottle_interior.png",
-		"top": 0.150,  "bot": 0.953,  "left": 0.240,  "right": 0.746},
 ]
 # Границы интерьера в UV — обновляются в set_glass().
-var I_TOP := 0.150
-var I_BOT := 0.953
-var I_LEFT := 0.240
-var I_RIGHT := 0.746
+var I_TOP := 0.0745
+var I_BOT := 0.8406
+var I_LEFT := 0.1526
+var I_RIGHT := 0.8295
 var glass_idx: int = -1
 const FILL := 0.78     # уровень жидкости (ниже горлышка — видно, как плещется)
 const MAX_BLOBS := 18  # потолок числа сгустков (должен совпадать с liquid.gdshader)
@@ -89,7 +87,7 @@ func _ready() -> void:
 	liquid.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	mat = ShaderMaterial.new()
 	mat.shader = LiquidShader
-	var mask_tex := load("res://assets/bottle/bottle_interior.png") as Texture2D
+	var mask_tex := load("res://assets/bottle/glass_hi_int.png") as Texture2D
 	if mask_tex:
 		mat.set_shader_parameter("mask", mask_tex)
 	liquid.material = mat
@@ -110,7 +108,7 @@ func _ready() -> void:
 	sway.add_child(blur_overlay)
 
 	bottle = TextureRect.new()
-	bottle.texture = load("res://assets/bottle/bottle.png") as Texture2D
+	bottle.texture = load("res://assets/bottle/glass_hi.png") as Texture2D
 	bottle.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bottle.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	bottle.stretch_mode = TextureRect.STRETCH_SCALE

@@ -992,7 +992,7 @@ func _build_start() -> void:
 	play.pressed.connect(_start_cycle)
 	grid.add_child(play)
 	coll_btn = _menu_tile("Коллекция", "menu_collection")
-	coll_btn.pressed.connect(_show_collection)
+	coll_btn.pressed.connect(_try_collection)
 	grid.add_child(coll_btn)
 	var daily_btn := _menu_tile("Заказ дня", "menu_daily")
 	daily_btn.pressed.connect(_open_daily_diff)
@@ -1118,7 +1118,37 @@ func _menu_tile(text: String, icon_name: String, primary: bool = false) -> Butto
 	ir.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	ir.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(ir)
+	b.set_meta("label", l)
+	b.set_meta("icon", ir)
+	b.pivot_offset = b.custom_minimum_size * 0.5      # для анимации нажатия
+	b.button_down.connect(_tile_press.bind(b, true))
+	b.button_up.connect(_tile_press.bind(b, false))
 	return b
+
+# «утапливание» плитки при нажатии
+func _tile_press(b: Button, down: bool) -> void:
+	if not is_instance_valid(b):
+		return
+	b.pivot_offset = b.size * 0.5
+	var t := b.create_tween()
+	t.tween_property(b, "scale", Vector2(0.94, 0.94) if down else Vector2.ONE, 0.09)		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	if down:
+		Sfx.play("uiClick")
+
+# Заблокированная плитка: серая (вместе с иконкой), текст без «хвоста»;
+# нажатие даёт короткую подсказку, а не молчит.
+func _tile_locked(b: Button, locked: bool, note: String) -> void:
+	if not is_instance_valid(b):
+		return
+	b.disabled = false                                # ловим нажатие сами
+	b.set_meta("lock_note", note if locked else "")
+	var ir: TextureRect = b.get_meta("icon", null)
+	var l: Label = b.get_meta("label", null)
+	if ir != null and is_instance_valid(ir):
+		ir.modulate = Color(0.45, 0.45, 0.5, 0.85) if locked else Color.WHITE
+	if l != null and is_instance_valid(l):
+		l.add_theme_color_override("font_color", Color(0.6, 0.6, 0.66) if locked else UI_TXT)
+	b.modulate = Color(0.75, 0.75, 0.8, 1.0) if locked else Color.WHITE
 
 # Единая кнопка меню (primary — золотая заливка, secondary — обычная тема).
 func _menu_button(text: String, primary: bool = false, h: float = 66.0, icon_name: String = "") -> Button:
@@ -1302,6 +1332,14 @@ func _tab_sb(active: bool) -> StyleBoxFlat:
 	sb.border_color = UI_GOLD if active else UI_BORDER
 	sb.set_content_margin_all(8.0)
 	return sb
+
+# Клик по «Коллекции»: закрыта прогрессией → короткая подсказка вместо перехода.
+func _try_collection() -> void:
+	var note: String = String(coll_btn.get_meta("lock_note", ""))
+	if note != "":
+		_toast(note, Color("ffb36a"))
+		return
+	_show_collection()
 
 func _show_collection() -> void:
 	phase = "collection"
@@ -4269,8 +4307,7 @@ func _refresh_hud() -> void:
 	hud_streak.text = str(int(sk.get("goodplus_current", 0)))
 	# коллекция открывается прогрессией (Ур.1) — не прячем, а дизейблим с подписью
 	var coll_ok: bool = GameData.prog_mech_unlocked("collection", xp)
-	coll_btn.disabled = not coll_ok
-	coll_btn.text = "Коллекция" if coll_ok else "Коллекция  (откроется на ур.%d)" % GameData.mech_unlock_level("collection")
+	_tile_locked(coll_btn, not coll_ok, "🔒 Коллекция откроется на ур.%d" % GameData.mech_unlock_level("collection"))
 	# профиль: ник + статус
 	profile_btn.tooltip_text = "%s%s" % [PotionAuth.get_nickname(), "" if PotionAuth.is_logged_in() else "  (гость)"]
 
