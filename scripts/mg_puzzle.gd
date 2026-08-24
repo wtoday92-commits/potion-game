@@ -116,7 +116,7 @@ func _build_ui() -> void:
 	_submit = Button.new()
 	_submit.text = "Проверить"
 	_submit.focus_mode = Control.FOCUS_NONE
-	_submit.add_theme_font_size_override("font_size", 24)
+	_submit.add_theme_font_size_override("font_size", UI.FS_L)
 	_submit.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	_submit.offset_top = -56.0; _submit.offset_bottom = -10.0
 	_submit.offset_left = 40.0; _submit.offset_right = -40.0

@@ -106,21 +106,21 @@ func _build() -> void:
 	var vb := VBoxContainer.new()
 	vb.set_anchors_preset(Control.PRESET_FULL_RECT)
 	vb.offset_left = 16; vb.offset_right = -16; vb.offset_top = 12; vb.offset_bottom = -12
-	vb.add_theme_constant_override("separation", 10)
+	vb.add_theme_constant_override("separation", UI.SP_S)
 	book.add_child(vb)
 
 	# шапка
 	var head := HBoxContainer.new()
 	var title := Label.new()
 	title.text = "📖 Книга рецептов"
-	title.add_theme_font_size_override("font_size", 26)
+	title.add_theme_font_size_override("font_size", UI.FS_L)
 	title.add_theme_color_override("font_color", Color(0.98, 0.90, 0.72))
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(title)
 	var close := Button.new()
 	close.text = "✕"
 	close.focus_mode = Control.FOCUS_NONE
-	close.add_theme_font_size_override("font_size", 24)
+	close.add_theme_font_size_override("font_size", UI.FS_L)
 	close.custom_minimum_size = Vector2(48, 48)
 	close.pressed.connect(_on_close)
 	head.add_child(close)
@@ -128,14 +128,14 @@ func _build() -> void:
 
 	# вкладки категорий (только участвующие на уровне)
 	var tabrow := HBoxContainer.new()
-	tabrow.add_theme_constant_override("separation", 8)
+	tabrow.add_theme_constant_override("separation", UI.SP_S)
 	_tabs.clear()
 	for cat in _cats:
 		var tb := Button.new()
 		tb.text = CAT_NAMES[cat]
 		tb.focus_mode = Control.FOCUS_NONE
 		tb.toggle_mode = true
-		tb.add_theme_font_size_override("font_size", 20)
+		tb.add_theme_font_size_override("font_size", UI.FS_M)
 		tb.custom_minimum_size = Vector2(0, 44)
 		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tb.pressed.connect(_on_tab.bind(cat))
@@ -151,7 +151,7 @@ func _build() -> void:
 	vb.add_child(_scroll)
 	_list_holder = VBoxContainer.new()
 	_list_holder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_list_holder.add_theme_constant_override("separation", 8)
+	_list_holder.add_theme_constant_override("separation", UI.SP_S)
 	_scroll.add_child(_list_holder)
 
 	_refresh_tabs()
@@ -199,7 +199,7 @@ func _make_row(it: Dictionary, cat: int) -> Control:
 	row.custom_minimum_size = Vector2(0, 72)
 	var hb := HBoxContainer.new()
 	hb.set_anchors_preset(Control.PRESET_FULL_RECT)
-	hb.add_theme_constant_override("separation", 12)
+	hb.add_theme_constant_override("separation", UI.SP_M)
 	row.add_child(hb)
 	# иконка в «лунке»
 	var well := Panel.new()
@@ -221,12 +221,12 @@ func _make_row(it: Dictionary, cat: int) -> Control:
 	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var nm := Label.new()
 	nm.text = it["name"]
-	nm.add_theme_font_size_override("font_size", 22)
+	nm.add_theme_font_size_override("font_size", UI.FS_M)
 	nm.add_theme_color_override("font_color", Color(0.98, 0.92, 0.78))
 	col.add_child(nm)
 	var val := Label.new()
 	val.text = _values_text(it, cat)
-	val.add_theme_font_size_override("font_size", 18)
+	val.add_theme_font_size_override("font_size", UI.FS_S)
 	val.add_theme_color_override("font_color", Color(0.72, 0.86, 1.0))
 	col.add_child(val)
 	hb.add_child(col)
@@ -234,7 +234,7 @@ func _make_row(it: Dictionary, cat: int) -> Control:
 	if _level == 4:
 		var syl := Label.new()
 		syl.text = "«%s»" % it["syl"]
-		syl.add_theme_font_size_override("font_size", 26)
+		syl.add_theme_font_size_override("font_size", UI.FS_L)
 		syl.add_theme_color_override("font_color", Color(1.0, 0.82, 0.4))
 		syl.custom_minimum_size = Vector2(90, 0)
 		syl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT

@@ -48,7 +48,7 @@ func score_delta(overall: float, grade_str: String, tier: int, reward: int, reg_
 
 # ---------- Цвета тиров (как в веб: t1..t5) ----------
 const TIER_COLORS := {
-	1: Color("5dff8f"), 2: Color("ffe14d"), 3: Color("ff9e3d"),
+	1: Color("6dff8f"), 2: Color("ffe14d"), 3: Color("ff9e3d"),
 	4: Color("ff5d6a"), 5: Color("c07bff"),
 }
 

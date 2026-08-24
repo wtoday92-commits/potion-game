@@ -52,7 +52,7 @@ func setup(lvl: int) -> void:
 func _build_ui() -> void:
 	_timer = Label.new()
 	_timer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_timer.add_theme_font_size_override("font_size", 22)
+	_timer.add_theme_font_size_override("font_size", UI.FS_M)
 	_timer.add_theme_color_override("font_color", Color(0.85, 0.92, 1.0))
 	_timer.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	_timer.add_theme_constant_override("outline_size", 5)
@@ -64,7 +64,7 @@ func _build_ui() -> void:
 	var hint := Label.new()
 	hint.text = "Закройте всю рекламу!"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.add_theme_font_size_override("font_size", 22)
+	hint.add_theme_font_size_override("font_size", UI.FS_M)
 	hint.add_theme_color_override("font_color", Color.WHITE)
 	hint.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	hint.add_theme_constant_override("outline_size", 5)
