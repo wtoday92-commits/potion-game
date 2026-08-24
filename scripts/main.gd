@@ -4387,6 +4387,12 @@ func _start_round(lvl: int) -> void:
 			mech.setup(self)
 
 	seed_val = randi()
+	# посуда заказа: у Векса ВСЕГДА прямой стакан (сетка узлов рассчитана под него),
+	# остальным — случайная из набора
+	if String(npc.get("id", "")) == "vex":
+		jar.set_glass(jar.glass_index("hi"))
+	else:
+		jar.set_glass(randi() % jar.GLASSES.size())
 	target = _random_values()
 	if not replaying:
 		_load_order_mods()          # фокус/модификаторы, назначенные при формировании дня
