@@ -4387,7 +4387,6 @@ func _start_round(lvl: int) -> void:
 			mech.setup(self)
 
 	seed_val = randi()
-	jar.set_glass(randi() % 5)   # случайный бокал на заказ
 	target = _random_values()
 	if not replaying:
 		_load_order_mods()          # фокус/модификаторы, назначенные при формировании дня
