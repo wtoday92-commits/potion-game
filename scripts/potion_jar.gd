@@ -12,26 +12,11 @@ const LiquidShader := preload("res://shaders/liquid.gdshader")
 const BottleBlurShader := preload("res://shaders/jar_blur.gdshader")
 const ScreenBlurShader := preload("res://shaders/jar_screenblur.gdshader")
 
-# Набор бокалов космо-бара: у каждого свой арт, маска интерьера и UV-границы
-# зоны жидкости (замерены по маске). Стакан выбирается на заказ (set_glass).
-const GLASSES := [
-	{"tex": "res://assets/bottle/glass_1.png", "mask": "res://assets/bottle/glass_1_int.png",
-		"top": 0.052, "bot": 0.968, "left": 0.201, "right": 0.792},
-	{"tex": "res://assets/bottle/glass_2.png", "mask": "res://assets/bottle/glass_2_int.png",
-		"top": 0.031, "bot": 0.508, "left": 0.164, "right": 0.834},
-	{"tex": "res://assets/bottle/glass_3.png", "mask": "res://assets/bottle/glass_3_int.png",
-		"top": 0.042, "bot": 0.656, "left": 0.107, "right": 0.894},
-	{"tex": "res://assets/bottle/glass_4.png", "mask": "res://assets/bottle/glass_4_int.png",
-		"top": 0.093, "bot": 0.961, "left": 0.102, "right": 0.903},
-	{"tex": "res://assets/bottle/glass_5.png", "mask": "res://assets/bottle/glass_5_int.png",
-		"top": 0.051, "bot": 0.746, "left": 0.120, "right": 0.882},
-]
-# Границы интерьера стекла в UV (обновляются в set_glass).
-var I_TOP := 0.150
-var I_BOT := 0.953
-var I_LEFT := 0.240
-var I_RIGHT := 0.746
-var glass_idx: int = -1
+# Границы интерьера стекла в UV (замерены по bottle_interior.png).
+const I_TOP := 0.150
+const I_BOT := 0.953
+const I_LEFT := 0.240
+const I_RIGHT := 0.746
 const FILL := 0.78     # уровень жидкости (ниже горлышка — видно, как плещется)
 const MAX_BLOBS := 18  # потолок числа сгустков (должен совпадать с liquid.gdshader)
 
@@ -127,30 +112,6 @@ func _ready() -> void:
 	_t = float(pot_seed) * 0.7
 
 	resized.connect(_apply)
-	if glass_idx < 0:
-		set_glass(0)
-	_apply()
-
-# Выбрать бокал по индексу (набор GLASSES). Меняет арт, маску и UV-границы.
-func set_glass(idx: int) -> void:
-	if GLASSES.is_empty():
-		return
-	var i: int = clampi(idx, 0, GLASSES.size() - 1)
-	if i == glass_idx:
-		return
-	glass_idx = i
-	var g: Dictionary = GLASSES[i]
-	I_TOP = float(g["top"]); I_BOT = float(g["bot"])
-	I_LEFT = float(g["left"]); I_RIGHT = float(g["right"])
-	var tex := load(String(g["tex"])) as Texture2D
-	if tex != null and bottle != null:
-		bottle.texture = tex
-	var msk := load(String(g["mask"])) as Texture2D
-	if msk != null:
-		if mat != null:
-			mat.set_shader_parameter("mask", msk)
-		if blur_mat != null:
-			blur_mat.set_shader_parameter("mask", msk)
 	_apply()
 
 func set_potion(h: float, v: float, c: int, b: float, s: int, sat: float = 0.72, height: float = -1.0, c2: int = 0, fill: float = -1.0, h2: float = -1.0) -> void:

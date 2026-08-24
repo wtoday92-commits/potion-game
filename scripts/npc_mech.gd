@@ -1674,18 +1674,11 @@ class VexMech extends NpcMech:
 	func _liquid_area(g) -> Rect2:
 		var jw: float = g.jar.size.x
 		var jh: float = g.jar.size.y
-		# границы берём У САМОГО БОКАЛА — они разные у разных стаканов набора
-		var il: float = float(g.jar.I_LEFT)
-		var ir: float = float(g.jar.I_RIGHT)
-		var ib: float = float(g.jar.I_BOT)
-		var it: float = float(g.jar.I_TOP)
-		var liq_top: float = ib - (ib - it) * JAR_FILL
-		var pad_x: float = (ir - il) * 0.10
-		var pad_y: float = (ib - liq_top) * 0.10
-		var x0: float = il + pad_x
-		var x1: float = ir - pad_x
-		var y0: float = liq_top + pad_y
-		var y1: float = ib - pad_y
+		var liq_top: float = IB - (IB - IT) * JAR_FILL
+		var x0: float = IL + 0.05
+		var x1: float = IR - 0.05
+		var y0: float = liq_top + 0.05
+		var y1: float = IB - 0.05
 		return Rect2(Vector2(x0 * jw, y0 * jh), Vector2((x1 - x0) * jw, (y1 - y0) * jh))
 
 	func memorize_start(g) -> void:
