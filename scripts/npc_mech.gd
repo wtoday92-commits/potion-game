@@ -888,21 +888,22 @@ class DjMech extends NpcMech:
 # ============================================================
 class DroneMech extends NpcMech:
 	const MAX_BY_LVL := {1: 2, 2: 2, 3: 3, 4: 3}
-	const GROW_BY_LVL := {1: 3.0, 2: 2.6, 3: 2.3, 4: 2.0}
-	const SPAWN_BY_LVL := {1: 1.6, 2: 1.4, 3: 1.2, 4: 1.0}
+	# grow — секунды до взрыва (×1.5 к прежним), spawn — интервал появления (×3 реже)
+	const GROW_BY_LVL := {1: 4.5, 2: 3.9, 3: 3.45, 4: 3.0}
+	const SPAWN_BY_LVL := {1: 4.8, 2: 4.2, 3: 3.6, 4: 3.0}
 	var g_ref
 	var layer: Control = null
 	var alive: Array = []
 	var max_alive: int = 2
-	var grow: float = 2.6
-	var spawn_int: float = 1.4
+	var grow: float = 3.9
+	var spawn_int: float = 4.2
 	var acc: float = 0.0
 
 	func craft_start(g) -> void:
 		g_ref = g
 		max_alive = int(MAX_BY_LVL.get(g.level, 2))
-		grow = float(GROW_BY_LVL.get(g.level, 2.6))
-		spawn_int = float(SPAWN_BY_LVL.get(g.level, 1.4))
+		grow = float(GROW_BY_LVL.get(g.level, 3.9))
+		spawn_int = float(SPAWN_BY_LVL.get(g.level, 4.2))
 		acc = spawn_int
 		layer = Control.new()
 		layer.mouse_filter = Control.MOUSE_FILTER_IGNORE   # сам слой прозрачен, пузыри — нет
