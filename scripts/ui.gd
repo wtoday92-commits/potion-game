@@ -134,10 +134,12 @@ static func build_theme() -> Theme:
 
 	# Подписи: тень оставлена только как страховка поверх арта в раунде
 	t.set_color("font_color", "Label", TXT)
-	t.set_color("font_shadow_color", "Label", Color(0, 0, 0, 0.7))
-	t.set_constant("shadow_offset_x", "Label", 1)
-	t.set_constant("shadow_offset_y", "Label", 2)
-	t.set_constant("shadow_outline_size", "Label", 3)
+	# Тень мягкая и без контура: раньше она была костылём читаемости поверх арта,
+	# теперь за это отвечает скрим, а жирная тень только мутила текст на панелях.
+	t.set_color("font_shadow_color", "Label", Color(0, 0, 0, 0.45))
+	t.set_constant("shadow_offset_x", "Label", 0)
+	t.set_constant("shadow_offset_y", "Label", 1)
+	t.set_constant("shadow_outline_size", "Label", 0)
 
 	# Кнопки: штатный вид — «обычная», чтобы override нужен был только на исключениях
 	t.set_font_size("font_size", "Button", FS_M)

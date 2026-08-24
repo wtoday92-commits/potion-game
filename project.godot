@@ -28,8 +28,11 @@ Sfx="*res://scripts/sfx.gd"
 window/size/viewport_width=720
 window/size/viewport_height=1280
 window/stretch/mode="canvas_items"
-window/stretch/aspect="keep"
 window/handheld/orientation="portrait"
+
+[gui]
+
+theme/custom_font="res://assets/fonts/Robofan.ttf"
 
 [input_devices]
 
@@ -39,7 +42,3 @@ pointing/emulate_touch_from_mouse=true
 
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
-
-[gui]
-
-theme/custom_font="res://assets/fonts/Robofan.ttf"
