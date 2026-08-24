@@ -1570,7 +1570,7 @@ func _stat_grid(cols: int) -> GridContainer:
 	return g
 
 # Заголовочный шрифт (Russo One) — для крупных заголовков/названий.
-const FONT_TITLE := preload("res://assets/fonts/pobeda-bold.ttf")
+const FONT_TITLE := preload("res://assets/fonts/Robofan.ttf")
 func _title_font(l: Label) -> Label:
 	l.add_theme_font_override("font", FONT_TITLE)
 	return l

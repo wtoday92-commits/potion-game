@@ -68,6 +68,7 @@ func _input(event: InputEvent) -> void:
 		if absf(p.y - _from.y) < DRAG_START:
 			return
 		_drag = true                       # порог взят — дальше это скролл, не тап
+		_cancel_press(p)
 	var dy: float = event.relative.y if event is InputEventScreenDrag or event is InputEventMouseMotion else 0.0
 	scroll_vertical -= int(round(dy))
 	var now: int = Time.get_ticks_usec()
@@ -76,6 +77,26 @@ func _input(event: InputEvent) -> void:
 	if dt > 0.0005:
 		_vel = clampf(-dy / dt, -FLICK_MAX, FLICK_MAX)
 	get_viewport().set_input_as_handled()
+
+# Кнопка под пальцем уже получила «нажали» и сработает по отпусканию. Гасить
+# только отпускание мало: при emulate_touch_from_mouse на одно физическое
+# действие приходят ДВА события (мышиное и тач), и второе всё равно доходит до
+# кнопки — палец скроллил, а игра открывала карточку. Поэтому шлём отменяющее
+# отпускание: BaseButton видит canceled и не выдаёт pressed.
+func _cancel_press(p: Vector2) -> void:
+	var t := InputEventScreenTouch.new()
+	t.index = 0
+	t.position = p
+	t.pressed = false
+	t.canceled = true
+	get_viewport().push_input(t, true)
+	var m := InputEventMouseButton.new()
+	m.button_index = MOUSE_BUTTON_LEFT
+	m.position = p
+	m.global_position = p
+	m.pressed = false
+	m.canceled = true
+	get_viewport().push_input(m, true)
 
 # Инерция после броска: едем, пока скорость не затухнет или не упрёмся в край.
 func _process(delta: float) -> void:
