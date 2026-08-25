@@ -18,7 +18,17 @@ func grade(overall: float, tier: int) -> String:
 	return "bad"
 
 # Множители рейтинга по выбранной сложности УР (content.js).
-const REG_DIFF_REWARD_MULT := {1: 0.3, 2: 0.6, 3: 1.0, 4: 1.4}
+# Премия за риск: чем выше сложность, тем больше параметров (2 → 5) и тем ниже
+# ожидаемое качество, поэтому множитель обязан расти. Но разброс был 4.7x и
+# вместе с разбросом наград по тирам давал 32-кратную разницу между худшей и
+# лучшей карточкой — выбор решал в разы больше, чем сама игра.
+const REG_DIFF_REWARD_MULT := {1: 0.45, 2: 0.7, 3: 1.0, 4: 1.35}
+
+# Качество входит в награду нелинейно: раньше идеал стоил всего на 20% дороже
+# годноты, и стараться было незачем. Степень 1.8 плюс премия за идеал дают
+# разницу в 1.8 раза.
+const QUALITY_POWER := 1.8
+const PERFECT_BONUS := 1.35
 const SPEED_BONUS_MULT := {1: 0.0, 2: 0.35, 3: 0.65, 4: 0.5}
 
 # Дельта рейтинга за заказ (game.js finalizeResult). МОЖЕТ БЫТЬ ОТРИЦАТЕЛЬНОЙ:
@@ -36,7 +46,12 @@ func score_delta(overall: float, grade_str: String, tier: int, reward: int, reg_
 	var speed_pct: int = 0
 	if grade_str == "good" or grade_str == "perfect":
 		var speed_frac: float = (float(SPEED_BONUS_MULT.get(reg_level, 0.5)) + speed_cap_bonus) * overall * time_factor
-		delta = int(round(eff * overall * (1.0 + speed_frac)))
+		# Нелинейное качество + премия за идеал: линейный overall делал разницу
+		# между «попал точно» и «попал примерно» почти незаметной.
+		var q: float = pow(overall, QUALITY_POWER)
+		if grade_str == "perfect":
+			q *= PERFECT_BONUS
+		delta = int(round(eff * q * (1.0 + speed_frac)))
 		speed_pct = int(round(speed_frac * 100.0))
 	elif grade_str == "swill":
 		var band: float = maxf(0.0001, good_threshold(tier) - swill_threshold(tier))
@@ -274,7 +289,7 @@ func mech_active(id: String, level: int) -> bool:
 # За каждый ИДЕАЛ лента растёт на (reward / BASELINE_TIER_REWARD) * PROGRESS_DIFF_WEIGHT[УР].
 # То есть вклад тем больше, чем выше тир персонажа И чем выше выбранная сложность.
 # Дотянула до RIBBON_FULL → платиновая лента (+1), остаток переносится.
-const BASELINE_TIER_REWARD := 130           # награда тира 3 = «вес 1.0»
+const BASELINE_TIER_REWARD := 150           # награда тира 3 = «вес 1.0»
 const PROGRESS_DIFF_WEIGHT := {1: 0.12, 2: 0.4, 3: 1.0, 4: 1.3}
 const RIBBON_FULL := 20.0
 
@@ -304,10 +319,12 @@ func rep_bar(value: float) -> Dictionary:
 # EXTRA_NPCS/SPECIAL_ORDERS наследуют числа по своему тиру; отдельные NPC
 # переопределяют часть полей (см. overrides в самих записях).
 const TIERS := {
-	1: {"memorize_ms": 6900, "craft_ms": 29260, "color_steps": 6,  "size_steps": 5,  "count_max": 5,  "bsize_steps": 5,  "reward": 50},
-	2: {"memorize_ms": 6325, "craft_ms": 22610, "color_steps": 9,  "size_steps": 7,  "count_max": 7,  "bsize_steps": 7,  "reward": 85},
-	3: {"memorize_ms": 5750, "craft_ms": 18354, "color_steps": 14, "size_steps": 11, "count_max": 10, "bsize_steps": 11, "reward": 130},
-	4: {"memorize_ms": 5175, "craft_ms": 13300, "color_steps": 24, "size_steps": 19, "count_max": 12, "bsize_steps": 19, "reward": 180},
+	# reward: низ подтянут (50 → 75), верх не тронут — разброс по тирам с 4.8x до 3.2x.
+	# Заодно это ускоряет раннюю прогрессию, которая была слишком медленной.
+	1: {"memorize_ms": 6900, "craft_ms": 29260, "color_steps": 6,  "size_steps": 5,  "count_max": 5,  "bsize_steps": 5,  "reward": 75},
+	2: {"memorize_ms": 6325, "craft_ms": 22610, "color_steps": 9,  "size_steps": 7,  "count_max": 7,  "bsize_steps": 7,  "reward": 110},
+	3: {"memorize_ms": 5750, "craft_ms": 18354, "color_steps": 14, "size_steps": 11, "count_max": 10, "bsize_steps": 11, "reward": 150},
+	4: {"memorize_ms": 5175, "craft_ms": 13300, "color_steps": 24, "size_steps": 19, "count_max": 12, "bsize_steps": 19, "reward": 195},
 	5: {"memorize_ms": 4600, "craft_ms": 9975,  "color_steps": 37, "size_steps": 26, "count_max": 14, "bsize_steps": 26, "reward": 240},
 }
 
