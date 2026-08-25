@@ -779,18 +779,8 @@ func _build_ui() -> void:
 	toast_layer.add_theme_constant_override("separation", UI.SP_S)
 	toast_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(toast_layer)
-	# ---- DEV-кнопка (справа снизу): много прогресса/чаевых/репутации для тестов ----
-	var dev_btn := Button.new()
-	dev_btn.text = "DEV"
-	dev_btn.add_theme_font_size_override("font_size", UI.FS_S)
-	dev_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	dev_btn.offset_left = -84.0
-	dev_btn.offset_top = -58.0
-	dev_btn.offset_right = -18.0
-	dev_btn.offset_bottom = -18.0
-	dev_btn.modulate = Color(1, 1, 1, 0.6)
-	dev_btn.pressed.connect(_dev_open)
-	add_child(dev_btn)
+	# DEV-панель осталась, но её кнопка уехала в настройки: угол экрана нужен
+	# под «В меню», а тестовая кнопка не должна занимать место в раскладке.
 	_build_dev_panel()
 
 	# ---- кнопка «сумка» (слева снизу): применить предметы в игре (Фаза 6) ----
@@ -2590,40 +2580,32 @@ func _build_day() -> void:
 	var dv := day_panel.get_node("Card/V") as VBoxContainer
 	dv.add_theme_constant_override("separation", UI.SP_M)
 
-	# «В меню» — сверху: низ экрана занят сумкой (левый угол), панелью умений
-	# (центр) и DEV, и кнопка во всю ширину внизу выдавливалась за экран, как
-	# только пул дорастал до четырёх гостей.
-	var top_row := HBoxContainer.new()
-	top_row.add_theme_constant_override("separation", UI.SP_S)
-	dv.add_child(top_row)
-	var to_menu := Button.new()
-	to_menu.text = "← В меню"
-	to_menu.tooltip_text = "Бросить цикл"
-	to_menu.custom_minimum_size = Vector2(190, 56)
-	UI.style_button(to_menu, UI.Btn.QUIET)
-	to_menu.pressed.connect(_show_start)
-	top_row.add_child(to_menu)
-	var top_pad := Control.new()
-	top_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	top_row.add_child(top_pad)
-
-	# Карточки в прокрутке: их бывает и две, и четыре — при четырёх они больше
-	# не влезали, а список гостей будет только расти.
-	var cards_scroll := TouchScroll.new()
-	cards_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	cards_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	cards_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	dv.add_child(cards_scroll)
+	# Карточки без прокрутки: размер подбирается под их количество (см. _show_day),
+	# поэтому и две, и четыре помещаются целиком.
 	day_cards = VBoxContainer.new()
 	day_cards.add_theme_constant_override("separation", UI.SP_L)
 	day_cards.alignment = BoxContainer.ALIGNMENT_CENTER
 	day_cards.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	day_cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	cards_scroll.add_child(day_cards)
+	dv.add_child(day_cards)
 
-	var day_bottom_pad := Control.new()              # место под панель умений и сумку
-	day_bottom_pad.custom_minimum_size = Vector2(0, 104)
+	var day_bottom_pad := Control.new()              # место под нижний ряд
+	day_bottom_pad.custom_minimum_size = Vector2(0, DAY_BOTTOM_H)
 	dv.add_child(day_bottom_pad)
+
+	# «В меню» — в правый нижний угол, освободившийся от DEV, вровень с сумкой
+	# слева и панелью умений по центру.
+	var to_menu := Button.new()
+	to_menu.text = "← В меню"
+	to_menu.tooltip_text = "Бросить цикл"
+	to_menu.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	to_menu.offset_left = -186.0
+	to_menu.offset_top = -98.0
+	to_menu.offset_right = -14.0
+	to_menu.offset_bottom = -18.0
+	UI.style_button(to_menu, UI.Btn.QUIET)
+	to_menu.pressed.connect(_show_start)
+	day_panel.add_child(to_menu)
 
 	_build_skill_dock(day_panel)   # Фаза 7: панель умений — закреплена внизу по центру
 
@@ -3789,8 +3771,9 @@ func _show_day() -> void:
 	day_header.text = "День %d / %d   ·   стадия %d" % [day_num, cycle_days, stage + 1]
 	for c in day_cards.get_children():
 		c.queue_free()
+	var av_size: float = _card_av_for(day_choices.size())
 	for e in day_choices:
-		day_cards.add_child(_day_card(e))
+		day_cards.add_child(_day_card(e, av_size))
 	_set_topbar(true)
 	_scene_state("menu")
 	Juice.stagger_fade(day_cards.get_children())   # карточки влетают по очереди
@@ -3812,6 +3795,7 @@ func _open_settings() -> void:
 	settings_panel = ov
 	ov.gui_input.connect(func(e):
 		if e is InputEventMouseButton and e.pressed:   # тап по фону — закрыть
+			PotionProfile.save()                       # громкость на диск один раз
 			ov.queue_free(); settings_panel = null)
 	var cc := CenterContainer.new()
 	cc.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -3849,8 +3833,18 @@ func _open_settings() -> void:
 	vb.add_child(lang_btn)
 	vb.add_child(_settings_slider("🎵 Музыка", true))
 	vb.add_child(_settings_slider("🔊 Звуки", false))
+	# DEV-инструменты: раньше кнопка висела в углу игрового экрана и занимала
+	# место, которое нужно под «В меню».
+	var dev := _diff_button("DEV — тестовые инструменты", UI.WARN)
+	dev.pressed.connect(func():
+		PotionProfile.save()
+		ov.queue_free(); settings_panel = null
+		_dev_open())
+	vb.add_child(dev)
 	var close := _diff_button("Закрыть", Color(0.7, 0.72, 0.8))
-	close.pressed.connect(func(): ov.queue_free(); settings_panel = null)
+	close.pressed.connect(func():
+		PotionProfile.save()
+		ov.queue_free(); settings_panel = null)
 	vb.add_child(close)
 
 func _settings_slider(label: String, is_music: bool) -> Control:
@@ -3861,16 +3855,15 @@ func _settings_slider(label: String, is_music: bool) -> Control:
 	l.add_theme_font_size_override("font_size", UI.FS_M)
 	l.custom_minimum_size = Vector2(140, 0)
 	row.add_child(l)
-	var sl := HSlider.new()
+	# Крупный тач-слайдер, а не тонкий HSlider: громкость теперь живёт только
+	# здесь, и попадать в ниточку пальцем было бы нечем.
+	var sl := HTouchSlider.new()
 	sl.min_value = 0.0; sl.max_value = 100.0; sl.step = 1.0
 	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	sl.custom_minimum_size = Vector2(240, 56)
+	sl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	sl.custom_minimum_size = Vector2(240, 64)
 	sl.value = (Sfx.music_volume if is_music else Sfx.sfx_volume) * 100.0
-	if is_music:
-		sl.value_changed.connect(_on_music_vol)
-	else:
-		sl.value_changed.connect(_on_sfx_vol)
-	sl.drag_ended.connect(func(_c): PotionProfile.save())
+	sl.value_changed.connect(_on_music_vol if is_music else _on_sfx_vol)
 	row.add_child(sl)
 	return row
 
@@ -4186,8 +4179,9 @@ func _grade_bump() -> void:
 func _rebuild_day_cards() -> void:
 	for c in day_cards.get_children():
 		c.queue_free()
+	var av_size: float = _card_av_for(day_choices.size())
 	for e in day_choices:
-		day_cards.add_child(_day_card(e))
+		day_cards.add_child(_day_card(e, av_size))
 	Juice.stagger_fade(day_cards.get_children())
 	_refresh_skill_dock()
 
@@ -4434,19 +4428,36 @@ const TIER_NAMES := {1: "НОВИЧОК", 2: "ЗАВСЕГДАТАЙ", 3: "ЦЕ�
 # модификаторы. Тап по карточке разворачивает выбор сложности прямо здесь (без
 # отдельного окна): инфо-панель уезжает, портрет остаётся, появляется ЛИНИЯ блоков
 # УР.1–4 (см. _toggle_card / _choose_diff). Переходы — плавный кроссфейд.
-const CARD_AV := 180.0            # диаметр портрета на карточке дня
+const CARD_AV := 180.0            # диаметр портрета на карточке дня (максимум)
+const CARD_AV_MIN := 132.0        # минимум, когда гостей в пуле много
 const CARD_INFO_LEFT := 150.0     # левый край инфо-панели (слегка заходит под портрет)
 const CARD_PANEL_LMARGIN := 52.0  # левый отступ текста внутри панели — чтобы вышел из-под портрета
 const CARD_DIFF_LEFT := 198.0     # линия блоков сложности — правее портрета
+const DAY_BOTTOM_H := 104.0       # нижний ряд: сумка / умения / «В меню»
+# Высота под колонку карточек: панель дня минус нижний ряд и поля. Вьюпорт
+# зафиксирован 720×1280 (stretch aspect keep), поэтому величина постоянная.
+const DAY_CARDS_H := 772.0
 
-func _day_card(npc_e: Dictionary) -> Control:
+# Диаметр портрета, при котором n карточек помещаются без прокрутки.
+func _card_av_for(n: int) -> float:
+	if n <= 1:
+		return CARD_AV
+	var per: float = (DAY_CARDS_H - float(n - 1) * float(UI.SP_L)) / float(n)
+	return clampf(per - 28.0, CARD_AV_MIN, CARD_AV)
+
+func _day_card(npc_e: Dictionary, av: float = CARD_AV) -> Control:
 	var tier: int = int(npc_e.get("tier", 1))
 	var tcol: Color = GameData.TIER_COLORS.get(tier, Color.WHITE)
+	# отступы внутри карточки едут за размером портрета
+	var k: float = av / CARD_AV
+	var info_left: float = CARD_INFO_LEFT * k
+	var panel_lmargin: float = CARD_PANEL_LMARGIN * k
+	var diff_left: float = CARD_DIFF_LEFT * k
 
 	var card := Control.new()
 	# Карточка тянется по высоте: раньше она была ровно с портрет, и сверху-снизу
 	# оставалось пустое место высотой почти с саму карточку.
-	card.custom_minimum_size = Vector2(440, CARD_AV + 28.0)
+	card.custom_minimum_size = Vector2(440, av + 28.0)
 	card.clip_contents = false
 
 	# невидимый тач-слой на всю карточку — разворачивает/сворачивает выбор сложности
@@ -4463,7 +4474,7 @@ func _day_card(npc_e: Dictionary) -> Control:
 	# ---- инфо-панель: сплошная непрозрачная плашка с обводкой в цвет тира
 	var info := PanelContainer.new()
 	info.set_anchors_preset(Control.PRESET_FULL_RECT)
-	info.offset_left = CARD_INFO_LEFT
+	info.offset_left = info_left
 	info.offset_right = -12.0
 	info.offset_top = 14.0
 	info.offset_bottom = -14.0
@@ -4475,7 +4486,7 @@ func _day_card(npc_e: Dictionary) -> Control:
 	isb.border_color = Color(tcol.r, tcol.g, tcol.b, 0.9)
 	isb.shadow_color = Color(tcol.r, tcol.g, tcol.b, 0.22)
 	isb.shadow_size = 6
-	isb.content_margin_left = CARD_PANEL_LMARGIN; isb.content_margin_right = 16.0
+	isb.content_margin_left = panel_lmargin; isb.content_margin_right = 16.0
 	isb.content_margin_top = 12.0; isb.content_margin_bottom = 12.0
 	info.add_theme_stylebox_override("panel", isb)
 	card.add_child(info)
@@ -4508,7 +4519,7 @@ func _day_card(npc_e: Dictionary) -> Control:
 	# ---- линия блоков сложности (скрыта до тапа) — правее портрета
 	var diff := HBoxContainer.new()
 	diff.set_anchors_preset(Control.PRESET_FULL_RECT)
-	diff.offset_left = CARD_DIFF_LEFT
+	diff.offset_left = diff_left
 	diff.offset_right = -12.0
 	diff.offset_top = 16.0
 	diff.offset_bottom = -16.0
@@ -4520,12 +4531,12 @@ func _day_card(npc_e: Dictionary) -> Control:
 	card.add_child(diff)
 
 	# ---- портрет поверх всего (крупный), тап по нему проходит на тач-слой ниже
-	var av := _card_avatar(npc_e, CARD_AV)
-	av.anchor_left = 0.0; av.anchor_right = 0.0
-	av.anchor_top = 0.5; av.anchor_bottom = 0.5
-	av.offset_left = 6.0; av.offset_right = 6.0 + CARD_AV
-	av.offset_top = -CARD_AV * 0.5; av.offset_bottom = CARD_AV * 0.5
-	card.add_child(av)
+	var avatar := _card_avatar(npc_e, av)
+	avatar.anchor_left = 0.0; avatar.anchor_right = 0.0
+	avatar.anchor_top = 0.5; avatar.anchor_bottom = 0.5
+	avatar.offset_left = 6.0; avatar.offset_right = 6.0 + av
+	avatar.offset_top = -av * 0.5; avatar.offset_bottom = av * 0.5
+	card.add_child(avatar)
 
 	card.set_meta("info", info)
 	card.set_meta("diff", diff)
