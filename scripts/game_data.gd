@@ -46,6 +46,79 @@ func score_delta(overall: float, grade_str: String, tier: int, reward: int, reg_
 		delta = -int(round(eff * (1.0 - overall)))
 	return {"delta": delta, "speed_pct": speed_pct}
 
+
+# ---------- Тайминги заказа ----------
+# Оригинал хранил memorize_ms/craft_ms по тирам и умножал их на общие
+# коэффициенты. Порт эти значения не читал вовсе и жил на двух константах
+# (2.5 с / 14 с), из-за чего разница между тирами исчезла: показ был короче
+# задуманного у всех, а варка — длиннее у всех, кроме первого тира (на пятом
+# втрое). Здесь один источник времени для всей игры.
+const MEM_TIME_SCALE := 0.7
+const CRAFT_TIME_SCALE := 0.5
+
+# Число оцениваемых параметров растёт с уровнем (2 → 5), а время — медленнее.
+# На УР.4 на каждый параметр остаётся меньше секунд, чем на УР.1: в этом и
+# состоит требование к умению, а не в том, что «стало мельче».
+const MEM_LEVEL_MULT := {1: 0.78, 2: 0.92, 3: 1.06, 4: 1.20}
+const CRAFT_LEVEL_MULT := {1: 0.72, 2: 0.88, 3: 1.04, 4: 1.18}
+
+# Пол: ниже этого задача перестаёт быть выполнимой независимо от тира.
+const MIN_MEM_PER_PARAM := 0.62
+const MIN_CRAFT_PER_PARAM := 1.5
+# Потолок на базу (до налога механики): у первого тира база и так длинная, и с
+# ростом уровня заказ раздувался до 21 секунды — это уже не сложно, а долго.
+const MAX_CRAFT_BASE := 13.5
+
+# «Налог» механики — сколько секунд она съедает ДО того, как игрок вообще
+# дотянется до регуляторов. Раньше шесть механик правили время сами, прямо в
+# craft_start и вразнобой, а девятнадцать не правили никак — включая те, где
+# работы руками больше всего.
+const MECH_CRAFT_TAX := {
+	# Тяжёлые: отдельная подзадача руками
+	"guild_inspector": 8.0,   # фазы показа нет, цель вычитывается из листа допусков
+	"swarm_navigator": 5.5,   # найти нужные детали среди полутора десятков и перетащить
+	"nebula_chef": 5.0,       # угадать форму сосуда вдобавок к параметрам
+	"janitor": 4.0,           # оттереть 79% окна: 1950-3250 px мазка по уровню
+	"vex": 4.0,               # разложить 3-5 сгустков по узлам сетки
+	"trucker_chrome": 4.0,    # было +4.0 прямо в механике
+	"marketer": 3.5,          # полноэкранные миниигры 1-3 раза за заказ
+	"logic9": 3.0,            # было ×1.5
+	"archivist": 3.0,         # было ×1.5, глиф-дождь поверх окна
+	# Средние: повторяющаяся помеха
+	"catlady": 2.5,           # лапы возвращаются каждые 2.6-5.2 с
+	"twofaced_priestess": 2.5,# два спектра и два счётчика
+	"plasma_bartender": 2.5,  # сосуд летает, целиться сложнее
+	# Лёгкие: помеха восприятию, лишних действий нет
+	"apothecary_mo": 1.5,     # размытие и обесцвечивание — приходится переспрашивать глазами
+	"supernova_child": 1.5,   # наклон плюс вторая высота
+	"racer_kai": 1.5,
+	"dj_pulsar": 1.5,
+	"fashionista": 1.0,
+	"pete": 1.0,              # «градус» мутит банку
+	# Остальные — чистые ползунки, налога нет:
+	# drone, tentacloid, gourmet_vega, perfumer, intern_beep, last_of_ir,
+	# engineer (свой ввод вместо ползунков), collector_gz (сетка вместо ползунков),
+	# the_waiter (таймера нет вовсе)
+}
+
+# Сколько параметров оценивается на уровне (для пола времени).
+func _active_count(level: int) -> int:
+	return 5 if level >= 4 else (level + 1)
+
+# Время показа и варки для конкретного гостя на конкретной сложности, секунды.
+# Гость может переопределить memorize_ms/craft_ms — тогда берётся его значение.
+func order_times(npc: Dictionary, level: int) -> Dictionary:
+	var cfg: Dictionary = npc_config(npc)
+	var n: int = _active_count(level)
+	var mem: float = float(cfg.get("memorize_ms", 5750)) * MEM_TIME_SCALE / 1000.0
+	mem *= float(MEM_LEVEL_MULT.get(level, 1.0))
+	mem = maxf(mem, MIN_MEM_PER_PARAM * float(n))
+	var craft: float = float(cfg.get("craft_ms", 18354)) * CRAFT_TIME_SCALE / 1000.0
+	craft *= float(CRAFT_LEVEL_MULT.get(level, 1.0))
+	craft = clampf(craft, MIN_CRAFT_PER_PARAM * float(n), MAX_CRAFT_BASE)
+	craft += float(MECH_CRAFT_TAX.get(String(npc.get("id", "")), 0.0))
+	return {"mem": mem, "craft": craft}
+
 # ---------- Цвета тиров (как в веб: t1..t5) ----------
 const TIER_COLORS := {
 	1: Color("6dff8f"), 2: Color("ffe14d"), 3: Color("ff9e3d"),
