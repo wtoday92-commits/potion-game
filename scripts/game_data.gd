@@ -535,26 +535,30 @@ const NPCS := [
 const PROG_START_CYCLE_DAYS := 5
 const PROG_START_POOL := 2
 const PROG_START_NPCS := ["drone", "janitor", "intern_beep", "trucker_chrome", "pete", "collector_gz", "guild_inspector"]
+# Механики, доступные с первого заказа. Раньше первая из них открывалась только
+# на третьем уровне лавки — у слабого игрока это одиннадцать циклов голого ядра,
+# и всё, чем игра отличается от других, он до этого просто не видел.
+const PROG_START_MECHS := ["collection", "modifiers", "skill_1", "tips"]
 const PROG_BEYOND_STEP := 5000    # рост требуемого xp за уровень сверх последнего
 const PROG_BEYOND_TIPS := 200     # чаевые за уровень сверх последнего
 # каждый уровень: xp (прирост до него), cycle_days/pool_size (переопределения),
 # mechanics (что открывает), npc_marks [[доля_шкалы, id]...].
 const PROG_LEVELS := [
-	{"xp": 1200,  "cycle_days": 6, "mechanics": ["collection"],
+	{"xp": 1200,  "cycle_days": 6, "mechanics": ["characters", "modifiers_new3"],
 		"npc_marks": [[0.25, "tentacloid"], [0.5, "marketer"], [0.72, "fashionista"], [0.9, "dj_pulsar"]]},
-	{"xp": 2400,  "mechanics": ["characters"],
+	{"xp": 2400,  "mechanics": ["shop", "shop_grade_1"],
 		"npc_marks": [[0.4, "gourmet_vega"], [0.85, "perfumer"]]},
-	{"xp": 4000,  "cycle_days": 7, "mechanics": ["skill_1", "modifiers"],
+	{"xp": 4000,  "cycle_days": 7, "mechanics": ["skill_2", "relations"],
 		"npc_marks": [[0.3, "engineer"], [0.6, "apothecary_mo"]]},
-	{"xp": 6400,  "mechanics": ["tips", "shop", "shop_grade_1", "skill_2", "modifiers_new3"],
+	{"xp": 6400,  "mechanics": ["shop_grade_2", "modifiers_multi"],
 		"npc_marks": [[0.4, "logic9"], [0.85, "swarm_navigator"]]},
-	{"xp": 9600,  "cycle_days": 8, "pool_size": 3, "mechanics": ["shop_grade_2"],
+	{"xp": 9600,  "cycle_days": 8, "pool_size": 3, "mechanics": ["skill_3"],
 		"npc_marks": [[0.4, "vex"], [0.62, "catlady"], [0.85, "racer_kai"]]},
-	{"xp": 14000, "mechanics": ["skill_3", "relations"],
+	{"xp": 14000, "mechanics": ["shop_grade_3"],
 		"npc_marks": [[0.25, "last_of_ir"], [0.5, "archivist"], [0.72, "supernova_child"], [0.92, "the_waiter"]]},
-	{"xp": 19000, "cycle_days": 10, "mechanics": ["modifiers_multi"],
+	{"xp": 19000, "cycle_days": 10, "mechanics": ["unique_items"],
 		"npc_marks": [[0.35, "nebula_chef"], [0.65, "twofaced_priestess"], [0.9, "plasma_bartender"]]},
-	{"xp": 26000, "mechanics": ["skill_4", "shop_grade_3", "unique_items"], "npc_marks": []},
+	{"xp": 26000, "mechanics": ["skill_4"], "npc_marks": []},
 	{"xp": 34000, "pool_size": 4, "mechanics": [], "npc_marks": []},
 ]
 
@@ -660,6 +664,8 @@ func prog_pool_size(xp: int) -> int:
 	return p
 
 func prog_mech_unlocked(name: String, xp: int) -> bool:
+	if name in PROG_START_MECHS:
+		return true
 	var lvl: int = mini(prog_level(xp), PROG_LEVELS.size())
 	for i in lvl:
 		if name in (PROG_LEVELS[i]["mechanics"] as Array):
