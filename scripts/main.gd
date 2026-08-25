@@ -2590,23 +2590,40 @@ func _build_day() -> void:
 	var dv := day_panel.get_node("Card/V") as VBoxContainer
 	dv.add_theme_constant_override("separation", UI.SP_M)
 
-	# карточки по центру; снизу — зарезервированное место под умения/угловые кнопки
+	# «В меню» — сверху: низ экрана занят сумкой (левый угол), панелью умений
+	# (центр) и DEV, и кнопка во всю ширину внизу выдавливалась за экран, как
+	# только пул дорастал до четырёх гостей.
+	var top_row := HBoxContainer.new()
+	top_row.add_theme_constant_override("separation", UI.SP_S)
+	dv.add_child(top_row)
+	var to_menu := Button.new()
+	to_menu.text = "← В меню"
+	to_menu.tooltip_text = "Бросить цикл"
+	to_menu.custom_minimum_size = Vector2(190, 56)
+	UI.style_button(to_menu, UI.Btn.QUIET)
+	to_menu.pressed.connect(_show_start)
+	top_row.add_child(to_menu)
+	var top_pad := Control.new()
+	top_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_row.add_child(top_pad)
+
+	# Карточки в прокрутке: их бывает и две, и четыре — при четырёх они больше
+	# не влезали, а список гостей будет только расти.
+	var cards_scroll := TouchScroll.new()
+	cards_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	cards_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cards_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	dv.add_child(cards_scroll)
 	day_cards = VBoxContainer.new()
 	day_cards.add_theme_constant_override("separation", UI.SP_L)
 	day_cards.alignment = BoxContainer.ALIGNMENT_CENTER
 	day_cards.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	day_cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	dv.add_child(day_cards)
-	var day_bottom_pad := Control.new()              # место под панель умений
+	cards_scroll.add_child(day_cards)
+
+	var day_bottom_pad := Control.new()              # место под панель умений и сумку
 	day_bottom_pad.custom_minimum_size = Vector2(0, 104)
 	dv.add_child(day_bottom_pad)
-	var to_menu := Button.new()
-	to_menu.text = "← В меню"
-	to_menu.tooltip_text = "Бросить цикл"
-	to_menu.custom_minimum_size = Vector2(0, 60)
-	UI.style_button(to_menu, UI.Btn.QUIET)
-	to_menu.pressed.connect(_show_start)
-	dv.add_child(to_menu)
 
 	_build_skill_dock(day_panel)   # Фаза 7: панель умений — закреплена внизу по центру
 
