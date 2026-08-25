@@ -3782,7 +3782,6 @@ func _show_day() -> void:
 	var av_size: float = _card_av_for(day_choices.size())
 	for e in day_choices:
 		day_cards.add_child(_day_card(e, av_size))
-	_fit_day_cards.call_deferred()
 	_set_topbar(true)
 	_scene_state("menu")
 	Juice.stagger_fade(day_cards.get_children())   # карточки влетают по очереди
@@ -4191,23 +4190,6 @@ func _rebuild_day_cards() -> void:
 	var av_size: float = _card_av_for(day_choices.size())
 	for e in day_choices:
 		day_cards.add_child(_day_card(e, av_size))
-	_fit_day_cards.call_deferred()
-
-# Страховка после раскладки: инфо-панель привязана к рамке карточки, но при
-# длинном тексте она раздувается БОЛЬШЕ рамки и залезает на соседнюю карточку —
-# причём размер рамки при этом не меняется, так что заметить это можно только
-# сравнив реальную высоту панели с отведённым местом. Высоту автопереноса
-# нельзя посчитать до раскладки, поэтому подтягиваем карточку здесь.
-func _fit_day_cards() -> void:
-	for card in day_cards.get_children():
-		if not (card is Control) or not card.has_meta("info"):
-			continue
-		var info: Control = card.get_meta("info")
-		if not is_instance_valid(info):
-			continue
-		var over: float = info.size.y - (card.size.y - 28.0)
-		if over > 0.5:
-			card.custom_minimum_size.y = card.size.y + ceilf(over)
 	Juice.stagger_fade(day_cards.get_children())
 	_refresh_skill_dock()
 
@@ -4505,6 +4487,7 @@ func _day_card(npc_e: Dictionary, av: float = CARD_AV) -> Control:
 	info.offset_top = 14.0
 	info.offset_bottom = -14.0
 	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	info.clip_contents = true          # ничего не рисуется за пределами карточки
 	var isb := StyleBoxFlat.new()
 	isb.bg_color = Color(0.09, 0.085, 0.13, 1.0)        # ПОЛНОСТЬЮ непрозрачно
 	isb.set_corner_radius_all(14)
