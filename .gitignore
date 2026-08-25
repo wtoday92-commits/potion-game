@@ -11,3 +11,6 @@
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Временные тестовые сцены (tmp_*.gd/tscn) в репозиторий не идут
+tmp_*
