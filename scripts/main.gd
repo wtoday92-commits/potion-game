@@ -5451,16 +5451,21 @@ func _roll_order_mods(npc_e: Dictionary, force: bool) -> Dictionary:
 	if not GameData.prog_mech_unlocked("modifiers", xp):
 		return res
 	var tier: int = int(npc_e.get("tier", 1))
-	if tier < 2 or String(npc_e.get("id", "")) == "tentacloid":
+	if String(npc_e.get("id", "")) == "tentacloid":
 		return res
-	if not force and randf() >= 0.4:            # DEV-форс обходит шанс, но не гейтинг прогрессии
+	# Фокус — мягкий модификатор (меняет веса и награду, но не правила), и на
+	# карточке он объяснён строкой. Поэтому пускаем его с первого тира: иначе
+	# стартовый набор, где пятеро гостей из семи первого тира, не показывал бы
+	# модификаторы вообще. Поведенческие (таймер/утка/погром) — по-прежнему со 2-го.
+	var chance: float = 0.4 if tier >= 2 else 0.25
+	if not force and randf() >= chance:         # DEV-форс обходит шанс, но не гейтинг
 		return res
 	var new3: bool = GameData.prog_mech_unlocked("modifiers_new3", xp)
 	var multi: bool = GameData.prog_mech_unlocked("modifiers_multi", xp)
 	var kinds: Array = []
 	if String(npc_e.get("type", "normal")) == "normal" and not (String(npc_e.get("id", "")) in GameData.MOD_FOCUS_EXCLUDE):
 		kinds.append("focus")
-	if new3:
+	if new3 and tier >= 2:                       # поведенческие — не на стартовом тире
 		if String(npc_e.get("special", "")) != "no_timer":
 			kinds.append("timer")
 		kinds.append("duck")
