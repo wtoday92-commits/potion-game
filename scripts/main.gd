@@ -1941,9 +1941,46 @@ func _show_chars() -> void:
 		drop_handle.visible = false
 	for c in chars_list.get_children():
 		c.queue_free()
+	var unmet := 0
 	for npc_e in GameData.NPCS:
-		_npc_row(npc_e)
+		if PotionProfile.has_met(String(npc_e["id"])):
+			_npc_row(npc_e)
+		else:
+			unmet += 1
+	# Раньше каждый невстреченный гость получал свою строку «???», и на старте
+	# экран был стеной из двух десятков одинаковых заглушек.
+	if unmet > 0:
+		chars_list.add_child(_locked_note(
+			"Ещё не встречены: %d" % unmet,
+			"Гости открываются по мере роста лавки — просто играй цикл за циклом."))
 	Juice.fade_in(chars_panel)
+
+# Единая заглушка для «здесь пока пусто»: заголовок + пояснение, чем это
+# закрывается. Одна такая строка вместо десятка одинаковых карточек «???».
+func _locked_note(title: String, hint: String) -> Control:
+	var box := PanelContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sb := _panel_sb(UI.BORDER_SOFT, UI.PANEL_2, UI.R_M)
+	sb.set_content_margin_all(float(UI.SP_L))
+	box.add_theme_stylebox_override("panel", sb)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", UI.SP_XS)
+	box.add_child(col)
+	var t := Label.new()
+	t.text = title
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	t.add_theme_font_size_override("font_size", UI.FS_M)
+	t.add_theme_color_override("font_color", UI.TXT_DIM)
+	col.add_child(t)
+	if hint != "":
+		var h := Label.new()
+		h.text = hint
+		h.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		h.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		h.add_theme_font_size_override("font_size", UI.FS_S)
+		h.add_theme_color_override("font_color", UI.TXT_MUTED)
+		col.add_child(h)
+	return box
 
 # Возврат из оверлея: в день, если цикл активен, иначе в меню.
 func _close_overlay() -> void:
@@ -2051,7 +2088,14 @@ func _show_char(npc_e: Dictionary) -> void:
 	if not GameData.passive_defs(id).is_empty():
 		var act_n: int = PotionProfile.active_passives().size()
 		_char_header("Пассивки  (активно %d / %d)" % [act_n, GameData.PASSIVE_SLOTS], tcol)
-		char_list.add_child(_passive_row(id, tcol, true))
+		# Пять одинаковых замков в ряд не сообщали ничего — при нулевой
+		# репутации показываем, чем они открываются.
+		if PotionProfile.get_rep_level(id) <= 0:
+			char_list.add_child(_locked_note(
+				"Пассивки закрыты",
+				"Первая откроется на реп. ур.1 — выполняй заказы этого гостя."))
+		else:
+			char_list.add_child(_passive_row(id, tcol, true))
 
 	# ачивки гостя (по 3 градации: бронза/серебро/золото)
 	var achs: Array = GameData.npc_achievements(id)
@@ -2060,13 +2104,26 @@ func _show_char(npc_e: Dictionary) -> void:
 		for a in achs:
 			opened += _npc_ach_tier(ns, a)
 		_char_header("Ачивки  (%d / %d)" % [opened, achs.size() * 3], tcol)
-		var grid := GridContainer.new()
-		grid.columns = 2
-		grid.add_theme_constant_override("h_separation", UI.SP_S)
-		grid.add_theme_constant_override("v_separation", UI.SP_S)
+		# Показываем только начатые. Раньше сетка целиком состояла из карточек
+		# «???» с красными знаками вопроса — самое «недоделанное» место игры.
+		var started: Array = []
 		for a in achs:
-			grid.add_child(_npc_ach_card(a, ns))
-		char_list.add_child(grid)
+			if _npc_ach_tier(ns, a) > 0:
+				started.append(a)
+		if not started.is_empty():
+			var grid := GridContainer.new()
+			grid.columns = 2
+			grid.add_theme_constant_override("h_separation", UI.SP_S)
+			grid.add_theme_constant_override("v_separation", UI.SP_S)
+			for a in started:
+				grid.add_child(_npc_ach_card(a, ns))
+			char_list.add_child(grid)
+		var rest: int = achs.size() - started.size()
+		if rest > 0:
+			char_list.add_child(_locked_note(
+				"Ещё не открыто: %d" % rest,
+				"Ачивки этого гостя раскрываются по ходу заказов." if started.is_empty()
+					else "Остальные раскроются по ходу заказов."))
 
 # Крупная ПРЯМОУГОЛЬНАЯ карточка-портрет (без круга и металла): текстура-подложка,
 # арт персонажа во всю карточку, тонкая рамка цвета тира.
@@ -3644,7 +3701,9 @@ func _refresh_topbar() -> void:
 			b.visible = (not daily_mode) or (b == nav_lb_btn)
 	prog_widget.visible = not daily_mode
 	if reward_track != null:
-		reward_track.visible = not daily_mode   # в дейлике полосы поощрений нет
+		# До начала цикла полоса — ряд пустых кружков, читался как несработавший
+		# виджет. Показываем её только когда есть что заполнять.
+		reward_track.visible = cycle_active and not daily_mode
 	tb_streak.visible = not daily_mode
 	tb_day.visible = not daily_mode
 	if _tb_stickers != null:
