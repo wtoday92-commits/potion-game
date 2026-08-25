@@ -4819,7 +4819,9 @@ func _mod_row(tex: Texture2D, emoji: String, text: String, desc: String, col: Co
 	if tex != null:
 		var ir := TextureRect.new()
 		ir.texture = tex
-		ir.custom_minimum_size = Vector2(30, 30)
+		# иконки нарисованы детально (512-900px исходники) — в 30px они сыпались
+		ir.custom_minimum_size = Vector2(48, 48)
+		ir.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		ir.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		ir.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		ir.mouse_filter = Control.MOUSE_FILTER_IGNORE
