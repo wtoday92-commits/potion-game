@@ -96,6 +96,8 @@ var passives_locked: bool = false     # цикл начался — состав
 var item_pending: Dictionary = {}     # эффекты «на следующий заказ» (Секундомер/Ясность)
 var pogrom_removed: Array = []   # id гостей, выбывших из цикла из-за «Погрома»
 var mod_chip: Label              # плашка фокуса/модификаторов под надписью фазы
+var memo_hint: PanelContainer = null      # подсказка «что запоминаем» на фазе показа
+var memo_hint_label: Label = null
 
 var round_ui: VBoxContainer
 var done_btn: Button
@@ -242,6 +244,7 @@ var nav_passives_btn: Button = null   # кнопка пассивок ⚡ (ге�
 var settings_panel: Control = null
 var _tb_rating_shown: int = 0    # для count-up рейтинга
 var scrim: ColorRect = null      # затемнение арта под интерфейсом
+var hud_tips_chip: Control = null   # чип чаевых целиком — прячется до открытия механики
 var _scrim_now: float = -1.0     # текущая цель затемнения (чтобы не перезапускать твин)
 # Насколько гасим фон на разных экранах. В раунде — совсем не гасим: там бар и
 # есть сцена. На меню/выборе — слегка, чтобы арт стал атмосферой, а не спором
@@ -481,6 +484,20 @@ func _build_ui() -> void:
 	jar = PotionJarScene.instantiate()
 	jar_stage.set_jar(jar)
 
+	# На «ЗАПОМНИ» стулья ещё не выехали, и нижняя половина кадра оставалась
+	# пустой — композиция валилась вверх. Занимаем её подсказкой по делу.
+	memo_hint = PanelContainer.new()
+	memo_hint.add_theme_stylebox_override("panel", _panel_sb(UI.CYAN, UI.PANEL_2, UI.R_M))
+	memo_hint.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	memo_hint.visible = false
+	round_ui.add_child(memo_hint)
+	memo_hint_label = Label.new()
+	memo_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	memo_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	memo_hint_label.add_theme_font_size_override("font_size", UI.FS_L)
+	memo_hint_label.add_theme_color_override("font_color", UI.TXT)
+	memo_hint.add_child(memo_hint_label)
+
 	var sliders_row := HBoxContainer.new()
 	sliders_row.add_theme_constant_override("separation", UI.SP_S)
 	sliders_row.size_flags_vertical = Control.SIZE_SHRINK_END   # прижат к низу (зона «под столом»)
@@ -499,6 +516,7 @@ func _build_ui() -> void:
 		name_lbl.text = p["label"]
 		name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		name_lbl.add_theme_font_size_override("font_size", UI.FS_M)
+		name_lbl.add_theme_color_override("font_color", UI.TXT_DIM)
 		col.add_child(name_lbl)
 
 		var s := TouchSlider.new()
@@ -515,6 +533,8 @@ func _build_ui() -> void:
 
 		var val_lbl := Label.new()
 		val_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		val_lbl.add_theme_font_size_override("font_size", UI.FS_L)   # главное число раунда
+		val_lbl.add_theme_color_override("font_color", UI.TXT)
 		col.add_child(val_lbl)
 		value_labels[key] = val_lbl
 
@@ -677,7 +697,7 @@ func _build_ui() -> void:
 
 	# награда — в золотой панели (крупно)
 	result_points_box = PanelContainer.new()
-	result_points_box.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	result_points_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	result_points_box.add_theme_stylebox_override("panel", _panel_sb(UI.GOLD, UI.PANEL, 14))
 	result_points = Label.new()       # «+128 к рейтингу» / чаевые
 	result_points.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -688,11 +708,11 @@ func _build_ui() -> void:
 
 	# разбивка по параметрам — в карточке
 	result_breakdown_box = PanelContainer.new()
-	result_breakdown_box.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	result_breakdown_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	result_breakdown_box.add_theme_stylebox_override("panel", _panel_sb(UI.BORDER_C, UI.PANEL, 14))
-	result_breakdown = VBoxContainer.new()   # аккуратная разбивка по параметрам
-	result_breakdown.custom_minimum_size = Vector2(360, 0)
-	result_breakdown.add_theme_constant_override("separation", UI.SP_XS)
+	result_breakdown = VBoxContainer.new()   # разбивка по параметрам
+	result_breakdown.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	result_breakdown.add_theme_constant_override("separation", UI.SP_S)
 	result_breakdown_box.add_child(result_breakdown)
 	rv.add_child(result_breakdown_box)
 
@@ -1111,33 +1131,43 @@ func _build_start() -> void:
 	var sv := start_panel.get_node("Card/V") as VBoxContainer
 	sv.add_theme_constant_override("separation", UI.SP_L)
 
+	# Заголовок на плашке: раньше он лежал прямо на самом пёстром месте фона
+	# и держался только на свечении.
+	var plate := PanelContainer.new()
+	var plsb := _panel_sb(UI.GOLD, Color(0.06, 0.05, 0.09, 0.92), UI.R_L)
+	plsb.set_content_margin_all(float(UI.SP_M))
+	plate.add_theme_stylebox_override("panel", plsb)
+	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sv.add_child(plate)
 	var subtitle := Label.new()
 	subtitle.text = "SECTOR SEVEN SALOON"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	subtitle.add_theme_font_size_override("font_size", UI.FS_XXL)
+	subtitle.add_theme_font_size_override("font_size", UI.FS_XL)
 	subtitle.add_theme_color_override("font_color", UI.GOLD_DIM)
+	subtitle.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_title_font(subtitle)
-	sv.add_child(subtitle)
+	plate.add_child(subtitle)
 	_glow_label(subtitle, Color("ff4fd8"))
 
-	# HUD профиля: чипы чаевые / заказы / серия (иконки + число)
+	# Статус-строка: три счётчика в одной полосе. Раньше это были три карточки
+	# по 70px высотой, в каждой — иконка и одна цифра посреди пустоты.
+	var hud_card := PanelContainer.new()
+	hud_card.add_theme_stylebox_override("panel", _panel_sb(UI.BORDER_C, UI.PANEL_2, UI.R_M))
+	sv.add_child(hud_card)
 	var hud := HBoxContainer.new()
 	hud.alignment = BoxContainer.ALIGNMENT_CENTER
-	hud.add_theme_constant_override("separation", UI.SP_M)
-	sv.add_child(hud)
+	hud.add_theme_constant_override("separation", UI.SP_XL)
+	hud_card.add_child(hud)
 	hud_tips = _hud_chip(hud, "stat_tips")
+	hud_tips_chip = hud_tips.get_parent()
 	hud_orders = _hud_chip(hud, "stat_orders")
 	hud_streak = _hud_chip(hud, "stat_streak")
-
-	var spacer := Control.new()
-	spacer.custom_minimum_size = Vector2(0, 10)
-	sv.add_child(spacer)
 
 	# 4 квадратные плитки 2×2: подпись сверху, крупная иконка снизу
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	grid.add_theme_constant_override("h_separation", UI.SP_M)
 	grid.add_theme_constant_override("v_separation", UI.SP_M)
 	sv.add_child(grid)
@@ -1154,44 +1184,14 @@ func _build_start() -> void:
 	profile_btn.pressed.connect(_show_account)
 	grid.add_child(profile_btn)
 
-	# --- громкость: музыка / звуки ---
-	var vol_spacer := Control.new()
-	vol_spacer.custom_minimum_size = Vector2(0, 6)
-	sv.add_child(vol_spacer)
-	_audio_row(sv, "🎵 Музыка", true)
-	_audio_row(sv, "🔊 Звуки", false)
-
-# Ряд «ярлык + горизонтальный слайдер громкости». is_music → музыка, иначе SFX.
-func _audio_row(sv: VBoxContainer, label_text: String, is_music: bool) -> void:
-	# непрозрачная подложка: на контрастном фоне подписи иначе не читаются
-	var card := PanelContainer.new()
-	card.add_theme_stylebox_override("panel", _panel_sb(UI.BORDER_C, UI.PANEL_2, 14))
-	card.custom_minimum_size = Vector2(440, 66)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", UI.SP_M)
-	card.add_child(row)
-	var lbl := Label.new()
-	lbl.text = label_text
-	lbl.custom_minimum_size = Vector2(150, 0)
-	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	lbl.add_theme_font_size_override("font_size", UI.FS_L)
-	lbl.add_theme_color_override("font_color", UI.TXT)
-	row.add_child(lbl)
-	var sl := HTouchSlider.new()               # крупный тач-слайдер вместо тонкого HSlider
-	sl.min_value = 0.0
-	sl.max_value = 100.0
-	sl.step = 1.0
-	sl.value = (Sfx.music_volume if is_music else Sfx.sfx_volume) * 100.0
-	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	sl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	sl.custom_minimum_size = Vector2(260, 62)
-	if is_music:
-		sl.value_changed.connect(_on_music_vol)
-	else:
-		sl.value_changed.connect(_on_sfx_vol)
-		sl.value_changed.connect(func(_v): Sfx.play("tick"))
-	row.add_child(sl)
-	sv.add_child(card)
+	# Громкость уехала в настройки — на главном экране два самых широких блока
+	# занимали ползунки, которыми пользуются раз в жизни.
+	var gear := Button.new()
+	gear.text = "⚙   Настройки"
+	gear.custom_minimum_size = Vector2(0, 58)
+	UI.style_button(gear, UI.Btn.QUIET)
+	gear.pressed.connect(_open_settings)
+	sv.add_child(gear)
 
 func _on_music_vol(v: float) -> void:
 	Sfx.set_music_volume(v / 100.0)
@@ -1207,29 +1207,26 @@ func _on_sfx_drag_end(_value_changed: bool) -> void:
 	Sfx.play("tick")                 # превью громкости эффектов
 
 # Чип HUD: «эмодзи + значение», значение обновляется в _refresh_hud().
+# Один счётчик статус-строки: иконка + число, без собственной подложки —
+# подложка теперь общая на всю строку.
 func _hud_chip(row: HBoxContainer, tex_name: String) -> Label:
-	var chip := PanelContainer.new()
-	chip.add_theme_stylebox_override("panel", _panel_sb(UI.BORDER_C, UI.PANEL_2, 14))
-	chip.custom_minimum_size = Vector2(0, 70)
-	chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var h := HBoxContainer.new()
 	h.alignment = BoxContainer.ALIGNMENT_CENTER
 	h.add_theme_constant_override("separation", UI.SP_S)
-	chip.add_child(h)
+	row.add_child(h)
 	var ic := TextureRect.new()
 	ic.texture = _ui(tex_name)
-	ic.custom_minimum_size = Vector2(72, 72)
+	ic.custom_minimum_size = Vector2(46, 46)
 	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	h.add_child(ic)
 	var lbl := Label.new()
-	lbl.add_theme_font_size_override("font_size", UI.FS_XL)
+	lbl.add_theme_font_size_override("font_size", UI.FS_L)
 	lbl.add_theme_color_override("font_color", UI.GOLD)
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	lbl.text = "0"
 	h.add_child(lbl)
-	row.add_child(chip)
 	return lbl
 
 # Квадратная плитка главного меню: подпись сверху, крупная иконка снизу.
@@ -1237,6 +1234,7 @@ func _menu_tile(text: String, icon_name: String, primary: bool = false) -> Butto
 	var b := Button.new()
 	b.custom_minimum_size = Vector2(0, 190)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.size_flags_vertical = Control.SIZE_EXPAND_FILL   # плитки съедают пустоту, а не копят её
 	b.focus_mode = Control.FOCUS_NONE
 	b.clip_contents = true
 	var tsb := StyleBoxFlat.new()
@@ -1259,7 +1257,7 @@ func _menu_tile(text: String, icon_name: String, primary: bool = false) -> Butto
 	l.text = text
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.add_theme_font_size_override("font_size", UI.FS_XL if primary else 25)
+	l.add_theme_font_size_override("font_size", UI.FS_XL if primary else UI.FS_L)
 	l.add_theme_color_override("font_color", UI.GOLD if primary else UI.TXT)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_title_font(l)
@@ -2599,9 +2597,16 @@ func _build_day() -> void:
 	day_cards.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	day_cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	dv.add_child(day_cards)
-	var day_bottom_pad := Control.new()              # чтобы карты не заходили на нижний ряд
+	var day_bottom_pad := Control.new()              # место под панель умений
 	day_bottom_pad.custom_minimum_size = Vector2(0, 104)
 	dv.add_child(day_bottom_pad)
+	var to_menu := Button.new()
+	to_menu.text = "← В меню"
+	to_menu.tooltip_text = "Бросить цикл"
+	to_menu.custom_minimum_size = Vector2(0, 60)
+	UI.style_button(to_menu, UI.Btn.QUIET)
+	to_menu.pressed.connect(_show_start)
+	dv.add_child(to_menu)
 
 	_build_skill_dock(day_panel)   # Фаза 7: панель умений — закреплена внизу по центру
 
@@ -2609,19 +2614,6 @@ func _build_day() -> void:
 	day_header = Label.new()
 	day_header.visible = false
 	dv.add_child(day_header)
-
-	# «← Меню» — фиксированная кнопка в правом нижнем углу (на уровне инвентаря)
-	var to_menu := Button.new()
-	to_menu.text = "← Меню"
-	to_menu.tooltip_text = "Бросить цикл"
-	to_menu.custom_minimum_size = Vector2(120, 66)
-	to_menu.add_theme_font_size_override("font_size", UI.FS_M)
-	to_menu.focus_mode = Control.FOCUS_NONE
-	to_menu.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	to_menu.offset_left = -152.0; to_menu.offset_right = -18.0
-	to_menu.offset_top = -98.0; to_menu.offset_bottom = -18.0
-	to_menu.pressed.connect(_show_start)
-	day_panel.add_child(to_menu)
 
 # ---------- постоянная верхняя панель ----------
 # ---------- Глобальный рейтинг (лидерборд) ----------
@@ -4435,7 +4427,8 @@ func _day_card(npc_e: Dictionary) -> Control:
 	var tcol: Color = GameData.TIER_COLORS.get(tier, Color.WHITE)
 
 	var card := Control.new()
-	# высота карточки = диаметр портрета (+рамка) — плашки не выше аватарки
+	# Карточка тянется по высоте: раньше она была ровно с портрет, и сверху-снизу
+	# оставалось пустое место высотой почти с саму карточку.
 	card.custom_minimum_size = Vector2(440, CARD_AV + 28.0)
 	card.clip_contents = false
 
@@ -4699,8 +4692,7 @@ func _mod_rows(npc_id: String) -> Array:
 	var mods: Array = om.get("mods", [])
 	var rows: Array = []
 	if focus == "" and mods.is_empty():
-		rows.append(_mod_row(null, "✕", "без модификатора", UI.BAD))
-		return rows
+		return rows          # нечего показывать — и не показываем
 	if focus != "":
 		var fm: Dictionary = GameData.FOCUS_META[focus]
 		var tex := load("res://assets/ui/%s.png" % FOCUS_IMG.get(focus, "bubble")) as Texture2D
@@ -4985,7 +4977,8 @@ func _refresh_hud() -> void:
 	var st: Dictionary = PotionProfile.data.get("stats", {})
 	var sk: Dictionary = PotionProfile.data.get("streaks", {})
 	# чаевые видны только после открытия механики (Ур.4) — прячем весь чип
-	hud_tips.get_parent().get_parent().visible = GameData.prog_mech_unlocked("tips", xp)
+	if hud_tips_chip != null:
+		hud_tips_chip.visible = GameData.prog_mech_unlocked("tips", xp)
 	hud_tips.text = str(int(t.get("balance", 0)))
 	hud_orders.text = str(int(st.get("total_orders", 0)))
 	hud_streak.text = str(int(sk.get("goodplus_current", 0)))
@@ -5152,6 +5145,12 @@ func _start_round(lvl: int) -> void:
 	_apply_to_jar(target)          # цель показываем целиком
 	for key in ORDER:
 		value_labels[key].text = "?"
+	var memo_names: Array = []
+	for key in ORDER:
+		if key in active:
+			memo_names.append(String(PARAMS[key]["label"]))
+	memo_hint_label.text = "Запомни: %s" % " · ".join(memo_names)
+	memo_hint.visible = true
 	phase = "memorize"
 	# пассивка memTime растягивает базу, предмет «Тоник ясности» добавляет сверху
 	phase_total = MEMORIZE_S * (1.0 + float(order_pfx.get("memTime", 0.0))) + float(item_fx.get("memtime", 0.0))
@@ -5181,6 +5180,8 @@ func _slide_in_stools() -> void:
 		d += 0.09
 
 func _start_recreate() -> void:
+	if memo_hint != null:
+		memo_hint.visible = false
 	phase = "recreate"
 	# пассивка craftTime растягивает (или ужимает, если < 0) базу; «Секундомер» — сверху
 	phase_total = CRAFT_S * (1.0 + float(order_pfx.get("craftTime", 0.0))) + float(item_fx.get("time", 0.0))
@@ -5792,15 +5793,34 @@ func _show_result(overall: float, comps: Dictionary, grade: String, outcome: Dic
 	for key in active:
 		var pct: int = int(round(float(comps[key]) * 100.0))
 		var rowb := HBoxContainer.new()
-		var nl := Label.new()
+		rowb.add_theme_constant_override("separation", UI.SP_M)
 		var focused: bool = key in focus_keys
+		var nl := Label.new()
 		nl.text = ("%s " % GameData.FOCUS_META[order_focus]["icon"] if focused else "") + PARAMS[key]["label"]
-		nl.modulate = UI.GOLD if focused else Color(1, 1, 1, 0.8)
-		nl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		nl.custom_minimum_size = Vector2(150, 0)
+		nl.add_theme_font_size_override("font_size", UI.FS_M)
+		nl.modulate = UI.GOLD if focused else UI.TXT
 		rowb.add_child(nl)
+		var bar := ProgressBar.new()            # полоска нагляднее голого процента
+		bar.min_value = 0.0; bar.max_value = 100.0; bar.value = float(pct)
+		bar.show_percentage = false
+		bar.custom_minimum_size = Vector2(0, 18)
+		bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var bgsb := StyleBoxFlat.new()
+		bgsb.bg_color = UI.PANEL_2
+		bgsb.set_corner_radius_all(UI.R_S)
+		bar.add_theme_stylebox_override("background", bgsb)
+		var fgsb := StyleBoxFlat.new()
+		fgsb.bg_color = _pct_color(pct)
+		fgsb.set_corner_radius_all(UI.R_S)
+		bar.add_theme_stylebox_override("fill", fgsb)
+		rowb.add_child(bar)
 		var vl := Label.new()
 		vl.text = "%d%%" % pct
+		vl.custom_minimum_size = Vector2(64, 0)
 		vl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		vl.add_theme_font_size_override("font_size", UI.FS_M)
 		vl.add_theme_color_override("font_color", _pct_color(pct))
 		rowb.add_child(vl)
 		result_breakdown.add_child(rowb)
