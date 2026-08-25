@@ -96,6 +96,7 @@ var passives_locked: bool = false     # цикл начался — состав
 var item_pending: Dictionary = {}     # эффекты «на следующий заказ» (Секундомер/Ясность)
 var pogrom_removed: Array = []   # id гостей, выбывших из цикла из-за «Погрома»
 var mod_chip: Label              # плашка фокуса/модификаторов под надписью фазы
+var mod_chip_box: PanelContainer = null
 var memo_hint: PanelContainer = null      # подсказка «что запоминаем» на фазе показа
 var memo_hint_label: Label = null
 
@@ -471,11 +472,18 @@ func _build_ui() -> void:
 	round_ui.add_child(ir_chip)
 
 	# плашка фокуса/модификаторов заказа (Фаза 3) — «висит» весь заказ
+	# Модификатор меняет правила заказа, поэтому в раунде он на подложке и
+	# читаемым кеглем, а не самой мелкой строкой поверх пёстрого окна.
+	mod_chip_box = PanelContainer.new()
+	mod_chip_box.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	mod_chip_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mod_chip_box.visible = false
+	round_ui.add_child(mod_chip_box)
 	mod_chip = Label.new()
 	mod_chip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	mod_chip.add_theme_font_size_override("font_size", UI.FS_S)
-	mod_chip.visible = false
-	round_ui.add_child(mod_chip)
+	mod_chip.add_theme_font_size_override("font_size", UI.FS_M)
+	mod_chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mod_chip_box.add_child(mod_chip)
 
 	# банка «на сцене»: спот + барный стол + тень (даёт ей место и точку отсчёта)
 	jar_stage = JarStage.new()
@@ -4513,8 +4521,16 @@ func _day_card(npc_e: Dictionary, av: float = CARD_AV) -> Control:
 	quote_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	icol.add_child(quote_l)
 
-	for row in _mod_rows(String(npc_e.get("id", ""))):    # модификаторы — полосы во всю ширину
-		icol.add_child(row)
+	# Модификаторов бывает до трёх (фокус + два поведенческих), а высота карточки
+	# фиксирована. Один — полосой с пояснением, что он меняет; несколько —
+	# компактными чипами в одну строку, иначе третий вылезал за карточку.
+	var mod_id: String = String(npc_e.get("id", ""))
+	if _mod_rows_count(mod_id) == 1:
+		for row in _mod_rows(mod_id, true):
+			icol.add_child(row)
+	elif _mod_rows_count(mod_id) > 1:
+		quote_l.max_lines_visible = 1
+		icol.add_child(_mod_chips(mod_id))
 
 	# ---- линия блоков сложности (скрыта до тапа) — правее портрета
 	var diff := HBoxContainer.new()
@@ -4714,7 +4730,57 @@ func _apply_relation_pick(chosen_id: String) -> void:
 
 # Модификаторы задания — полосы во всю ширину панели (иконка + название капсом),
 # у каждого свой цвет; «без модификатора» — красным.
-func _mod_rows(npc_id: String) -> Array:
+# Цвет кодирует характер модификатора: фокус — выгода, таймер — усложнение,
+# утка — двойной риск, погром — опасность (гость уходит и портит репутацию).
+func _mod_color(key: String) -> Color:
+	match key:
+		"focus": return UI.GOLD
+		"timer": return UI.WARN
+		"duck": return UI.CYAN
+		"rampage": return UI.BAD
+	return UI.GOLD
+
+# Несколько модификаторов — компактной строкой чипов «иконка + название».
+func _mod_chips(npc_id: String) -> Control:
+	var om: Dictionary = day_order_mods.get(npc_id, {})
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", UI.SP_XS)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var items: Array = []
+	if String(om.get("focus", "")) != "":
+		var fm: Dictionary = GameData.FOCUS_META[String(om["focus"])]
+		items.append([String(fm["name"]), _mod_color("focus")])
+	for m in (om.get("mods", []) as Array):
+		items.append([String(GameData.MOD_META[m]["name"]), _mod_color(String(m))])
+	for it in items:
+		var chip := PanelContainer.new()
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.04, 0.04, 0.07, 1.0)
+		sb.set_corner_radius_all(UI.R_S)
+		sb.set_border_width_all(1)
+		sb.border_color = it[1]
+		sb.content_margin_left = float(UI.SP_S); sb.content_margin_right = float(UI.SP_S)
+		sb.content_margin_top = float(UI.SP_XS); sb.content_margin_bottom = float(UI.SP_XS)
+		chip.add_theme_stylebox_override("panel", sb)
+		var l := Label.new()
+		l.text = String(it[0]).to_upper()
+		l.add_theme_font_size_override("font_size", UI.FS_XS)
+		l.add_theme_color_override("font_color", it[1])
+		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chip.add_child(l)
+		row.add_child(chip)
+	return row
+
+# Сколько строк модификаторов будет у гостя (нужно до их сборки).
+func _mod_rows_count(npc_id: String) -> int:
+	var om: Dictionary = day_order_mods.get(npc_id, {})
+	var n: int = (om.get("mods", []) as Array).size()
+	if String(om.get("focus", "")) != "":
+		n += 1
+	return n
+
+func _mod_rows(npc_id: String, with_desc: bool = true) -> Array:
 	var om: Dictionary = day_order_mods.get(npc_id, {})
 	var focus: String = String(om.get("focus", ""))
 	var mods: Array = om.get("mods", [])
@@ -4724,15 +4790,19 @@ func _mod_rows(npc_id: String) -> Array:
 	if focus != "":
 		var fm: Dictionary = GameData.FOCUS_META[focus]
 		var tex := load("res://assets/ui/%s.png" % FOCUS_IMG.get(focus, "bubble")) as Texture2D
-		rows.append(_mod_row(tex, "", "фокус: %s" % fm["name"], UI.CYAN))
+		rows.append(_mod_row(tex, "", "фокус: %s" % fm["name"],
+			String(fm.get("desc", "")) if with_desc else "", _mod_color("focus")))
 	for m in mods:
 		var mm: Dictionary = GameData.MOD_META[m]
 		# картинка mod_<key>.png (иконка вместо эмодзи), фолбэк — эмодзи из MOD_META
 		var mtex := load("res://assets/ui/mod_%s.png" % m) as Texture2D
-		rows.append(_mod_row(mtex, String(mm["icon"]), String(mm["name"]), UI.GOLD))
+		rows.append(_mod_row(mtex, String(mm["icon"]), String(mm["name"]),
+			String(mm.get("desc", "")) if with_desc else "", _mod_color(m)))
 	return rows
 
-func _mod_row(tex: Texture2D, emoji: String, text: String, col: Color) -> PanelContainer:
+# desc — что модификатор меняет по правилам. Раньше на карточке было одно
+# название, и «Погром» ничем не выдавал, что гость уйдёт из цикла.
+func _mod_row(tex: Texture2D, emoji: String, text: String, desc: String, col: Color) -> PanelContainer:
 	var p := PanelContainer.new()
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var sb := StyleBoxFlat.new()
@@ -4759,12 +4829,25 @@ func _mod_row(tex: Texture2D, emoji: String, text: String, col: Color) -> PanelC
 		el.text = emoji
 		el.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		h.add_child(el)
+	var col_v := VBoxContainer.new()
+	col_v.add_theme_constant_override("separation", 0)
+	col_v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col_v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	h.add_child(col_v)
 	var l := Label.new()
 	l.text = text.to_upper()
-	l.add_theme_font_size_override("font_size", UI.FS_M)
+	l.add_theme_font_size_override("font_size", UI.FS_S)
 	l.add_theme_color_override("font_color", col)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	h.add_child(l)
+	col_v.add_child(l)
+	if desc != "":
+		var dl := Label.new()
+		dl.text = desc
+		dl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		dl.add_theme_font_size_override("font_size", UI.FS_XS)
+		dl.add_theme_color_override("font_color", UI.TXT_DIM)
+		dl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col_v.add_child(dl)
 	p.add_child(h)
 	return p
 
@@ -5097,7 +5180,7 @@ func _start_round(lvl: int) -> void:
 	ir_chip.visible = false
 	order_focus = ""               # фокус/модификаторы прошлого заказа сброшены
 	order_mods = []
-	mod_chip.visible = false
+	mod_chip_box.visible = false
 	item_fx = {}                   # эффекты предметов прошлого заказа сброшены
 	# пассивки фиксируются на весь заказ (в дейлике выключены, как умения/связи)
 	order_pfx = {} if daily_mode else PotionProfile.passive_fx(String(npc.get("id", "")))
@@ -5375,18 +5458,24 @@ func _apply_jigger(n: int) -> void:
 # Плашка фокуса/модификаторов заказа: иконки + названия, «висит» весь заказ.
 func _show_mod_chip() -> void:
 	var parts: Array = []
+	var col: Color = UI.GOLD
 	if order_focus != "":
 		var fm: Dictionary = GameData.FOCUS_META[order_focus]
 		parts.append("%s фокус: %s" % [fm["icon"], fm["name"]])
 	for m in order_mods:
 		var mm: Dictionary = GameData.MOD_META[m]
 		parts.append("%s %s" % [mm["icon"], mm["name"]])
+		col = _mod_color(m)          # цвет — по самому «злому» из активных
 	if parts.is_empty():
-		mod_chip.visible = false
+		mod_chip_box.visible = false
 		return
 	mod_chip.text = "   ".join(parts)
-	mod_chip.add_theme_color_override("font_color", UI.GOLD)
-	mod_chip.visible = true
+	mod_chip.add_theme_color_override("font_color", col)
+	var sb := _panel_sb(col, Color(0.05, 0.05, 0.09, 0.95), UI.R_S)
+	sb.content_margin_left = float(UI.SP_M); sb.content_margin_right = float(UI.SP_M)
+	sb.content_margin_top = float(UI.SP_XS); sb.content_margin_bottom = float(UI.SP_XS)
+	mod_chip_box.add_theme_stylebox_override("panel", sb)
+	mod_chip_box.visible = true
 
 # ---------- таймеры фаз ----------
 func _process(delta: float) -> void:
