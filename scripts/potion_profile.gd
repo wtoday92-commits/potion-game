@@ -13,7 +13,7 @@ const SCHEMA_VERSION := 1
 const SAVE_PATH := "user://profile.json"
 
 # --- tunable: начисление за один заказ по грейду ---
-const REP_GAIN := {"perfect": 12.0, "good": 7.0, "swill": 2.0, "bad": -5.0}
+const REP_GAIN := {"perfect": 18.0, "good": 11.0, "swill": 3.0, "bad": -6.0}
 const TIP_FACTOR := {"perfect": 1.0, "good": 0.6, "swill": 0.2, "bad": 0.0}
 
 var data: Dictionary = {}
@@ -74,6 +74,10 @@ func _empty_profile() -> Dictionary:
 		# discovered_relations — открытые пары "a|b", НАВСЕГДА.
 		"npc_relations_state": {},
 		"discovered_relations": [],
+		# Постоянный клиент: гость, которого игрок «ведёт». Он обязательно
+		# заглядывает раз в FAVOURITE_EVERY дней, иначе докачать репутацию до
+		# верхних уровней нельзя — гостя надо ещё встретить.
+		"favourite_npc": "",
 	}
 
 # ---------- Связи NPC ----------
@@ -154,6 +158,26 @@ func bump_perfect_charge(threshold: int) -> bool:
 	_dirty = true
 	save()
 	return false
+
+# ---------- Постоянный клиент ----------
+func favourite_npc() -> String:
+	return String(data.get("favourite_npc", ""))
+
+# Назначить/снять. Возвращает нового постоянного клиента ("" — снят).
+func set_favourite(npc_id: String) -> String:
+	var cur: String = favourite_npc()
+	data["favourite_npc"] = "" if cur == npc_id else npc_id
+	_dirty = true
+	save()
+	return String(data["favourite_npc"])
+
+# Сколько ещё удачных заказов до следующего уровня репутации (0 — максимум).
+func orders_to_next_rep(npc_id: String) -> int:
+	var rb: Dictionary = GameData.rep_bar(get_rep(npc_id))
+	if bool(rb.get("maxed", false)):
+		return 0
+	var left: float = float(rb["needed"]) - float(rb["into"])
+	return int(ceil(left / float(REP_GAIN["good"])))
 
 # ---------- Пассивки персонажей ----------
 # Хранение: data.passives.active = [{"npc": id, "pid": "p3"}, ...] (до

@@ -73,6 +73,11 @@ var order_mods: Array = []       # поведенческие модификат
 var day_order_mods: Dictionary = {}   # id гостя дня → {"focus":..., "mods":[...]} (для карточек выбора)
 # Фаза 7: умения игрока (работают на экране дня, тратят заряды)
 var guaranteed_npc: String = ""       # 👀 «Кто там?» — гость, гарантированно придёт
+# Постоянный клиент заходит не реже, чем раз в FAVOURITE_EVERY дней. Без этого
+# верхние уровни репутации недостижимы: при пуле 3-4 из 15-27 гостей конкретного
+# видишь в 15-20% дней, и на пятый уровень уходило ~26 циклов.
+const FAVOURITE_EVERY := 4
+var _fav_gap: int = 0                 # дней подряд без постоянного клиента
 var banned_npcs: Dictionary = {}      # 🚫 «Не пускать» — id забанены до конца цикла
 var skill_dock: Control = null
 var skill_btns: Dictionary = {}       # id умения → Button
@@ -2071,6 +2076,24 @@ func _show_char(npc_e: Dictionary) -> void:
 	_title_font(nm)
 	hcol.add_child(nm)
 	hcol.add_child(_rep_bar_ctl(PotionProfile.get_rep(id), tcol, 18))
+	# Сколько ещё заказов до следующего уровня: без этого репутация была
+	# непрозрачной шкалой, по которой нельзя понять, далеко ли до пассивки.
+	var left: int = PotionProfile.orders_to_next_rep(id)
+	var left_l := Label.new()
+	left_l.text = "До следующей пассивки: %d %s" % [left, _plural(left, "удачный заказ", "удачных заказа", "удачных заказов")] if left > 0 else "Все пассивки открыты"
+	left_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	left_l.add_theme_font_size_override("font_size", UI.FS_S)
+	left_l.add_theme_color_override("font_color", UI.TXT_DIM if left > 0 else UI.OK)
+	hcol.add_child(left_l)
+	# Постоянный клиент: гость заходит не реже раза в FAVOURITE_EVERY дней.
+	var fav: bool = PotionProfile.favourite_npc() == id
+	var fav_btn := Button.new()
+	fav_btn.text = "★ Постоянный клиент" if fav else "☆ Сделать постоянным"
+	fav_btn.tooltip_text = "Постоянный клиент заходит не реже раза в %d дня" % FAVOURITE_EVERY
+	fav_btn.custom_minimum_size = Vector2(0, 54)
+	UI.style_button(fav_btn, UI.Btn.PRIMARY if fav else UI.Btn.QUIET)
+	fav_btn.pressed.connect(_toggle_favourite.bind(id))
+	hcol.add_child(fav_btn)
 	var doss_head := Label.new()
 	doss_head.text = "ДОСЬЕ"
 	doss_head.add_theme_font_size_override("font_size", UI.FS_S)
@@ -3451,6 +3474,25 @@ func _on_passive_pressed(npc_id: String, pid: String) -> void:
 	_refresh_passive_views()
 	_show_passive_popover(npc_id, pid)
 
+# Русское склонение по числу: 1 заказ, 2-4 заказа, 5-20 заказов.
+func _plural(n: int, one: String, few: String, many: String) -> String:
+	var n100: int = n % 100
+	if n100 >= 11 and n100 <= 14:
+		return many
+	match n % 10:
+		1: return one
+		2, 3, 4: return few
+	return many
+
+# Назначить/снять постоянного клиента и перерисовать страницу.
+func _toggle_favourite(npc_id: String) -> void:
+	var now: String = PotionProfile.set_favourite(npc_id)
+	Sfx.play("brew" if now == npc_id else "tick")
+	if now == npc_id:
+		_toast("★ Постоянный клиент: заходит не реже раза в %d дня" % FAVOURITE_EVERY, UI.GOLD)
+	if not _char_shown.is_empty():
+		_show_char(_char_shown)
+
 func _clear_passive_sel() -> void:
 	_passive_sel_npc = ""
 	_passive_sel_pid = ""
@@ -3806,6 +3848,7 @@ func _start_cycle() -> void:
 	cycle_stickers = {"perfect": 0, "good": 0, "swill": 0, "bad": 0}
 	pogrom_removed = []              # «Погром»: выбывшие возвращаются в новый цикл
 	banned_npcs = {}                # 🚫 баны умения сбрасываются на новый цикл
+	_fav_gap = 0
 	passives_locked = false         # состав пассивок снова можно менять
 	guaranteed_npc = ""
 	PotionProfile.reset_relations_cycle()   # связи: обиды/уходы — только за цикл
@@ -3818,6 +3861,7 @@ func _start_cycle() -> void:
 # Новый день: фиксируем тройку посетителей и показываем экран выбора.
 func _new_day() -> void:
 	day_choices = _pick_day_npcs()
+	_apply_favourite()              # постоянный клиент заходит регулярно
 	_apply_guaranteed()             # 👀 форс-включение гарантированного гостя
 	# заранее бросаем фокус/модификаторы каждому гостю дня — чтобы показать на карточке
 	day_order_mods = {}
@@ -4255,6 +4299,26 @@ func _rebuild_day_cards() -> void:
 	_refresh_skill_dock()
 
 # 👀 форс-включение гарантированного гостя в тройку дня (если ещё не там)
+# Постоянный клиент: если его давно не было — подставляем в тройку дня.
+func _apply_favourite() -> void:
+	var fav: String = PotionProfile.favourite_npc()
+	if fav == "" or day_choices.is_empty() or daily_mode:
+		return
+	for e in day_choices:
+		if String(e.get("id", "")) == fav:
+			_fav_gap = 0
+			return
+	_fav_gap += 1
+	if _fav_gap < FAVOURITE_EVERY:
+		return
+	var cfg: Dictionary = _npc_by_id(fav)
+	if cfg.is_empty() or not GameData.is_npc_unlocked(fav, _xp()):
+		return
+	var slot: int = randi() % day_choices.size()
+	var tier: int = int(day_choices[slot].get("tier", 1))
+	day_choices[slot] = GameData.grade_up_cfg(cfg, tier) if int(cfg.get("tier", 1)) < tier else cfg
+	_fav_gap = 0
+
 func _apply_guaranteed() -> void:
 	if guaranteed_npc == "" or day_choices.is_empty():
 		return
