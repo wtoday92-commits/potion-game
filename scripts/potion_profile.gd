@@ -78,6 +78,10 @@ func _empty_profile() -> Dictionary:
 		# заглядывает раз в FAVOURITE_EVERY дней, иначе докачать репутацию до
 		# верхних уровней нельзя — гостя надо ещё встретить.
 		"favourite_npc": "",
+		# Полка: именная посуда гостей. Стакан выдаётся за заказ, сданный на
+		# 100% (не просто идеал). Арт уже есть — track_glass_<id>.png. 27 штук
+		# как сквозная цель на десятки циклов, не завязанная на рост числа.
+		"glasses": [],
 	}
 
 # ---------- Связи NPC ----------
@@ -158,6 +162,24 @@ func bump_perfect_charge(threshold: int) -> bool:
 	_dirty = true
 	save()
 	return false
+
+# ---------- Полка: именная посуда ----------
+func glasses() -> Array:
+	return data.get("glasses", [])
+
+func has_glass(npc_id: String) -> bool:
+	return npc_id in glasses()
+
+# Выдать стакан. true — если он новый (значит, стоит сказать об этом игроку).
+func earn_glass(npc_id: String) -> bool:
+	if npc_id == "" or has_glass(npc_id):
+		return false
+	var arr: Array = glasses()
+	arr.append(npc_id)
+	data["glasses"] = arr
+	_dirty = true
+	save()
+	return true
 
 # ---------- Постоянный клиент ----------
 func favourite_npc() -> String:

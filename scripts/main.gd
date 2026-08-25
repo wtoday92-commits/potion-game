@@ -268,6 +268,7 @@ var _drop_shown: bool = false
 var _drop_token: int = 0                 # чтобы старый автоскрыт не гасил новый показ
 var _drop_swipe: float = 0.0             # накопленный свайп вверх по панели
 var _pending_mark: Dictionary = {}       # отметка дня, ждёт экрана результата
+var _new_glass: String = ""              # новый стакан за цикл — показать в итоге
 
 # Множитель рейтинга цикла по итоговой градации полосы (индекс = градация 0..5,
 # где 5 — секретная фиолетовая). Отклонение от 1.0 вдвое мягче первой версии:
@@ -1429,7 +1430,7 @@ func _build_collection() -> void:
 	tabrow.add_theme_constant_override("separation", UI.SP_S)
 	cv.add_child(tabrow)
 	coll_tab_btns.clear()
-	for tab in [["stats", "Статистика"], ["ribbon", "Лента"], ["stickers", "Стикеры"], ["ach", "Ачивки"]]:
+	for tab in [["stats", "Статистика"], ["shelf", "Посуда"], ["ribbon", "Лента"], ["stickers", "Стикеры"], ["ach", "Ачивки"]]:
 		var b := Button.new()
 		b.text = tab[1]
 		b.custom_minimum_size = Vector2(0, 64)
@@ -1511,12 +1512,66 @@ func _set_collection_tab(tab: String) -> void:
 		b.add_theme_color_override("font_color", UI.GOLD if on else UI.TXT_DIM)
 	_populate_collection()
 
+# Полка именной посуды: по стакану на гостя, выдаётся за заказ на 100%.
+func _fill_shelf_tab() -> void:
+	var have: int = PotionProfile.glasses().size()
+	var total: int = GameData.NPCS.size()
+	_coll_header("Собрано %d из %d" % [have, total])
+	var hint := Label.new()
+	hint.text = "Именной стакан гостя выдаётся за заказ, сданный ровно на 100%."
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.add_theme_font_size_override("font_size", UI.FS_S)
+	hint.add_theme_color_override("font_color", UI.TXT_DIM)
+	collection_list.add_child(hint)
+
+	var grid := GridContainer.new()
+	grid.columns = 4
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", UI.SP_S)
+	grid.add_theme_constant_override("v_separation", UI.SP_S)
+	collection_list.add_child(grid)
+	for e in GameData.NPCS:
+		var id: String = String(e["id"])
+		var got: bool = PotionProfile.has_glass(id)
+		var met: bool = PotionProfile.has_met(id)
+		var tcol: Color = GameData.TIER_COLORS.get(int(e.get("tier", 1)), Color.WHITE)
+		var cell := PanelContainer.new()
+		# ширину обязательно раздаём поровну: без EXPAND_FILL GridContainer сжимал
+		# ячейки до минимума содержимого, и имена вставали по букве в строку
+		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cell.custom_minimum_size = Vector2(96, 142)
+		var sb := _panel_sb(Color(tcol.r, tcol.g, tcol.b, 0.7) if got else UI.BORDER_SOFT,
+			UI.PANEL if got else UI.PANEL_2, UI.R_S)
+		sb.set_content_margin_all(float(UI.SP_S))
+		cell.add_theme_stylebox_override("panel", sb)
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", UI.SP_XS)
+		cell.add_child(col)
+		var pic := TextureRect.new()
+		pic.texture = load("res://assets/ui/track_glass_%s.png" % id) as Texture2D
+		pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		pic.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		pic.custom_minimum_size = Vector2(0, 76)
+		if not got:
+			pic.modulate = Color(0.25, 0.25, 0.32, 0.85)   # силуэт, а не пустота
+		col.add_child(pic)
+		var nm := Label.new()
+		nm.text = String(e["name"]) if met else "???"
+		nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		nm.add_theme_font_size_override("font_size", UI.FS_XS)
+		nm.add_theme_color_override("font_color", tcol if got else UI.TXT_MUTED)
+		col.add_child(nm)
+		grid.add_child(cell)
+
 func _populate_collection() -> void:
 	for c in collection_list.get_children():
 		c.queue_free()
 
 	match collection_tab:
 		"stats": _fill_stats_tab()
+		"shelf": _fill_shelf_tab()
 		"ribbon": _fill_ribbon_tab()
 		"stickers": _fill_stickers_tab()
 		"ach": _fill_ach_tab()
@@ -3810,6 +3865,21 @@ func _detail_style(big: bool) -> void:
 	result_detail.add_theme_color_override("font_color", UI.TXT if big else UI.TXT_DIM)
 	result_detail.custom_minimum_size = Vector2(560 if big else 420, 0)
 
+# «Почти открыто»: ближайшие цели, до которых осталось совсем немного. Даёт
+# повод начать следующий цикл, не связанный с ростом числа.
+func _almost_unlocked() -> Array:
+	var out: Array = []
+	for e in GameData.NPCS:
+		var id: String = String(e["id"])
+		if not PotionProfile.has_met(id):
+			continue
+		var left: int = PotionProfile.orders_to_next_rep(id)
+		if left > 0 and left <= 2 and PotionProfile.get_rep_level(id) < GameData.REP_LEVELS.size():
+			out.append("пассивка %s (%d)" % [e["name"], left])
+		if out.size() >= 2:
+			break
+	return out
+
 func _refresh_cycle_stickers() -> void:
 	if _tb_stickers == null:
 		return
@@ -3849,6 +3919,7 @@ func _start_cycle() -> void:
 	pogrom_removed = []              # «Погром»: выбывшие возвращаются в новый цикл
 	banned_npcs = {}                # 🚫 баны умения сбрасываются на новый цикл
 	_fav_gap = 0
+	_new_glass = ""                 # брошенный цикл не должен «донести» стакан до следующего
 	passives_locked = false         # состав пассивок снова можно менять
 	guaranteed_npc = ""
 	PotionProfile.reset_relations_cycle()   # связи: обиды/уходы — только за цикл
@@ -5162,6 +5233,18 @@ func _show_cycle_end() -> void:
 	for gid in rep_gifts:
 		var ge: Dictionary = GameData.npc_by_id(String(gid))
 		lines.append("✨ +%s репутации: %s" % [_num_str(float(rep_gifts[gid])), ge.get("name", gid)])
+	# Что открылось и что почти: раньше цикл заканчивался одним числом, и на
+	# вопрос «зачем мне следующий» ответа не было.
+	if _new_glass != "":
+		var g_e: Dictionary = GameData.npc_by_id(_new_glass)
+		lines.append("🥃 Новая посуда на полке: %s" % g_e.get("name", _new_glass))
+		_new_glass = ""
+	var shelf_n: int = PotionProfile.glasses().size()
+	if shelf_n > 0 and shelf_n < GameData.NPCS.size():
+		lines.append("Полка: %d из %d" % [shelf_n, GameData.NPCS.size()])
+	var close: Array = _almost_unlocked()
+	if not close.is_empty():
+		lines.append("Почти: %s" % ", ".join(close))
 	# каскад тостов «в моменте»: повышение уровня, затем новые гости
 	var td: float = 0.5
 	if lvl_after > lvl_before:
@@ -5846,6 +5929,9 @@ func _do_finish() -> void:
 		var mark_kind: String = grade
 		if grade == "perfect" and overall >= 0.999:
 			mark_kind = RewardTrack.KIND_HUNDRED
+			# 100% — именная посуда гостя НАВСЕГДА, а не только на эту полосу
+			if PotionProfile.earn_glass(String(npc.get("id", ""))):
+				_new_glass = String(npc.get("id", ""))
 		_pending_mark = {"day": day_num - 1, "kind": mark_kind, "npc": String(npc.get("id", ""))}
 
 	# Фаза 7: заряд умения за каждые 3 идеала за цикл
