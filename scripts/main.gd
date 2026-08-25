@@ -3782,6 +3782,7 @@ func _show_day() -> void:
 	var av_size: float = _card_av_for(day_choices.size())
 	for e in day_choices:
 		day_cards.add_child(_day_card(e, av_size))
+	_fit_day_cards.call_deferred()
 	_set_topbar(true)
 	_scene_state("menu")
 	Juice.stagger_fade(day_cards.get_children())   # карточки влетают по очереди
@@ -4190,6 +4191,23 @@ func _rebuild_day_cards() -> void:
 	var av_size: float = _card_av_for(day_choices.size())
 	for e in day_choices:
 		day_cards.add_child(_day_card(e, av_size))
+	_fit_day_cards.call_deferred()
+
+# Страховка после раскладки: инфо-панель привязана к рамке карточки, но при
+# длинном тексте она раздувается БОЛЬШЕ рамки и залезает на соседнюю карточку —
+# причём размер рамки при этом не меняется, так что заметить это можно только
+# сравнив реальную высоту панели с отведённым местом. Высоту автопереноса
+# нельзя посчитать до раскладки, поэтому подтягиваем карточку здесь.
+func _fit_day_cards() -> void:
+	for card in day_cards.get_children():
+		if not (card is Control) or not card.has_meta("info"):
+			continue
+		var info: Control = card.get_meta("info")
+		if not is_instance_valid(info):
+			continue
+		var over: float = info.size.y - (card.size.y - 28.0)
+		if over > 0.5:
+			card.custom_minimum_size.y = card.size.y + ceilf(over)
 	Juice.stagger_fade(day_cards.get_children())
 	_refresh_skill_dock()
 
@@ -4444,7 +4462,7 @@ const CARD_DIFF_LEFT := 198.0     # линия блоков сложности �
 const DAY_BOTTOM_H := 104.0       # нижний ряд: сумка / умения / «В меню»
 # Высота под колонку карточек: панель дня минус нижний ряд и поля. Вьюпорт
 # зафиксирован 720×1280 (stretch aspect keep), поэтому величина постоянная.
-const DAY_CARDS_H := 772.0
+const DAY_CARDS_H := 800.0
 
 # Диаметр портрета, при котором n карточек помещаются без прокрутки.
 func _card_av_for(n: int) -> float:
@@ -4525,11 +4543,14 @@ func _day_card(npc_e: Dictionary, av: float = CARD_AV) -> Control:
 	# фиксирована. Один — полосой с пояснением, что он меняет; несколько —
 	# компактными чипами в одну строку, иначе третий вылезал за карточку.
 	var mod_id: String = String(npc_e.get("id", ""))
-	if _mod_rows_count(mod_id) == 1:
+	var n_mods: int = _mod_rows_count(mod_id)
+	if n_mods > 0:
+		quote_l.max_lines_visible = 1      # правила важнее флейвора, когда места мало
+		quote_l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS   # не рубим на полуслове
+	if n_mods == 1:
 		for row in _mod_rows(mod_id, true):
 			icol.add_child(row)
-	elif _mod_rows_count(mod_id) > 1:
-		quote_l.max_lines_visible = 1
+	elif n_mods > 1:
 		icol.add_child(_mod_chips(mod_id))
 
 	# ---- линия блоков сложности (скрыта до тапа) — правее портрета
@@ -4820,7 +4841,7 @@ func _mod_row(tex: Texture2D, emoji: String, text: String, desc: String, col: Co
 		var ir := TextureRect.new()
 		ir.texture = tex
 		# иконки нарисованы детально (512-900px исходники) — в 30px они сыпались
-		ir.custom_minimum_size = Vector2(48, 48)
+		ir.custom_minimum_size = Vector2(44, 44)
 		ir.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		ir.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		ir.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -4846,6 +4867,9 @@ func _mod_row(tex: Texture2D, emoji: String, text: String, desc: String, col: Co
 		var dl := Label.new()
 		dl.text = desc
 		dl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		# потолок на две строки: высота карточки фиксирована, и длинное описание
+		# распирало инфо-панель за её рамку — она наезжала на соседнюю карточку
+		dl.max_lines_visible = 2
 		dl.add_theme_font_size_override("font_size", UI.FS_XS)
 		dl.add_theme_color_override("font_color", UI.TXT_DIM)
 		dl.mouse_filter = Control.MOUSE_FILTER_IGNORE
