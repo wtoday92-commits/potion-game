@@ -56,6 +56,8 @@ const LEVEL_DESC := {
 # Персонажи и цвета тиров теперь в GameData (autoload). Ростер — GameData.NPCS,
 # цвета — GameData.TIER_COLORS. Флейвор выбирается случайно из npc["flavors"].
 
+# Запасные значения на случай, если у гостя нет конфига: реальное время берётся
+# из GameData.order_times() — по тиру гостя, его сложности и механике.
 const MEMORIZE_S := 2.5
 const CRAFT_S := 14.0
 
@@ -5332,7 +5334,8 @@ func _start_round(lvl: int) -> void:
 	memo_hint.visible = true
 	phase = "memorize"
 	# пассивка memTime растягивает базу, предмет «Тоник ясности» добавляет сверху
-	phase_total = MEMORIZE_S * (1.0 + float(order_pfx.get("memTime", 0.0))) + float(item_fx.get("memtime", 0.0))
+	var _t: Dictionary = GameData.order_times(npc, level)
+	phase_total = float(_t["mem"]) * (1.0 + float(order_pfx.get("memTime", 0.0))) + float(item_fx.get("memtime", 0.0))
 	phase_left = phase_total
 	bulb_bar.set_fraction(0.0)      # лампы гаснут в начале, будут заполняться
 	Sfx.play("orderShow")           # заказ появился
@@ -5363,7 +5366,8 @@ func _start_recreate() -> void:
 		memo_hint.visible = false
 	phase = "recreate"
 	# пассивка craftTime растягивает (или ужимает, если < 0) базу; «Секундомер» — сверху
-	phase_total = CRAFT_S * (1.0 + float(order_pfx.get("craftTime", 0.0))) + float(item_fx.get("time", 0.0))
+	var _tc: Dictionary = GameData.order_times(npc, level)
+	phase_total = float(_tc["craft"]) * (1.0 + float(order_pfx.get("craftTime", 0.0))) + float(item_fx.get("time", 0.0))
 	phase_left = phase_total
 	bulb_bar.set_fraction(1.0)      # все горят, дальше гаснут по таймеру
 	# активные ползунки — в случайное; неактивные держим на цели (не участвуют)

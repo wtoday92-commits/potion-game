@@ -127,8 +127,7 @@ class TruckerMech extends NpcMech:
 				keys.append(k)
 		if keys.is_empty():
 			return                  # нечего переводить в КПП — обычная игра
-		g.phase_total += EXTRA_CRAFT_S
-		g.phase_left += EXTRA_CRAFT_S
+		pass   # время добавляет GameData.MECH_CRAFT_TAX
 		# каждый правый регулятор → рычаг КПП поверх спрятанного слайдера
 		for k in keys:
 			_make_gear(k)
@@ -425,8 +424,7 @@ class LogicMech extends NpcMech:
 	func craft_start(g) -> void:
 		g_ref = g
 		keys = (g.active as Array).duplicate()
-		g.phase_total *= 1.5
-		g.phase_left *= 1.5
+		pass   # время добавляет GameData.MECH_CRAFT_TAX
 		for k in keys:
 			_make_stepper(k)
 
@@ -692,8 +690,7 @@ class MarketerMech extends NpcMech:
 	func craft_start(g) -> void:
 		g_ref = g
 		var cnt: int = int(MG_COUNT.get(g.level, 1))
-		g.phase_total *= 1.3                       # +30% времени на создание (миниигры отвлекают)
-		g.phase_left *= 1.3
+		pass   # время добавляет GameData.MECH_CRAFT_TAX
 		schedule.clear()
 		var slots: Array = {1: [0.45], 2: [0.36, 0.68]}.get(cnt, [0.45])
 		for s in slots:
@@ -1156,8 +1153,7 @@ class SwarmMech extends NpcMech:
 
 	func craft_start(g) -> void:
 		g_ref = g
-		g.phase_total += 3.0
-		g.phase_left += 3.0
+		pass   # время добавляет GameData.MECH_CRAFT_TAX
 		_force_big_jar(g)                           # банка максимальная
 		g.target["count"] = 0                       # никаких жидких сгустков — «начинка» = детали
 		g.sliders["count"].set_value_no_signal(0.0)
@@ -1353,8 +1349,7 @@ class InspectorMech extends NpcMech:
 
 	func craft_start(g) -> void:
 		g_ref = g
-		g.phase_total *= 2.0                # читать дольше, чем смотреть
-		g.phase_left *= 2.0
+		pass   # время добавляет GameData.MECH_CRAFT_TAX
 		_build_dossier(g)
 		# закрытая папка «ДЕЛО» — на столе (низ окна), по клику открывается досье
 		folder = DossierFolder.new()
@@ -2238,7 +2233,7 @@ class ChefMech extends NpcMech:
 	func craft_start(g) -> void:
 		g_ref = g
 		_apply_target(g)
-		g.phase_total *= 1.5                       # книгу листать дольше — ×1.5 времени
+		pass                                       # время добавляет GameData.MECH_CRAFT_TAX
 		g.phase_left *= 1.5
 		if cards != null and is_instance_valid(cards):
 			cards.queue_free()
