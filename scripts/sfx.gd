@@ -19,6 +19,8 @@ const SFX_KEYS := [
 	# полоса поощрений цикла: установка отметки за результат дня
 	"trackGood", "trackPerfect", "trackHundred", "trackSwill", "trackBad",
 	"trackGrade", "trackSecret",
+	# события, что раньше проходили молча: рост лавки, выезд стульев, приём предмета
+	"levelUp", "stools", "itemUse",
 ]
 # события без своего файла → ближайший по смыслу существующий
 const _FALLBACK := {"good": "perfect", "badClear": "badPop"}

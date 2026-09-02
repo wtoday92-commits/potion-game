@@ -513,6 +513,15 @@ func adjust_rep(npc_id: String, delta: float) -> void:
 	rep["value"] = maxf(0.0, float(rep["value"]) + delta)
 	rep["level"] = GameData.rep_level(float(rep["value"]))
 
+# Точечный счётчик в статистике гостя — для ачивок вида kind="stat"
+# (печати Хранителя, доверие Ир и т.п.), у которых нет своего поля в _empty_npc_stats.
+func bump_npc_stat(npc_id: String, key: String, n: int = 1) -> void:
+	ensure_npc(npc_id)
+	var ns: Dictionary = data["npc_stats"][npc_id]
+	ns[key] = int(ns.get(key, 0)) + n
+	_dirty = true
+	save()
+
 func npc_stats(npc_id: String) -> Dictionary:
 	ensure_npc(npc_id)
 	return data["npc_stats"][npc_id]

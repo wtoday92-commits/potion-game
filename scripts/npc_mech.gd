@@ -369,6 +369,7 @@ class ArchivistMech extends NpcMech:
 	var g_ref
 	var keys: Array = []
 	var sealed_key: String = ""
+	var seals_placed: int = 0        # сколько печатей легло за заказ (ачивка «Исторический момент»)
 	var last_correct: String = ""
 	var acc: float = 0.0
 	var rain: MatrixRain = null
@@ -403,6 +404,7 @@ class ArchivistMech extends NpcMech:
 		keys = (g.active as Array).duplicate()
 		acc = 0.0
 		sealed_key = ""
+		seals_placed = 0
 		last_correct = ""
 		if rain == null:                     # страховка, если показ был пропущен
 			memorize_start(g)
@@ -431,6 +433,7 @@ class ArchivistMech extends NpcMech:
 		if next_key == "":
 			return                  # ни один не выставлен верно — печати нет
 		sealed_key = next_key
+		seals_placed += 1
 		last_correct = next_key
 		var s = g_ref.sliders[sealed_key]
 		s.editable = false
@@ -838,7 +841,7 @@ class MarketerMech extends NpcMech:
 
 	# выбрать тип миниигры: меньше всего использованный (повтор не более 1 раза за заказ)
 	func _pick_type() -> String:
-		var pool: Array = ["captcha", "ad", "puzzle"]     # мозаика временно отключена
+		var pool: Array = ["captcha", "ad", "puzzle"]
 		pool.shuffle()
 		pool.sort_custom(func(a, b): return int(used_types.get(a, 0)) < int(used_types.get(b, 0)))
 		return pool[0]
@@ -859,9 +862,6 @@ class MarketerMech extends NpcMech:
 		elif t == "puzzle":
 			game = PuzzleGame.new()
 			game.finished.connect(_on_puzzle_done)
-		elif t == "mosaic":
-			game = MosaicGame.new()
-			game.finished.connect(_on_ad_done)     # без баффа — как реклама
 		else:
 			game = CaptchaGame.new()
 			game.finished.connect(_on_captcha_done)
@@ -939,11 +939,15 @@ class DjMech extends NpcMech:
 	const BEAT := 0.5                  # период бита, с
 	var g_ref
 	var acc: float = 0.0
+	var beat_n: int = 0
+	var pulled: int = 0                # сколько раз бит утянул регулятор (УР.4)
 	var player: AudioStreamPlayer = null
 
 	func craft_start(g) -> void:
 		g_ref = g
 		acc = BEAT                       # первый удар почти сразу
+		beat_n = 0
+		pulled = 0
 		player = AudioStreamPlayer.new()
 		player.bus = "SFX"
 		player.stream = _make_kick()
@@ -953,9 +957,34 @@ class DjMech extends NpcMech:
 		acc += delta
 		if acc >= BEAT:
 			acc -= BEAT
+			beat_n += 1
 			if player != null:
 				player.play()
 			_pulse(g)
+			if g.level == 4 and beat_n % 4 == 0:
+				_gravity(g)
+
+	# УР.4 «гравитация»: каждый четвёртый бит утягивает один регулятор к середине
+	# шкалы на деление. Грув приходится удерживать, а не выставить один раз.
+	func _gravity(g) -> void:
+		var keys: Array = (g.active as Array).duplicate()
+		keys.shuffle()
+		for k in keys:
+			var s = g.sliders[k]
+			if not s.editable:
+				continue
+			var st: float = s.step if s.step > 0.0 else 1.0
+			var mid: float = (s.min_value + s.max_value) * 0.5
+			if absf(s.value - mid) < st * 0.5:
+				continue                     # уже в середине — тянуть некуда
+			var dir: float = -1.0 if s.value > mid else 1.0
+			s.set_value_no_signal(clampf(s.value + st * dir, s.min_value, s.max_value))
+			var cur: Dictionary = g._current_values()
+			g._apply_to_jar(cur)
+			g._update_value_labels(cur)
+			_pop(g.slider_cols[k])
+			pulled += 1
+			return
 
 	func _pulse(g) -> void:
 		_pop(g.jar)
@@ -1665,6 +1694,10 @@ class InspectorMech extends NpcMech:
 	var tol: int = 2
 	var folder: DossierFolder = null   # закрытая папка на столе
 	var dossier: Control = null        # открытое «дело» (поверх банки)
+	var lie_key: String = ""           # УР.4: пункт, внесённый с ошибкой ("" — дело честное)
+	var lie_shown: bool = false
+	var hint_lbl: Label = null
+	var ask_btn: Button = null
 
 	func setup(_g) -> void:
 		tol = randi() % 3 + 1              # допуск ±1..3 деления
@@ -1674,7 +1707,13 @@ class InspectorMech extends NpcMech:
 
 	func craft_start(g) -> void:
 		g_ref = g
-		pass   # время добавляет GameData.MECH_CRAFT_TAX
+		# время добавляет GameData.MECH_CRAFT_TAX
+		lie_key = ""
+		lie_shown = false
+		# УР.4 — допрос: один пункт дела заведомо неверен
+		var keys: Array = g.active
+		if g.level == 4 and keys.size() >= 2:
+			lie_key = String(keys[randi() % keys.size()])
 		_build_dossier(g)
 		# закрытая папка «ДЕЛО» — на столе (низ окна), по клику открывается досье
 		folder = DossierFolder.new()
@@ -1705,7 +1744,15 @@ class InspectorMech extends NpcMech:
 	# нелепо на спектре, где ползунок и так подписан градусами. Отдаём то же
 	# число, что игрок видит на самом ползунке (тот же _fmt, та же сетка шага).
 	func _value_str(g, key: String) -> String:
-		return String(g._fmt(key, float(g.target[key])))
+		var v: float = float(g.target[key])
+		if key == lie_key:
+			var s = g.sliders[key]
+			var st: float = s.step if s.step > 0.0 else 1.0
+			var off: float = st * float(2 + randi() % 3) * (1.0 if randf() < 0.5 else -1.0)
+			v = clampf(v + off, s.min_value, s.max_value)
+			if is_equal_approx(v, float(g.target[key])):   # упёрлись в край — двигаем в другую сторону
+				v = clampf(float(g.target[key]) - st * 2.0, s.min_value, s.max_value)
+		return String(g._fmt(key, v))
 
 	func _build_text(g) -> String:
 		var keys: Array = g.active.duplicate()
@@ -1781,13 +1828,42 @@ class InspectorMech extends NpcMech:
 		body.add_theme_font_size_override("font_size", UI.FS_M)
 		body.add_theme_color_override("font_color", Color(0.16, 0.12, 0.08))
 		col.add_child(body)
+		hint_lbl = Label.new()
+		hint_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		hint_lbl.add_theme_font_size_override("font_size", UI.FS_M)
+		hint_lbl.add_theme_color_override("font_color", Color(0.52, 0.10, 0.08))
+		hint_lbl.visible = false
+		col.add_child(hint_lbl)
+		if lie_key != "":
+			ask_btn = Button.new()
+			ask_btn.text = "Уточнить у комиссии"
+			ask_btn.focus_mode = Control.FOCUS_NONE
+			ask_btn.pressed.connect(_ask)
+			col.add_child(ask_btn)
 		var close := Button.new()
 		close.text = "Убрать в папку"
 		close.focus_mode = Control.FOCUS_NONE
 		close.pressed.connect(_close_dossier)
 		col.add_child(close)
 
+	# Уточнение: комиссия называет ошибочный пункт, но сверка стоит времени.
+	func _ask() -> void:
+		if lie_shown or lie_key == "":
+			return
+		lie_shown = true
+		g_ref.phase_left = maxf(2.0, g_ref.phase_left * 0.88)
+		hint_lbl.text = "Сверено с образцом: пункт «%s» внесён с ошибкой." % String(g_ref.PARAMS[lie_key]["label"])
+		hint_lbl.visible = true
+		if ask_btn != null and is_instance_valid(ask_btn):
+			ask_btn.visible = false
+		Sfx.play("dock")
+
 	func stop(_g) -> void:
+		if dossier != null and is_instance_valid(dossier):
+			dossier.queue_free()          # раньше открытое «дело» оставалось в сцене
+		dossier = null
+		hint_lbl = null
+		ask_btn = null
 		if folder != null and is_instance_valid(folder):
 			folder.queue_free()
 		if dossier != null and is_instance_valid(dossier):
@@ -1796,7 +1872,11 @@ class InspectorMech extends NpcMech:
 		dossier = null
 
 	func result_note(_g) -> String:
-		return "📋 Инспектор: сверял по «Делу о приёмке»"
+		if lie_key == "":
+			return "📋 Инспектор: сверял по «Делу о приёмке»"
+		if lie_shown:
+			return "📋 Инспектор: ошибку в деле вы вскрыли — но это стоило времени"
+		return "📋 Инспектор: один пункт дела был неверен, и вы его не оспорили"
 
 # ============================================================
 # Инженер навигатора: фазы показа нет — цель показана ЗОНАМИ на треках. Ползунок

@@ -181,6 +181,8 @@ var ir_effect_id: String = ""   # конкретный эффект, выбра�
 var ir_effect_kind: String = "" # "buff"/"debuff" — для окраски чипа
 var ir_chip: Label              # плашка активного эффекта под надписью фазы
 var _auto_finish: bool = false  # заказ завершён истёкшим таймером (не кнопкой) — для стикеров
+var _seal_on: bool = false      # заказ финишировал под печатью Хранителя Архива
+var _seal_count: int = 0        # сколько печатей легло за этот заказ
 # --- переигровка (Ир): «Второй рассвет» (optional) и «Дважды безупречно» (forced) ---
 var ir_replay_mode: String = ""     # "" | "optional" | "forced" — что предложить на результате
 var ir_replay_active: bool = false  # цепочка «Второго рассвета» держится, пока не идеал/не принял
@@ -3332,6 +3334,7 @@ func _num_str(v: float) -> String:
 	return str(int(v)) if is_equal_approx(v, float(int(v))) else str(v)
 
 func _apply_item_and_close(id: String, grade: int) -> void:
+	Sfx.play("itemUse")
 	_use_item(id, grade)
 	items_panel.visible = false
 
@@ -5563,6 +5566,7 @@ func _show_cycle_end() -> void:
 	# каскад тостов «в моменте»: повышение уровня, затем новые гости
 	var td: float = 0.5
 	if lvl_after > lvl_before:
+		Sfx.play("levelUp")
 		for lv in range(lvl_before + 1, lvl_after + 1):
 			_toast.call_deferred("★ Лавка выросла до ур.%d!" % lv, UI.GOLD, td)
 			td += 0.5
@@ -5833,6 +5837,7 @@ func _start_round(lvl: int) -> void:
 # успел разложить колонки (иначе не знаем их финальный x).
 func _slide_in_stools() -> void:
 	await get_tree().process_frame
+	Sfx.play("stools")
 	var d: float = 0.0
 	for key in ORDER:
 		var col: Control = slider_cols[key]
@@ -6198,9 +6203,15 @@ func _do_finish() -> void:
 	# множитель рейтинга от механики — берём ДО stop() (таймеры/полоски ещё живы)
 	var rating_mult: float = 1.0
 	var no_points: bool = false
+	_seal_on = false
+	_seal_count = 0
 	if mech:
 		rating_mult = mech.score_bonus(self)
 		no_points = mech.blocks_points(self, overall)
+		# печать Хранителя снимаем ДО stop() — он её распечатывает вместе с уборкой
+		if String(npc.get("id", "")) == "archivist":
+			_seal_on = String(mech.sealed_key) != ""
+			_seal_count = int(mech.seals_placed)
 		mech.stop(self)
 
 	# грейд по порогам тира + запись результата в профиль
@@ -6268,6 +6279,16 @@ func _do_finish() -> void:
 		time_frac, level, order_focus, pos_mult, no_points, neg_mult, tip_mult, flat_bonus,
 		order_pfx, item_fx)
 	passives_locked = true         # с первого выполненного заказа состав пассивок заморожен
+	# Заказ под печатью Хранителя. Без этих трёх счётчиков его ачивки «Сургуч и
+	# чернила», «Отмеченные страницы» и «Исторический момент» были недостижимы.
+	if _seal_on and String(npc.get("id", "")) == "archivist":
+		var aid: String = String(npc["id"])
+		if good_res:
+			PotionProfile.bump_npc_stat(aid, "sealGoods")
+		if grade == "perfect":
+			PotionProfile.bump_npc_stat(aid, "sealPerfects")
+			if _seal_count >= 3:
+				PotionProfile.bump_npc_stat(aid, "historicMoments")
 	# Полоса поощрений: 100% — именной стакан гостя, идеал — крупный золотой,
 	# годно — обычный, пойло — заглушка, брак — осколки. В дейлике полосы нет.
 	if not daily_mode:
@@ -6341,15 +6362,13 @@ func _pick_sticker(grade: String, overall: float, comps: Dictionary, tier: int,
 	return String(arr[randi() % GameData.BASE_STICKERS])
 
 # Индексы особых стикеров, чьё условие выполнено (см. STICKER_SPECIALS в браузере).
-# Часть условий (печать Хранителя `sealed`, форс по связям НПС) ждёт портирования
-# своих механик — помечено TODO и пока не срабатывает.
 func _sticker_special_idx(grade: String, overall: float, comps: Dictionary, tier: int,
 		time_frac: float, score_after: int, perfect_run: int, good_run: int, bad_before: int) -> Array:
 	var out: Array = []
 	var special: String = String(npc.get("special", ""))
 	var has_gradient: bool = String(npc.get("type", "")) == "gradient"
 	var ir_debuff: bool = ir_effect_kind == "debuff"
-	var sealed: bool = false     # TODO: печать Хранителя Архива не портирована
+	var sealed: bool = _seal_on          # заказ шёл под печатью Хранителя
 	match grade:
 		"perfect":
 			var all_exact: bool = true
@@ -6388,7 +6407,8 @@ func _sticker_special_idx(grade: String, overall: float, comps: Dictionary, tier
 			if bad_before >= 2: out.append(5)                         # третий брак подряд
 			if _auto_finish: out.append(6)                            # таймер истёк сам
 			if sealed: out.append(7)                                  # брак под печатью
-			# idx 8 (bad9) — форс обиженным НПС по связям; TODO (связи-форс не портирован)
+			# idx 8 (bad9) форсится выше по коду, в _do_finish: обиженный по связям
+			# гость подменяет вид стикера, не трогая очки
 	return out
 
 # «Дальше →» на экране результата: конец цикла → новый цикл, иначе → следующий день.
