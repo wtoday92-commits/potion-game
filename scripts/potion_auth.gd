@@ -90,7 +90,9 @@ func _req(method: int, url: String, hdrs: PackedStringArray, body: String = "") 
 	var r: Array = await _http.request_completed   # [result, code, headers, body]
 	var code: int = r[1]
 	var txt: String = (r[3] as PackedByteArray).get_string_from_utf8()
-	var json: Variant = JSON.parse_string(txt)
+	# Тело может быть пустым или не-JSON (сеть отвалилась, сервер вернул текст) —
+	# разбирать его вслепую значило сыпать ошибками движка в лог на ровном месте.
+	var json: Variant = JSON.parse_string(txt) if txt.strip_edges() != "" else null
 	return {"ok": code >= 200 and code < 300, "code": code, "json": json}
 
 func _headers(token: String = "") -> PackedStringArray:
