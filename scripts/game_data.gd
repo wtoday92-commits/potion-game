@@ -131,7 +131,8 @@ func order_times(npc: Dictionary, level: int) -> Dictionary:
 	var craft: float = float(cfg.get("craft_ms", 18354)) * CRAFT_TIME_SCALE / 1000.0
 	craft *= float(CRAFT_LEVEL_MULT.get(level, 1.0))
 	craft = clampf(craft, MIN_CRAFT_PER_PARAM * float(n), MAX_CRAFT_BASE)
-	craft += float(MECH_CRAFT_TAX.get(String(npc.get("id", "")), 0.0))
+	# патент «Привычные причуды» вдвое срезает надбавку за механику гостя
+	craft += float(MECH_CRAFT_TAX.get(String(npc.get("id", "")), 0.0)) * PotionProfile.patent_mech_tax_mult()
 	return {"mem": mem, "craft": craft}
 
 # ---------- Цвета тиров (как в веб: t1..t5) ----------
@@ -585,9 +586,19 @@ func _ready() -> void:
 			f.close()
 			if parsed is Dictionary:
 				NPC_ACH = parsed
+				# Иконка ачивки — файл assets/ach_npc/<npc>_<номер>.png.
+				# Раньше здесь стоял эмодзи из content.js; ключ "icon"
+				# оставлен как запасной вариант, если картинка не найдётся.
+				for nid in NPC_ACH.keys():
+					var list: Array = NPC_ACH[nid]
+					for i in list.size():
+						(list[i] as Dictionary)["img"] = "%s_%d" % [nid, i]
 
 func npc_achievements(id: String) -> Array:
 	return NPC_ACH.get(id, [])
+
+func npc_ach_icon_path(img: String) -> String:
+	return "res://assets/ach_npc/%s.png" % img
 
 func npc_by_id(id: String) -> Dictionary:
 	return _by_id.get(id, {})
@@ -706,6 +717,92 @@ func prog_bar(xp: int) -> Dictionary:
 		cum_prev += prog_level_increment(l)
 	var needed: int = prog_level_increment(lvl + 1)
 	return {"level": lvl, "into": xp - cum_prev, "needed": needed}
+
+# ---------- Патенты Гильдии (награда за уровни сверх последней шкалы) ----------
+# Шкала прогрессии кончается на PROG_LEVELS.size(): дальше опыт копился, длина
+# цикла, размер пула, механики и гости были уже обрезаны по последнему уровню, и
+# рост не давал ИГРОКУ ничего. Каждый уровень сверх последнего выдаёт ПАТЕНТ —
+# выбор 1 из 3 постоянных улучшений. Валюта намеренно не деньги, а то, чего у
+# игрока не хватает при полном шкафу: слоты пассивок (открыто до 135, активны 3),
+# заряды умений, длина цикла, встречи с редкими гостями.
+# max — сколько раз патент можно взять; всего вариантов PATENT_PICKS.
+const PATENTS := [
+	{"id": "passive_slot", "max": 2, "icon": "⚡", "name": "Стеллаж пассивок",
+		"desc": "+1 слот активной пассивки на цикл."},
+	{"id": "skill_charge", "max": 2, "icon": "👀", "name": "Запасной заряд",
+		"desc": "+1 к запасу зарядов умений."},
+	{"id": "cycle_day", "max": 2, "icon": "📅", "name": "Длинный цикл",
+		"desc": "+1 день в цикле."},
+	{"id": "memo_time", "max": 1, "icon": "🧠", "name": "Твёрдая память",
+		"desc": "+15% времени на «ЗАПОМНИ»."},
+	{"id": "craft_time", "max": 1, "icon": "⏳", "name": "Набитая рука",
+		"desc": "+15% времени на варку."},
+	{"id": "rep_gain", "max": 1, "icon": "✨", "name": "Доброе имя",
+		"desc": "+25% к приросту репутации гостей."},
+	{"id": "fav_fast", "max": 1, "icon": "★", "name": "Свой человек",
+		"desc": "Постоянный клиент заходит раз в 3 дня вместо 4."},
+	{"id": "glass_98", "max": 1, "icon": "🥃", "name": "Щедрая полка",
+		"desc": "Именная посуда достаётся с 98%, а не только со 100%."},
+	{"id": "mech_tax", "max": 1, "icon": "🎛", "name": "Привычные причуды",
+		"desc": "Надбавка времени за механику гостя вдвое меньше."},
+	{"id": "grudge", "max": 1, "icon": "🛡", "name": "Толстая кожа",
+		"desc": "Обида гостей копится вдвое медленнее."},
+	# --- риск-обмен: рейтинг вверх в обмен на более больной промах.
+	# up/down рисуются двумя цветными строками — плюс и цена отдельно.
+	{"id": "bet_perfect", "max": 1, "icon": "💎", "name": "Ставка на идеал",
+		"desc": "Идеал приносит +30% рейтинга, но неудачный заказ отнимает вдвое.",
+		"up": "Идеал: +30% рейтинга", "down": "Любая потеря: ×2"},
+	{"id": "high_stakes", "max": 1, "icon": "🎲", "name": "Крупная игра",
+		"desc": "Весь заработанный рейтинг +15%, любая потеря +50%.",
+		"up": "Весь заработок: +15%", "down": "Любая потеря: +50%"},
+	{"id": "deep_end", "max": 1, "icon": "🌊", "name": "На глубину",
+		"desc": "Заказ на УР.4 даёт +35% рейтинга, на УР.1–2 — на 25% меньше.",
+		"up": "УР.4: +35% рейтинга", "down": "УР.1–2: −25% рейтинга"},
+	{"id": "streak_ride", "max": 1, "icon": "🔥", "name": "Кураж",
+		"desc": "+10% рейтинга за каждый идеал в серии (до +50%), но потеря ×1.75.",
+		"up": "+10% за идеал в серии, до +50%", "down": "Любая потеря: ×1.75"},
+	{"id": "steady", "max": 1, "icon": "⚓", "name": "Осторожная лавка",
+		"desc": "Любая потеря рейтинга вдвое меньше, но идеал приносит на 12% меньше.",
+		"up": "Любая потеря: вдвое меньше", "down": "Идеал: −12% рейтинга"},
+]
+
+func patent_icon_path(id: String) -> String:
+	return "res://assets/ui/patent_%s.png" % id
+
+func patent_by_id(id: String) -> Dictionary:
+	for p in PATENTS:
+		if String(p["id"]) == id:
+			return p
+	return {}
+
+# Сколько всего патентов можно взять за игру (с учётом повторных).
+func patent_picks() -> int:
+	var n := 0
+	for p in PATENTS:
+		n += int(p["max"])
+	return n
+
+# Заработано патентов: по одному за каждый уровень сверх последней шкалы.
+func patents_earned(xp: int) -> int:
+	return maxi(0, prog_level(xp) - PROG_LEVELS.size())
+
+# Три патента на выбор для nth-го по счёту. Набор детерминирован — перезаход в
+# меню не перекатывает предложение, — но зависит от того, сколько уже взято.
+func patent_offer(taken: Array, nth: int) -> Array:
+	var pool: Array = []
+	for p in PATENTS:
+		var c := 0
+		for t in taken:
+			if String(t) == String(p["id"]):
+				c += 1
+		if c < int(p["max"]):
+			pool.append(p)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 90210 + nth * 7919
+	for i in range(pool.size() - 1, 0, -1):
+		var j: int = rng.randi() % (i + 1)
+		var tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp
+	return pool.slice(0, mini(3, pool.size()))
 
 # ---------- Связи NPC (Фаза: relations, откр. с xp 14000) ----------
 # kind: friend | enemy | buddy | dislike. Обе стороны читают связь одинаково.

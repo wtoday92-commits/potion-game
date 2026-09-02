@@ -826,6 +826,7 @@ func _dev_reset() -> void:
 		PotionAuth.push_profile()                # затираем и облачную копию
 	# сбрасываем состояние сессии
 	daily_mode = false; daily_diff = ""; _daily_backup = {}; _daily_end = false
+	PotionProfile.meta_off = false
 	banned_npcs = {}; guaranteed_npc = ""
 	cycle_active = false; cycle_score = 0; _tb_rating_shown = 0
 	stage = 0; day_num = 1; perfect_streak_max = 0; good_streak_max = 0
@@ -911,7 +912,7 @@ func _dev_start(e: Dictionary) -> void:
 	if not cycle_active:
 		cycle_active = true
 		day_num = 1
-		cycle_days = GameData.prog_cycle_days(_xp())
+		cycle_days = GameData.prog_cycle_days(_xp()) + PotionProfile.patent_cycle_days()
 		stage = 0
 	_start_round(_dev_level)
 
@@ -1168,6 +1169,33 @@ func _build_start() -> void:
 	hud_tips_chip = hud_tips.get_parent()
 	hud_orders = _hud_chip(hud, "stat_orders")
 	hud_streak = _hud_chip(hud, "stat_streak")
+
+	# Патенты Гильдии: плашка появляется, когда лавка переросла последнюю шкалу.
+	patent_btn = Button.new()
+	patent_btn.custom_minimum_size = Vector2(0, 72)
+	patent_btn.focus_mode = Control.FOCUS_NONE
+	patent_btn.visible = false
+	for st in ["normal", "hover", "pressed", "focus"]:
+		patent_btn.add_theme_stylebox_override(st, UI.surface(UI.Surface.CARD, UI.GOLD))
+	patent_btn.pressed.connect(_open_patents)
+	sv.add_child(patent_btn)
+	var prow := HBoxContainer.new()
+	prow.set_anchors_preset(Control.PRESET_FULL_RECT)
+	prow.offset_left = float(UI.SP_L); prow.offset_right = -float(UI.SP_L)
+	prow.add_theme_constant_override("separation", UI.SP_S)
+	prow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	patent_btn.add_child(prow)
+	patent_btn_lab = Label.new()
+	patent_btn_lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	patent_btn_lab.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	patent_btn_lab.add_theme_font_size_override("font_size", UI.FS_L)
+	patent_btn_lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	prow.add_child(patent_btn_lab)
+	patent_btn_icons = HBoxContainer.new()   # иконки взятых — билд с одного взгляда
+	patent_btn_icons.add_theme_constant_override("separation", UI.SP_XS)
+	patent_btn_icons.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	patent_btn_icons.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	prow.add_child(patent_btn_icons)
 
 	# 4 квадратные плитки 2×2: подпись сверху, крупная иконка снизу
 	var grid := GridContainer.new()
@@ -2167,7 +2195,7 @@ func _show_char(npc_e: Dictionary) -> void:
 	# пассивки: 5 штук, i-я открывается уровнем репутации i+1; тап включает/выключает
 	if not GameData.passive_defs(id).is_empty():
 		var act_n: int = PotionProfile.active_passives().size()
-		_char_header("Пассивки  (активно %d / %d)" % [act_n, GameData.PASSIVE_SLOTS], tcol)
+		_char_header("Пассивки  (активно %d / %d)" % [act_n, PotionProfile.passive_slots()], tcol)
 		# Пять одинаковых замков в ряд не сообщали ничего — при нулевой
 		# репутации показываем, чем они открываются.
 		if PotionProfile.get_rep_level(id) <= 0:
@@ -2353,13 +2381,27 @@ func _npc_ach_card(ach: Dictionary, ns: Dictionary) -> Control:
 	col.add_theme_constant_override("separation", UI.SP_XS)
 	card.add_child(col)
 
-	var ic := Label.new()   # иконка ачивки — эмодзи
-	ic.text = String(ach.get("icon", "🏅")) if unlocked else "❓"
-	ic.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	ic.add_theme_font_size_override("font_size", UI.FS_HERO)
-	if not unlocked:
-		ic.modulate = Color(1, 1, 1, 0.5)
-	col.add_child(ic)
+	# иконка ачивки — медальон из assets/ach_npc (раньше стоял эмодзи)
+	var tex: Texture2D = load(GameData.npc_ach_icon_path(String(ach.get("img", "")))) as Texture2D
+	if tex != null:
+		var ic := TextureRect.new()
+		ic.texture = tex
+		ic.custom_minimum_size = Vector2(140, 140)
+		ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		if not unlocked:
+			ic.modulate = Color(0.45, 0.48, 0.6, 0.6)
+		col.add_child(ic)
+	else:
+		var ic_txt := Label.new()   # запасной вариант — эмодзи из content.js
+		ic_txt.text = String(ach.get("icon", "🏅")) if unlocked else "❓"
+		ic_txt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		ic_txt.add_theme_font_size_override("font_size", UI.FS_HERO)
+		if not unlocked:
+			ic_txt.modulate = Color(1, 1, 1, 0.5)
+		col.add_child(ic_txt)
 
 	var nm := Label.new()
 	nm.text = String(ach.get("name", "")) if unlocked else "???"
@@ -3294,7 +3336,269 @@ func _apply_item_and_close(id: String, grade: int) -> void:
 	items_panel.visible = false
 
 # ---------- Пассивки персонажей (панель ⚡ + карточки на странице гостя) ----------
-# До GameData.PASSIVE_SLOTS активных за цикл; состав замораживается после первого
+# ---------- Патенты Гильдии ----------
+# Шкала прогрессии кончается на последнем уровне: раньше дальше рос только опыт,
+# и лавка на потолке не давала игроку ничего. Теперь каждый уровень сверх шкалы
+# выдаёт патент — выбор 1 из 3 постоянных улучшений (GameData.PATENTS).
+const PATENT_ICON := 132.0        # иконка в карточке выбора
+const PATENT_ICON_S := 66.0       # иконка в списке «в деле»
+const PATENT_ICON_XS := 40.0      # иконка на плашке главного экрана
+const PATENT_CARD_H := 162.0
+var patent_panel: Control = null
+var patent_list: VBoxContainer = null
+var patent_note: Label = null
+var patent_bar: ProgressBar = null
+var patent_count_lab: Label = null
+var patent_btn: Button = null          # плашка-приглашение на главном экране
+var patent_btn_lab: Label = null
+var patent_btn_icons: HBoxContainer = null
+
+func _open_patents() -> void:
+	if patent_panel == null:
+		_build_patent_panel()
+	patent_panel.visible = true
+	Sfx.play("uiClick")
+	_render_patents()
+
+func _build_patent_panel() -> void:
+	patent_panel = Control.new()
+	patent_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	patent_panel.visible = false
+	var dim := ColorRect.new()
+	dim.color = UI.SCRIM
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	patent_panel.add_child(dim)
+	var card := PanelContainer.new()
+	card.anchor_left = 0.5; card.anchor_right = 0.5; card.anchor_top = 0.5; card.anchor_bottom = 0.5
+	card.offset_left = -336.0; card.offset_right = 336.0
+	card.offset_top = -456.0; card.offset_bottom = 456.0
+	card.add_theme_stylebox_override("panel", UI.surface(UI.Surface.PANEL, UI.GOLD))
+	patent_panel.add_child(card)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", UI.SP_M)
+	card.add_child(col)
+
+	var head := Label.new()
+	head.text = "ПАТЕНТ ГИЛЬДИИ"
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	head.add_theme_font_size_override("font_size", UI.FS_XL)
+	head.add_theme_color_override("font_color", UI.GOLD)
+	col.add_child(head)
+	_glow_label(head, UI.GOLD)
+	var rule := Panel.new()                       # тонкая золотая линейка под заголовком
+	rule.custom_minimum_size = Vector2(0, 2)
+	var rsb := StyleBoxFlat.new()
+	rsb.bg_color = UI.GOLD_DIM
+	rule.add_theme_stylebox_override("panel", rsb)
+	rule.modulate = UI.TXT_DIM
+	col.add_child(rule)
+
+	patent_note = Label.new()
+	patent_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	patent_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	patent_note.add_theme_font_size_override("font_size", UI.FS_M)
+	patent_note.add_theme_color_override("font_color", UI.TXT_DIM)
+	col.add_child(patent_note)
+
+	patent_bar = ProgressBar.new()                # сколько патентов уже в деле
+	patent_bar.custom_minimum_size = Vector2(0, 14)
+	patent_bar.show_percentage = false
+	var track := StyleBoxFlat.new()
+	track.bg_color = UI.PANEL_2
+	track.set_corner_radius_all(UI.R_S)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = UI.GOLD
+	fill.set_corner_radius_all(UI.R_S)
+	patent_bar.add_theme_stylebox_override("background", track)
+	patent_bar.add_theme_stylebox_override("fill", fill)
+	patent_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var brow := HBoxContainer.new()
+	brow.add_theme_constant_override("separation", UI.SP_S)
+	brow.add_child(patent_bar)
+	patent_count_lab = Label.new()
+	patent_count_lab.add_theme_font_size_override("font_size", UI.FS_S)
+	patent_count_lab.add_theme_color_override("font_color", UI.GOLD_DIM)
+	patent_count_lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	brow.add_child(patent_count_lab)
+	col.add_child(brow)
+
+	var scroll := TouchScroll.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	col.add_child(scroll)
+	patent_list = VBoxContainer.new()
+	patent_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	patent_list.add_theme_constant_override("separation", UI.SP_S)
+	scroll.add_child(patent_list)
+
+	var close := Button.new()
+	close.text = "Закрыть"
+	close.custom_minimum_size = Vector2(0, 60)
+	close.focus_mode = Control.FOCUS_NONE
+	close.pressed.connect(func():
+		patent_panel.visible = false
+		_refresh_hud())
+	col.add_child(close)
+	add_child(patent_panel)
+
+func _render_patents() -> void:
+	for c in patent_list.get_children():
+		c.queue_free()
+	var xp: int = _xp()
+	var taken: Array = PotionProfile.patents()
+	var total: int = GameData.patent_picks()
+	var pend: int = PotionProfile.patents_pending(xp)
+	patent_bar.max_value = float(total)
+	patent_bar.value = float(taken.size())
+	patent_count_lab.text = "%d / %d" % [taken.size(), total]
+	if pend > 0:
+		patent_note.text = "Лавка переросла последнюю шкалу. Выбери, во что Гильдия впишет патент."
+		if pend > 1:
+			patent_note.text += "\nЕщё патентов на руках: %d" % pend
+		for e in GameData.patent_offer(taken, taken.size()):
+			patent_list.add_child(_patent_card(e, true))
+	elif taken.size() >= total:
+		patent_note.text = "Все патенты Гильдии выбраны."
+	else:
+		patent_note.text = "Следующий патент — на ур.%d лавки." % (GameData.PROG_LEVELS.size() + taken.size() + 1)
+	if not taken.is_empty():
+		patent_list.add_child(_patent_section("В ДЕЛЕ"))
+		var grid := GridContainer.new()
+		grid.columns = 2
+		grid.add_theme_constant_override("h_separation", UI.SP_S)
+		grid.add_theme_constant_override("v_separation", UI.SP_S)
+		patent_list.add_child(grid)
+		var seen: Array = []
+		for t in taken:
+			var id: String = String(t)
+			if id in seen:
+				continue
+			seen.append(id)
+			var e: Dictionary = GameData.patent_by_id(id)
+			if not e.is_empty():
+				grid.add_child(_patent_taken_cell(e, PotionProfile.patent_count(id)))
+
+# Заголовок секции внутри панели патентов.
+func _patent_section(text: String) -> Control:
+	var l := Label.new()
+	l.text = text
+	l.custom_minimum_size = Vector2(0, float(UI.SP_XXL))   # воздух перед секцией
+	l.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	l.add_theme_font_size_override("font_size", UI.FS_S)
+	l.add_theme_color_override("font_color", UI.GOLD_DIM)
+	return l
+
+# Иконка патента (картинка) с запасным эмодзи, если файла нет.
+func _patent_icon(p: Dictionary, sz: float) -> Control:
+	var tex := load(GameData.patent_icon_path(String(p["id"]))) as Texture2D
+	if tex != null:
+		var r := TextureRect.new()
+		r.texture = tex
+		r.custom_minimum_size = Vector2(sz, sz)
+		r.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		r.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		r.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		return r
+	var l := Label.new()
+	l.text = String(p.get("icon", "🎖"))
+	l.custom_minimum_size = Vector2(sz, sz)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.add_theme_font_size_override("font_size", UI.FS_HERO)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+# Строка эффекта: «+ …» зелёным для выгоды, «− …» красным для цены.
+func _patent_effect_line(text: String, good: bool) -> Label:
+	var l := Label.new()
+	l.text = ("+ " if good else "− ") + text
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.add_theme_font_size_override("font_size", UI.FS_M)
+	l.add_theme_color_override("font_color", UI.OK if good else UI.BAD)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+# Карточка патента на выбор: иконка + название + эффект(ы).
+func _patent_card(p: Dictionary, choosable: bool) -> Control:
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(0, PATENT_CARD_H)
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.focus_mode = Control.FOCUS_NONE
+	var sb := UI.surface(UI.Surface.CARD, UI.GOLD if choosable else UI.BORDER_C)
+	for st in ["normal", "hover", "pressed", "disabled", "focus"]:
+		btn.add_theme_stylebox_override(st, sb)
+	btn.disabled = not choosable
+	var row := HBoxContainer.new()
+	row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = float(UI.SP_L); row.offset_right = -float(UI.SP_L)
+	row.offset_top = float(UI.SP_S); row.offset_bottom = -float(UI.SP_S)
+	row.add_theme_constant_override("separation", UI.SP_M)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(row)
+	row.add_child(_patent_icon(p, PATENT_ICON))
+	var tcol := VBoxContainer.new()
+	tcol.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tcol.alignment = BoxContainer.ALIGNMENT_CENTER
+	tcol.add_theme_constant_override("separation", UI.SP_XS)
+	tcol.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(tcol)
+	var nm := Label.new()
+	nm.text = String(p["name"])
+	nm.add_theme_font_size_override("font_size", UI.FS_L)
+	nm.add_theme_color_override("font_color", UI.GOLD)
+	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tcol.add_child(nm)
+	# риск-патенты показывают выгоду и цену отдельными строками, остальные — описанием
+	if p.has("up"):
+		tcol.add_child(_patent_effect_line(String(p["up"]), true))
+		tcol.add_child(_patent_effect_line(String(p["down"]), false))
+	else:
+		var ds := Label.new()
+		ds.text = String(p["desc"])
+		ds.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		ds.add_theme_font_size_override("font_size", UI.FS_M)
+		ds.add_theme_color_override("font_color", UI.TXT_DIM)
+		ds.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tcol.add_child(ds)
+	if choosable:
+		btn.pressed.connect(_take_patent.bind(String(p["id"])))
+	return btn
+
+# Компактная ячейка уже взятого патента (иконка + название, ×N при повторе).
+func _patent_taken_cell(p: Dictionary, n: int) -> Control:
+	var cell := PanelContainer.new()
+	cell.add_theme_stylebox_override("panel", UI.surface(UI.Surface.CELL, UI.BORDER_SOFT))
+	cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cell.tooltip_text = String(p["desc"])
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", UI.SP_S)
+	cell.add_child(row)
+	row.add_child(_patent_icon(p, PATENT_ICON_S))
+	var nm := Label.new()
+	nm.text = String(p["name"]) + (("  ×%d" % n) if n > 1 else "")
+	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nm.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	nm.add_theme_font_size_override("font_size", UI.FS_S)
+	nm.add_theme_color_override("font_color", UI.TXT)
+	row.add_child(nm)
+	return cell
+
+func _take_patent(id: String) -> void:
+	if not PotionProfile.take_patent(id):
+		return
+	var e: Dictionary = GameData.patent_by_id(id)
+	Sfx.play("achieve")
+	_toast("Патент Гильдии: %s" % e.get("name", id), UI.GOLD)
+	if PotionProfile.patents_pending(_xp()) > 0:
+		_render_patents()      # заработано несколько — сразу следующий выбор
+	else:
+		patent_panel.visible = false
+		_refresh_hud()
+
+# До PotionProfile.passive_slots() активных за цикл; состав замораживается после первого
 # выполненного заказа цикла (passives_locked). Открытие — по уровню репутации.
 const PASSIVE_BTN_SZ := 104.0    # квадратная кнопка-иконка (5 в ряд влезают в панель)
 const PASSIVE_BTN_GAP := 8
@@ -3377,15 +3681,15 @@ func _build_passives_panel() -> void:
 
 func _render_passives() -> void:
 	var active: Array = PotionProfile.active_passives()
-	passives_slots_lab.text = "%d / %d" % [active.size(), GameData.PASSIVE_SLOTS]
+	passives_slots_lab.text = "%d / %d" % [active.size(), PotionProfile.passive_slots()]
 	if passives_locked:
 		passives_note.text = "Цикл уже начался — состав меняется со следующего цикла."
 		passives_note.modulate = Color(1, 0.75, 0.45, 0.95)
-	elif active.size() >= GameData.PASSIVE_SLOTS:
+	elif active.size() >= PotionProfile.passive_slots():
 		passives_note.text = "Все слоты заняты — сними одну, чтобы выбрать другую."
 		passives_note.modulate = Color(1, 0.85, 0.4, 0.9)
 	else:
-		passives_note.text = "До %d пассивок на цикл. Состав фиксируется после первого заказа цикла." % GameData.PASSIVE_SLOTS
+		passives_note.text = "До %d пассивок на цикл. Состав фиксируется после первого заказа цикла." % PotionProfile.passive_slots()
 		passives_note.modulate = Color(1, 1, 1, 0.6)
 	for c in passives_list.get_children():
 		c.queue_free()
@@ -3647,8 +3951,8 @@ func _show_passive_popover(npc_id: String, pid: String) -> void:
 	elif on:
 		hint.text = "Нажми на иконку ещё раз, чтобы снять"
 		hint.add_theme_color_override("font_color", UI.WARN)
-	elif PotionProfile.active_passives().size() >= GameData.PASSIVE_SLOTS:
-		hint.text = "Заняты все %d слота — сначала сними другую" % GameData.PASSIVE_SLOTS
+	elif PotionProfile.active_passives().size() >= PotionProfile.passive_slots():
+		hint.text = "Заняты все %d слота — сначала сними другую" % PotionProfile.passive_slots()
 		hint.add_theme_color_override("font_color", UI.GOLD)
 	else:
 		hint.text = "Нажми на иконку ещё раз, чтобы включить"
@@ -3713,7 +4017,7 @@ func _toggle_passive(npc_id: String, pid: String) -> void:
 	var res: String = PotionProfile.toggle_passive(npc_id, pid)
 	if res == "full":
 		Sfx.play("bad")
-		_toast("Заняты все %d слота — сними другую" % GameData.PASSIVE_SLOTS, UI.GOLD)
+		_toast("Заняты все %d слота — сними другую" % PotionProfile.passive_slots(), UI.GOLD)
 		return
 	elif res == "locked":
 		Sfx.play("bad")
@@ -3923,7 +4227,8 @@ func _start_cycle() -> void:
 	passives_locked = false         # состав пассивок снова можно менять
 	guaranteed_npc = ""
 	PotionProfile.reset_relations_cycle()   # связи: обиды/уходы — только за цикл
-	cycle_days = GameData.prog_cycle_days(_xp())   # длина цикла по прогрессии
+	# длина цикла по прогрессии + патент «Длинный цикл»
+	cycle_days = GameData.prog_cycle_days(_xp()) + PotionProfile.patent_cycle_days()
 	if reward_track != null:
 		reward_track.reset(cycle_days)             # полоса поощрений — пустая
 	PotionProfile.reset_picks_cycle()
@@ -4128,6 +4433,7 @@ func _diff_button(text: String, col: Color) -> Button:
 
 func _enter_daily(diff: String) -> void:
 	_daily_backup = PotionProfile.data.duplicate(true)   # прогресс откатим на выходе
+	PotionProfile.meta_off = true    # патенты выключены — в дейлике условия равные
 	daily_mode = true
 	daily_diff = diff
 	daily_seq = _build_daily_seq()
@@ -4176,6 +4482,7 @@ func _daily_pool(day_idx: int) -> Array:
 	return out
 
 func _restore_daily_backup() -> void:
+	PotionProfile.meta_off = false
 	if not _daily_backup.is_empty():
 		PotionProfile.data = _daily_backup
 		PotionProfile.save()
@@ -4380,7 +4687,7 @@ func _apply_favourite() -> void:
 			_fav_gap = 0
 			return
 	_fav_gap += 1
-	if _fav_gap < FAVOURITE_EVERY:
+	if _fav_gap < PotionProfile.patent_fav_every(FAVOURITE_EVERY):
 		return
 	var cfg: Dictionary = _npc_by_id(fav)
 	if cfg.is_empty() or not GameData.is_npc_unlocked(fav, _xp()):
@@ -5228,6 +5535,11 @@ func _show_cycle_end() -> void:
 		"Опыт: %d" % xp_after,
 		"🏆 Рейтинг отправлен в топ",
 	]
+	# Лавка выше последней шкалы: за уровень выдаётся патент — постоянное
+	# улучшение на выбор. Раньше здесь рос только опыт и больше ничего.
+	var pat_pending: int = PotionProfile.patents_pending(xp_after)
+	if pat_pending > 0:
+		lines.insert(1, "🎖 Патент Гильдии: можно выбрать (%d)" % pat_pending)
 	if flat_tips > 0 and GameData.prog_mech_unlocked("tips", xp_before):
 		lines.insert(1, "🪙 Пассивка: +%d чаевых" % flat_tips)
 	for gid in rep_gifts:
@@ -5273,6 +5585,8 @@ func _show_cycle_end() -> void:
 	_scene_state("select")          # итог цикла — тоже в проёме окна
 	Juice.fade_in(result_panel)
 	Juice.pop.call_deferred(result_sticker)
+	if pat_pending > 0:
+		_open_patents.call_deferred()
 
 # ---------- стартовый экран ----------
 func _show_start() -> void:
@@ -5301,6 +5615,28 @@ func _show_start() -> void:
 
 func _refresh_hud() -> void:
 	var xp: int = _xp()
+	# плашка патентов: зовёт выбрать, а когда выбирать нечего — показывает счёт
+	if patent_btn != null:
+		var pat_pend: int = PotionProfile.patents_pending(xp)
+		var pat_taken: Array = PotionProfile.patents()
+		patent_btn.visible = pat_pend > 0 or not pat_taken.is_empty()
+		if pat_pend > 0:
+			patent_btn_lab.text = "Патент Гильдии — выбрать (%d)" % pat_pend
+			patent_btn_lab.add_theme_color_override("font_color", UI.GOLD)
+		else:
+			patent_btn_lab.text = "Патенты Гильдии: %d / %d" % [pat_taken.size(), GameData.patent_picks()]
+			patent_btn_lab.add_theme_color_override("font_color", UI.TXT)
+		for c in patent_btn_icons.get_children():
+			c.queue_free()
+		var pat_seen: Array = []
+		for i in range(pat_taken.size() - 1, -1, -1):
+			var pid: String = String(pat_taken[i])
+			if pid in pat_seen or pat_seen.size() >= 5:
+				continue
+			pat_seen.append(pid)
+			var pe: Dictionary = GameData.patent_by_id(pid)
+			if not pe.is_empty():
+				patent_btn_icons.add_child(_patent_icon(pe, PATENT_ICON_XS))
 	var t: Dictionary = PotionProfile.data.get("tips", {})
 	var st: Dictionary = PotionProfile.data.get("stats", {})
 	var sk: Dictionary = PotionProfile.data.get("streaks", {})
@@ -5433,10 +5769,11 @@ func _start_round(lvl: int) -> void:
 			mech.setup(self)
 
 	seed_val = randi()
-	# посуда заказа: у Векса ВСЕГДА прямой стакан (сетка узлов рассчитана под него),
-	# остальным — случайная из набора
+	# посуда заказа: у Векса ВСЕГДА сосуд с отвесными стенками — сетка узлов
+	# прямоугольная, и в сужающейся книзу чаше нижний ряд резался бы маской.
+	# Остальным — случайная из набора.
 	if String(npc.get("id", "")) == "vex":
-		jar.set_glass(jar.glass_index("hi"))
+		jar.set_glass(jar.glass_index("canister"))
 	else:
 		jar.set_glass(randi() % jar.GLASSES.size())
 	target = _random_values()
@@ -5482,7 +5819,7 @@ func _start_round(lvl: int) -> void:
 	phase = "memorize"
 	# пассивка memTime растягивает базу, предмет «Тоник ясности» добавляет сверху
 	var _t: Dictionary = GameData.order_times(npc, level)
-	phase_total = float(_t["mem"]) * (1.0 + float(order_pfx.get("memTime", 0.0))) + float(item_fx.get("memtime", 0.0))
+	phase_total = float(_t["mem"]) * PotionProfile.patent_time_mult("mem") * (1.0 + float(order_pfx.get("memTime", 0.0))) + float(item_fx.get("memtime", 0.0))
 	phase_left = phase_total
 	bulb_bar.set_fraction(0.0)      # лампы гаснут в начале, будут заполняться
 	Sfx.play("orderShow")           # заказ появился
@@ -5514,7 +5851,7 @@ func _start_recreate() -> void:
 	phase = "recreate"
 	# пассивка craftTime растягивает (или ужимает, если < 0) базу; «Секундомер» — сверху
 	var _tc: Dictionary = GameData.order_times(npc, level)
-	phase_total = float(_tc["craft"]) * (1.0 + float(order_pfx.get("craftTime", 0.0))) + float(item_fx.get("time", 0.0))
+	phase_total = float(_tc["craft"]) * PotionProfile.patent_time_mult("craft") * (1.0 + float(order_pfx.get("craftTime", 0.0))) + float(item_fx.get("time", 0.0))
 	phase_left = phase_total
 	bulb_bar.set_fraction(1.0)      # все горят, дальше гаснут по таймеру
 	# активные ползунки — в случайное; неактивные держим на цели (не участвуют)
@@ -5898,6 +6235,11 @@ func _do_finish() -> void:
 	var perfect_run: int = (int(sk0.get("perfect_current", 0)) + 1) if grade == "perfect" else 0
 	var good_run: int = (int(sk0.get("goodplus_current", 0)) + 1) if good_res else 0
 	var bad_before: int = int(sk0.get("bad_current", 0))
+	# Патенты рейтинга: риск-обмен «больше за идеал — больнее за промах».
+	# Считаем здесь, потому что нужна длина серии идеалов с учётом этого заказа.
+	var pat_sm: Dictionary = PotionProfile.patent_score_mults(grade, level, perfect_run)
+	pos_mult *= float(pat_sm["pos"])
+	neg_mult *= float(pat_sm["neg"])
 	var sticker_name: String = ""     # выберем после record_result (нужен рейтинг цикла)
 
 	# Ир: решаем, предложить ли переигровку ЭТОГО заказа (до записи результата,
@@ -5929,7 +6271,9 @@ func _do_finish() -> void:
 		var mark_kind: String = grade
 		if grade == "perfect" and overall >= 0.999:
 			mark_kind = RewardTrack.KIND_HUNDRED
-			# 100% — именная посуда гостя НАВСЕГДА, а не только на эту полосу
+		# 100% — именная посуда гостя НАВСЕГДА, а не только на эту полосу
+		# (патент «Щедрая полка» опускает порог до 98%)
+		if grade == "perfect" and overall >= PotionProfile.patent_glass_at():
 			if PotionProfile.earn_glass(String(npc.get("id", ""))):
 				_new_glass = String(npc.get("id", ""))
 		_pending_mark = {"day": day_num - 1, "kind": mark_kind, "npc": String(npc.get("id", ""))}

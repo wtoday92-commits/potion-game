@@ -1375,15 +1375,12 @@ class InspectorMech extends NpcMech:
 			folder.visible = true
 		Sfx.play("uiClick")
 
-	# строка значения показателя: обычные — «отметка №X из N», сгустки — числом
+	# Строка значения показателя. Раньше здесь была «отметка №X из N»: чтобы ею
+	# воспользоваться, приходилось пересчитывать деления на ползунке — особенно
+	# нелепо на спектре, где ползунок и так подписан градусами. Отдаём то же
+	# число, что игрок видит на самом ползунке (тот же _fmt, та же сетка шага).
 	func _value_str(g, key: String) -> String:
-		var s = g.sliders[key]
-		if key == "count":
-			return str(int(round(float(g.target[key]))))
-		var st: float = s.step if s.step > 0.0 else 1.0
-		var idx: int = int(round((float(g.target[key]) - s.min_value) / st))
-		var n: int = int(round((s.max_value - s.min_value) / st)) + 1
-		return "№%d из %d" % [idx + 1, n]
+		return String(g._fmt(key, float(g.target[key])))
 
 	func _build_text(g) -> String:
 		var keys: Array = g.active.duplicate()
@@ -1704,10 +1701,15 @@ class CollectorMech extends NpcMech:
 		var vsize: float = (float(g_ref.target["volume"]) - float(vp["min"])) / (float(vp["max"]) - float(vp["min"]))
 		var bp: Dictionary = g_ref.PARAMS["bsize"]
 		var bfrac: float = (float(g_ref.target["bsize"]) - float(bp["min"])) / (float(bp["max"]) - float(bp["min"]))
-		# ВАЖНО: та же посуда, что и в заказе — иначе на показе один бокал,
-		# а в сетке совсем другой, и «найди свою банку» превращается в лотерею
+		# ВАЖНО: та же посуда и тот же накал, что и в заказе — иначе на показе
+		# один сосуд, а в сетке совсем другой, и «найди свою банку» превращается
+		# в лотерею. Отличаться должны ТОЛЬКО спектр и число сгустков.
 		jar.set_glass(g_ref.jar.glass_idx)
-		jar.set_potion(color_v, vsize, count_v, bfrac, randi(), 0.72)
+		var sat: float = 0.72
+		if "sat" in g_ref.active and g_ref.target.has("sat"):
+			var sp: Dictionary = g_ref.PARAMS["sat"]
+			sat = 0.30 + (float(g_ref.target["sat"]) - float(sp["min"])) / (float(sp["max"]) - float(sp["min"])) * 0.70
+		jar.set_potion(color_v, vsize, count_v, bfrac, randi(), sat)
 		btn.pressed.connect(_choose.bind(is_correct))
 		return btn
 

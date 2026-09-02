@@ -16,16 +16,22 @@ const ScreenBlurShader := preload("res://shaders/jar_screenblur.gdshader")
 # клипается точно по чаше — ножки/основания в маску не входят), плюс UV-границы
 # зоны жидкости, замеренные по этой маске.
 const GLASSES := [
-	{"id": "hi",     "tex": "res://assets/bottle/glass_hi.png",    "mask": "res://assets/bottle/glass_hi_int.png",
-		"top": 0.0745, "bot": 0.8406, "left": 0.1526, "right": 0.8295},
-	{"id": "curvy",  "tex": "res://assets/bottle/glass_curvy.png", "mask": "res://assets/bottle/glass_curvy_int.png",
-		"top": 0.0406, "bot": 0.6953, "left": 0.1412, "right": 0.8263},
+	{"id": "hi",       "tex": "res://assets/bottle/glass_hi.png",       "mask": "res://assets/bottle/glass_hi_int.png",
+		"top": 0.0956, "bot": 0.7889, "left": 0.1912, "right": 0.7228},
+	{"id": "tumbler",  "tex": "res://assets/bottle/glass_tumbler.png",  "mask": "res://assets/bottle/glass_tumbler_int.png",
+		"top": 0.1322, "bot": 0.7522, "left": 0.1893, "right": 0.8107},
+	{"id": "beaker",   "tex": "res://assets/bottle/glass_beaker.png",   "mask": "res://assets/bottle/glass_beaker_int.png",
+		"top": 0.1089, "bot": 0.8367, "left": 0.1606, "right": 0.7055},
+	{"id": "goblet",   "tex": "res://assets/bottle/glass_goblet.png",   "mask": "res://assets/bottle/glass_goblet_int.png",
+		"top": 0.0756, "bot": 0.5800, "left": 0.1090, "right": 0.8872},
+	{"id": "canister", "tex": "res://assets/bottle/glass_canister.png", "mask": "res://assets/bottle/glass_canister_int.png",
+		"top": 0.2644, "bot": 0.7944, "left": 0.2084, "right": 0.7457},
 ]
 # Границы интерьера в UV — обновляются в set_glass().
-var I_TOP := 0.0745
-var I_BOT := 0.8406
-var I_LEFT := 0.1526
-var I_RIGHT := 0.8295
+var I_TOP := 0.0956
+var I_BOT := 0.7889
+var I_LEFT := 0.1912
+var I_RIGHT := 0.7228
 var glass_idx: int = -1
 const FILL := 0.78     # уровень жидкости (ниже горлышка — видно, как плещется)
 const MAX_BLOBS := 18  # потолок числа сгустков (должен совпадать с liquid.gdshader)
@@ -87,9 +93,6 @@ func _ready() -> void:
 	liquid.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	mat = ShaderMaterial.new()
 	mat.shader = LiquidShader
-	var mask_tex := load("res://assets/bottle/glass_hi_int.png") as Texture2D
-	if mask_tex:
-		mat.set_shader_parameter("mask", mask_tex)
 	liquid.material = mat
 	sway.add_child(liquid)
 
@@ -100,15 +103,12 @@ func _ready() -> void:
 	blur_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	blur_mat = ShaderMaterial.new()
 	blur_mat.shader = ScreenBlurShader
-	if mask_tex:
-		blur_mat.set_shader_parameter("mask", mask_tex)
 	blur_mat.set_shader_parameter("amount", 0.0)
 	blur_overlay.material = blur_mat
 	blur_overlay.visible = false          # включается только при блюре (Мо/Пит)
 	sway.add_child(blur_overlay)
 
 	bottle = TextureRect.new()
-	bottle.texture = load("res://assets/bottle/glass_hi.png") as Texture2D
 	bottle.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bottle.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	bottle.stretch_mode = TextureRect.STRETCH_SCALE
@@ -122,15 +122,20 @@ func _ready() -> void:
 	_t = float(pot_seed) * 0.7
 
 	resized.connect(_apply)
-	if glass_idx < 0:
-		set_glass(0)
-	_apply()
+	# Посуду могли выбрать ДО входа в дерево: сетка Коллекционера собирает банки
+	# отдельно, и там set_glass() успел только запомнить индекс — узлов ещё не было.
+	# Поэтому применяем текущую посуду здесь ВСЕГДА, иначе банка осталась бы с
+	# зашитым стаканом, а границы интерьера — от совсем другого.
+	_apply_glass(maxi(glass_idx, 0))
 
 # Выбрать посуду из набора GLASSES: меняет арт, маску шейдера и UV-границы.
 func set_glass(idx: int) -> void:
 	var i: int = clampi(idx, 0, GLASSES.size() - 1)
 	if i == glass_idx:
 		return
+	_apply_glass(i)
+
+func _apply_glass(i: int) -> void:
 	glass_idx = i
 	var g: Dictionary = GLASSES[i]
 	I_TOP = float(g["top"]); I_BOT = float(g["bot"])

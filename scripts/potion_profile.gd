@@ -82,6 +82,9 @@ func _empty_profile() -> Dictionary:
 		# 100% (не просто идеал). Арт уже есть — track_glass_<id>.png. 27 штук
 		# как сквозная цель на десятки циклов, не завязанная на рост числа.
 		"glasses": [],
+		# Патенты Гильдии: взятые id (повторы = патент взят несколько раз).
+		# Выдаются по одному за уровень лавки сверх последней шкалы прогрессии.
+		"patents": [],
 	}
 
 # ---------- Связи NPC ----------
@@ -95,7 +98,16 @@ func relation_state(npc_id: String) -> Dictionary:
 # +1 к «обиде»; пороги 3 (offended) и 6 (left). Возвращает флаги перехода порога.
 func bump_grudge(npc_id: String) -> Dictionary:
 	var s: Dictionary = relation_state(npc_id)
-	s["grudge"] = int(s.get("grudge", 0)) + 1
+	# патент «Толстая кожа»: обида засчитывается через раз
+	var inc := 1
+	if has_patent("grudge"):
+		var half: int = int(s.get("half", 0)) + 1
+		if half < 2:
+			s["half"] = half
+			inc = 0
+		else:
+			s["half"] = 0
+	s["grudge"] = int(s.get("grudge", 0)) + inc
 	var was_off: bool = bool(s.get("offended", false))
 	var was_left: bool = bool(s.get("left", false))
 	if s["grudge"] >= 3: s["offended"] = true
@@ -129,7 +141,7 @@ func get_charges() -> int:
 
 func add_charge(n: int = 1) -> void:
 	var s: Dictionary = data.get("skills", {})
-	s["charges"] = clampi(int(s.get("charges", 0)) + n, 0, SKILL_CHARGE_CAP)
+	s["charges"] = clampi(int(s.get("charges", 0)) + n, 0, skill_charge_cap())
 	data["skills"] = s
 	_dirty = true
 	save()
@@ -152,7 +164,7 @@ func bump_perfect_charge(threshold: int) -> bool:
 	if pc >= threshold:
 		s["perfect_counter"] = 0
 		var was: int = int(s.get("charges", 0))
-		s["charges"] = clampi(was + 1, 0, SKILL_CHARGE_CAP)
+		s["charges"] = clampi(was + 1, 0, skill_charge_cap())
 		data["skills"] = s
 		_dirty = true
 		save()
@@ -180,6 +192,105 @@ func earn_glass(npc_id: String) -> bool:
 	_dirty = true
 	save()
 	return true
+
+# ---------- Патенты Гильдии ----------
+# В дейлике мета-бонусы выключены (как умения, пассивки и связи) — там у всех
+# должны быть равные условия, иначе таблица дейлика ничего не значит.
+var meta_off: bool = false
+
+func patents() -> Array:
+	return data.get("patents", [])
+
+func patent_count(id: String) -> int:
+	if meta_off:
+		return 0
+	var n := 0
+	for t in patents():
+		if String(t) == id:
+			n += 1
+	return n
+
+func has_patent(id: String) -> bool:
+	return patent_count(id) > 0
+
+# Сколько патентов заработано, но ещё не выбрано. Ограничено размером дерева:
+# иначе на большом опыте счётчик рос бы вечно, а выбирать было бы уже нечего.
+func patents_pending(xp: int) -> int:
+	var t: int = patents().size()
+	return clampi(GameData.patents_earned(xp) - t, 0, GameData.patent_picks() - t)
+
+func take_patent(id: String) -> bool:
+	var p: Dictionary = GameData.patent_by_id(id)
+	if p.is_empty():
+		return false
+	var arr: Array = patents()
+	var cnt := 0
+	for t in arr:
+		if String(t) == id:
+			cnt += 1
+	if cnt >= int(p["max"]):
+		return false
+	arr.append(id)
+	data["patents"] = arr
+	_dirty = true
+	save()
+	return true
+
+# --- производные величины: единственные точки, откуда патенты влияют на игру ---
+func passive_slots() -> int:
+	return GameData.PASSIVE_SLOTS + patent_count("passive_slot")
+
+func skill_charge_cap() -> int:
+	return SKILL_CHARGE_CAP + patent_count("skill_charge")
+
+func patent_cycle_days() -> int:
+	return patent_count("cycle_day")
+
+# Множитель времени фазы: "mem" — показ, "craft" — варка.
+func patent_time_mult(kind: String) -> float:
+	return 1.15 if has_patent("memo_time" if kind == "mem" else "craft_time") else 1.0
+
+func patent_rep_mult() -> float:
+	return 1.25 if has_patent("rep_gain") else 1.0
+
+func patent_fav_every(base: int) -> int:
+	return maxi(1, base - 1) if has_patent("fav_fast") else base
+
+# С какой доли выдавать именную посуду гостя (обычно только со 100%).
+func patent_glass_at() -> float:
+	return 0.98 if has_patent("glass_98") else 0.999
+
+func patent_mech_tax_mult() -> float:
+	return 0.5 if has_patent("mech_tax") else 1.0
+
+# Патенты рейтинга — риск-обмен: рейтинг вверх в обмен на более больной промах.
+# Возвращает множители к ПЛЮСУ и к ШТРАФУ отдельно (record_result применяет их
+# по знаку начисления, так что neg работает и на пойле, и на браке).
+# perfect_run — длина серии идеалов ВКЛЮЧАЯ этот заказ.
+func patent_score_mults(grade: String, reg_level: int, perfect_run: int) -> Dictionary:
+	var pos := 1.0
+	var neg := 1.0
+	if has_patent("bet_perfect"):
+		if grade == "perfect":
+			pos *= 1.30
+		neg *= 2.0
+	if has_patent("high_stakes"):
+		pos *= 1.15
+		neg *= 1.50
+	if has_patent("deep_end"):
+		if reg_level >= 4:
+			pos *= 1.35
+		elif reg_level <= 2:
+			pos *= 0.75
+	if has_patent("streak_ride"):
+		if grade == "perfect":
+			pos *= 1.0 + minf(0.50, 0.10 * float(maxi(0, perfect_run - 1)))
+		neg *= 1.75
+	if has_patent("steady"):
+		neg *= 0.5
+		if grade == "perfect":
+			pos *= 0.88
+	return {"pos": pos, "neg": neg}
 
 # ---------- Постоянный клиент ----------
 func favourite_npc() -> String:
@@ -222,7 +333,7 @@ func active_passives() -> Array:
 			continue
 		var npc_id: String = String(a.get("npc", ""))
 		var pid: String = String(a.get("pid", ""))
-		if passive_unlocked(npc_id, pid) and clean.size() < GameData.PASSIVE_SLOTS:
+		if passive_unlocked(npc_id, pid) and clean.size() < passive_slots():
 			clean.append({"npc": npc_id, "pid": pid})
 	if clean.size() != act.size():
 		pv["active"] = clean
@@ -251,7 +362,7 @@ func toggle_passive(npc_id: String, pid: String) -> String:
 	if found >= 0:
 		act.remove_at(found)
 		res = "off"
-	elif act.size() >= GameData.PASSIVE_SLOTS:
+	elif act.size() >= passive_slots():
 		return "full"
 	else:
 		act.append({"npc": npc_id, "pid": pid})
@@ -397,6 +508,8 @@ func get_rep_level(npc_id: String) -> int:
 func adjust_rep(npc_id: String, delta: float) -> void:
 	ensure_npc(npc_id)
 	var rep: Dictionary = data["npc_reputation"][npc_id]
+	if delta > 0.0:
+		delta *= patent_rep_mult()   # патент «Доброе имя» — только на прирост
 	rep["value"] = maxf(0.0, float(rep["value"]) + delta)
 	rep["level"] = GameData.rep_level(float(rep["value"]))
 

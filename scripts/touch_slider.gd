@@ -114,7 +114,7 @@ func _draw() -> void:
 	_ellipse(Vector2(cx, bot + 2.0), 18.0, 6.0, metal_dark)
 
 	# --- СИДЕНЬЕ (ручка): едет по ножке, крупная тач-цель ---
-	var seat_col: Color = Color.from_hsv(_frac(), 0.72, 0.95) if hue_track else accent
+	var seat_col: Color = _hue_col(value) if hue_track else accent   # цвет ручки = цвет зелья
 	var sr: float = KNOB_R + 3.0        # радиус сиденья по X
 	var sy: float = KNOB_R * 0.5        # «толщина» эллипса по Y
 	# кронштейн ножки под сиденьем
@@ -139,6 +139,10 @@ func _capsule(cx: float, y1: float, y2: float, width: float, col: Color) -> void
 
 # Дорожка-спектр: скруглённый столбик, залитый радужным градиентом по высоте
 # (низ = оттенок 0, верх = оттенок 1). Рисуется полосами + скруглённые концы.
+# Радужная стойка спектра. ВАЖНО: красим по РЕАЛЬНОМУ диапазону ползунка, а не
+# по всему кругу оттенков. Верх шкалы — не 360°, а 360° минус шаг (дубль красного
+# на обоих концах не нужен), и раньше дорожка врала: снизу красный и сверху
+# красный, а цвет ручки не совпадал с цветом зелья тем сильнее, чем крупнее шаг.
 func _capsule_hue(cx: float, top: float, bot: float, width: float) -> void:
 	var r: float = width * 0.5
 	var steps: int = 48
@@ -147,11 +151,14 @@ func _capsule_hue(cx: float, top: float, bot: float, width: float) -> void:
 		var t1: float = float(i + 1) / float(steps)
 		var y_a: float = lerpf(bot, top, t0)   # низ → верх
 		var y_b: float = lerpf(bot, top, t1)
-		var col := Color.from_hsv(t0, 0.72, 0.95)
-		draw_rect(Rect2(cx - r, minf(y_a, y_b), width, absf(y_b - y_a) + 1.0), col)
+		draw_rect(Rect2(cx - r, minf(y_a, y_b), width, absf(y_b - y_a) + 1.0), _hue_col(lerpf(min_value, max_value, t0)))
 	# скруглённые концы под цвет краёв
-	draw_circle(Vector2(cx, bot), r, Color.from_hsv(0.0, 0.72, 0.95))
-	draw_circle(Vector2(cx, top), r, Color.from_hsv(1.0, 0.72, 0.95))
+	draw_circle(Vector2(cx, bot), r, _hue_col(min_value))
+	draw_circle(Vector2(cx, top), r, _hue_col(max_value))
+
+# Цвет по значению спектра в градусах.
+func _hue_col(deg: float) -> Color:
+	return Color.from_hsv(fposmod(deg, 360.0) / 360.0, 0.72, 0.95)
 
 # Залитый эллипс (нет примитива — строим полигон). Для сиденья/опоры стула.
 func _ellipse(c: Vector2, rx: float, ry: float, col: Color) -> void:

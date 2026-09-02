@@ -129,7 +129,9 @@ func _draw() -> void:
 		var seg: int = 34
 		for i in seg:
 			var f0: float = float(i) / float(seg)
-			var c := Color.from_hsv(f0, 0.72, 0.95)
+			# по реальному диапазону трека, а не по всему кругу оттенков —
+			# иначе оба конца красные и цвет не сходится со значением
+			var c := Color.from_hsv(fposmod(lerpf(min_v, max_v, f0), 360.0) / 360.0, 0.72, 0.95)
 			c.a = 0.85 * dim
 			_zone(f0, f0 + 1.0 / float(seg) + 0.004, cy, RAIL_H, c)
 	else:
