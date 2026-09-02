@@ -2,13 +2,13 @@
 
 importer="font_data_dynamic"
 type="FontFile"
-uid="uid://b6pr2i66xfsll"
-path="res://.godot/imported/Robofan.ttf-192f5ffed395deeceb4fe60a7217bbe6.fontdata"
+uid="uid://c53xlqtyv07b7"
+path="res://.godot/imported/glyphs_emoji.ttf-177e2335ae1d7f07940255f987bcd242.fontdata"
 
 [deps]
 
-source_file="res://assets/fonts/Robofan.ttf"
-dest_files=["res://.godot/imported/Robofan.ttf-192f5ffed395deeceb4fe60a7217bbe6.fontdata"]
+source_file="res://assets/fonts/glyphs_emoji.ttf"
+dest_files=["res://.godot/imported/glyphs_emoji.ttf-177e2335ae1d7f07940255f987bcd242.fontdata"]
 
 [params]
 
@@ -19,10 +19,10 @@ disable_embedded_bitmaps=true
 multichannel_signed_distance_field=false
 msdf_pixel_range=8
 msdf_size=48
-allow_system_fallback=false
+allow_system_fallback=true
 force_autohinter=false
 modulate_color_glyphs=false
-hinting=3
+hinting=1
 subpixel_positioning=4
 keep_rounding_remainders=true
 oversampling=0.0

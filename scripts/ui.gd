@@ -125,12 +125,37 @@ static func style_button(b: Button, kind: int = Btn.NORMAL) -> Button:
 	b.focus_mode = Control.FOCUS_NONE
 	return b
 
+# ---------- Шрифт темы ----------
+# Robofan не содержит ни эмодзи, ни типографики вроде стрелок, галочек и медалей.
+# На Windows Godot незаметно подставляет системный шрифт, а в веб-сборке
+# подставлять нечего — такие символы рисуются квадратами-тофу. Три сабсета Noto
+# (OFL, ~100 КБ на всё) закрывают ровно те 172 кодпойнта, что встречаются в
+# текстах игры. Прописать их в .import нельзя: там ждут ресурсы, а не пути.
+const FONT_MAIN := "res://assets/fonts/Robofan.ttf"
+const FONT_FALLBACKS := [
+	"res://assets/fonts/glyphs_emoji.ttf",
+	"res://assets/fonts/glyphs_symbols.ttf",
+	"res://assets/fonts/glyphs_math.ttf",
+]
+
+static func theme_font() -> FontFile:
+	var f := load(FONT_MAIN) as FontFile
+	if f != null and f.fallbacks.is_empty():
+		var fb: Array[Font] = []
+		for path in FONT_FALLBACKS:
+			var g := load(path) as Font
+			if g != null:
+				fb.append(g)
+		f.fallbacks = fb
+	return f
+
 # ---------- Общая тема ----------
 # Всё, что можно задать один раз для всей игры, задаётся здесь: дальше виджеты
 # создаются без единого override и уже выглядят правильно.
 static func build_theme() -> Theme:
 	var t := Theme.new()
 	t.default_font_size = FS_M
+	t.default_font = theme_font()
 
 	# Подписи: тень оставлена только как страховка поверх арта в раунде
 	t.set_color("font_color", "Label", TXT)
