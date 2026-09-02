@@ -187,18 +187,25 @@ class TruckerMech extends NpcMech:
 		return "🚚 Коробка передач: регуляторы — рычагами по одному"
 
 # ============================================================
-# Модница: в фазе ВОССОЗДАЙ доступен только ОДИН ползунок за раз; кнопка-стрелка
-# идёт по перемешанному кругу (каждый посещается 1 раз за круг). На УР.4 «Дальше»
-# не пустит, пока текущий не выставлен ИДЕАЛЬНО (порт fashionista/l4FashionNextKey).
-# Остальные ползунки видны (банка полная), но заблокированы.
-# ============================================================
+# Модница: «дефиле». По-прежнему один регулятор за раз, но теперь это видно и
+# что-то значит: параметры едут лентой сверху, текущий подсвечен, отправленный
+# СРАЗУ получает оценку звёздами и обратно не берётся — один раз за раунд можно
+# «переодеться» и вернуть последний. Раньше здесь была только стрелка по кругу
+# без единой обратной связи, и механика читалась как пустая блокировка.
+# На УР.4 на подиум не выпустят, пока текущий не выставлен идеально.
 class FashionMech extends NpcMech:
 	const DIM := Color(1, 1, 1, 0.4)
 	const PERFECT := 0.98
+	const STARS := [0.75, 0.90, 0.98]     # пороги 1, 2 и 3 звёзд
 	var g_ref
 	var order: Array = []
 	var idx: int = 0
+	var sent: Dictionary = {}             # ключ -> число звёзд
+	var redress: bool = true              # осталось ли «переодевание»
+	var strip: HBoxContainer = null
+	var cards: Dictionary = {}            # ключ -> {panel, name, mark}
 	var btn: Button = null
+	var back: Button = null
 
 	func craft_start(g) -> void:
 		g_ref = g
@@ -207,30 +214,134 @@ class FashionMech extends NpcMech:
 			return                  # переключать нечего
 		order.shuffle()
 		idx = 0
+		sent.clear()
+		redress = true
+		_build_strip(g)
 		_apply_locks()
-		btn = NpcMech.make_arrow_btn(g, _next)
+		btn = NpcMech.make_arrow_btn(g, _send, 0.62)
+		btn.text = "ПОДИУМ"
+		btn.add_theme_font_size_override("font_size", UI.FS_M)
+		back = NpcMech.make_arrow_btn(g, _redress, 0.84)
+		back.text = "ПЕРЕОДЕТЬ"
+		back.add_theme_font_size_override("font_size", UI.FS_S)
+		back.visible = false
 
+	# Лента параметров над сценой: карточка на каждый, по порядку выхода.
+	func _build_strip(g) -> void:
+		strip = HBoxContainer.new()
+		strip.alignment = BoxContainer.ALIGNMENT_CENTER
+		strip.add_theme_constant_override("separation", UI.SP_S)
+		strip.set_anchors_preset(Control.PRESET_TOP_WIDE)
+		strip.offset_top = 4.0
+		strip.offset_bottom = 104.0
+		strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		g.jar_stage.add_child(strip)
+		for k in order:
+			var p := PanelContainer.new()
+			p.custom_minimum_size = Vector2(126, 92)
+			p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			var v := VBoxContainer.new()
+			v.alignment = BoxContainer.ALIGNMENT_CENTER
+			v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			p.add_child(v)
+			var nm := Label.new()
+			nm.text = String(g.PARAMS[k]["label"])
+			nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			nm.add_theme_font_size_override("font_size", UI.FS_S)
+			nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			v.add_child(nm)
+			var mk := Label.new()
+			mk.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			mk.add_theme_font_size_override("font_size", UI.FS_M)
+			mk.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			v.add_child(mk)
+			strip.add_child(p)
+			cards[k] = {"panel": p, "name": nm, "mark": mk}
+		_paint_strip()
+
+	func _stars_of(score: float) -> int:
+		var n := 0
+		for t in STARS:
+			if score >= float(t):
+				n += 1
+		return n
+
+	func _paint_strip() -> void:
+		for k in cards.keys():
+			var c: Dictionary = cards[k]
+			var p: PanelContainer = c["panel"]
+			var mk: Label = c["mark"]
+			var nm: Label = c["name"]
+			var is_cur: bool = idx < order.size() and k == order[idx]
+			if sent.has(k):
+				var n: int = int(sent[k])
+				mk.text = "★".repeat(n) + "☆".repeat(3 - n)
+				mk.add_theme_color_override("font_color", UI.GOLD if n > 0 else UI.BAD)
+				p.add_theme_stylebox_override("panel", UI.surface(UI.Surface.CELL, UI.GOLD_DIM))
+				nm.add_theme_color_override("font_color", UI.TXT)
+				p.modulate = Color(1, 1, 1, 0.85)
+			elif is_cur:
+				mk.text = "на выход"
+				mk.add_theme_color_override("font_color", UI.GOLD)
+				p.add_theme_stylebox_override("panel", UI.surface(UI.Surface.CARD, UI.GOLD))
+				nm.add_theme_color_override("font_color", UI.GOLD)
+				p.modulate = Color(1, 1, 1, 1)
+			else:
+				mk.text = "ждёт"
+				mk.add_theme_color_override("font_color", UI.TXT_MUTED)
+				p.add_theme_stylebox_override("panel", UI.surface(UI.Surface.CELL, UI.BORDER_SOFT))
+				nm.add_theme_color_override("font_color", UI.TXT_DIM)
+				p.modulate = Color(1, 1, 1, 0.75)
+
+	# Редактируем только текущий; отправленные заблокированы навсегда.
 	func _apply_locks() -> void:
 		for k in order:
 			var s = g_ref.sliders[k]
-			var on: bool = (k == order[idx])
+			var on: bool = idx < order.size() and k == order[idx]
 			s.editable = on
 			s.modulate = Color(1, 1, 1, 1) if on else DIM
+		if btn != null and is_instance_valid(btn):
+			btn.visible = idx < order.size()
+		if back != null and is_instance_valid(back):
+			back.visible = redress and not sent.is_empty()
+		_paint_strip()
 
-	func _next() -> void:
-		# УР.4: не пустит дальше, пока текущий не идеален
-		if g_ref.level == 4 and g_ref._key_score(order[idx]) < PERFECT:
-			g_ref._toast.call_deferred("👗 Модница: сначала доведи до идеала!", UI.WARN)
+	func _send() -> void:
+		if idx >= order.size():
+			return
+		var k: String = String(order[idx])
+		var sc: float = g_ref._key_score(k)
+		# УР.4: не пустит на подиум, пока не идеально
+		if g_ref.level == 4 and sc < PERFECT:
+			g_ref._toast.call_deferred("Модница: так на подиум не выпускают!", UI.WARN)
 			Sfx.play("badPop")
 			return
-		idx = (idx + 1) % order.size()
+		sent[k] = _stars_of(sc)
+		idx += 1
+		Sfx.play("cardPick" if int(sent[k]) > 0 else "badPop")
 		_apply_locks()
+
+	# «Переодеться» — вернуть последний отправленный параметр. Один раз за раунд.
+	func _redress() -> void:
+		if not redress or sent.is_empty() or idx <= 0:
+			return
+		redress = false
+		idx -= 1
+		sent.erase(String(order[idx]))
 		Sfx.play("uiClick")
+		g_ref._toast.call_deferred("Модница: переодеваемся — но это в последний раз", UI.GOLD)
+		_apply_locks()
 
 	func stop(g) -> void:
-		if btn != null and is_instance_valid(btn):
-			btn.queue_free()
+		for b in [btn, back]:
+			if b != null and is_instance_valid(b):
+				b.queue_free()
 		btn = null
+		back = null
+		if strip != null and is_instance_valid(strip):
+			strip.queue_free()
+		strip = null
+		cards.clear()
 		for k in order:
 			if g.sliders.has(k):
 				g.sliders[k].editable = true
@@ -238,9 +349,13 @@ class FashionMech extends NpcMech:
 		order.clear()
 
 	func result_note(_g) -> String:
-		if order.size() <= 1:
+		if order.size() <= 1 and sent.is_empty():
 			return ""
-		return "👗 Модница: по одному регулятору за раз"
+		var got := 0
+		for k in sent.keys():
+			got += int(sent[k])
+		var total: int = maxi(1, order.size()) * 3
+		return "👗 Модница: образ на %d из %d звёзд" % [got, total]
 
 # ============================================================
 # Хранитель Архива (УР.4): каждые 5с «запечатывает» (блокирует) ОДИН ползунок.
@@ -476,61 +591,67 @@ class LogicMech extends NpcMech:
 		return "🔢 Логик-9: только пошагово (▲/▼)"
 
 # ============================================================
-# Гонщица Кай: 3 гоночных чекпоинта по ходу таймера варки. На каждом замеряется
-# текущий результат; если ≥0.55 — +5% к множителю рейтинга. Отсчёт «3…2…GO!» +
-# лёгкая тряска банки. Порт LEVEL4_FX.racer_kai (scoreBonus = 0.05·пройдено).
-# ============================================================
+# Гонщица Кай: «ещё круг?». Кнопка засчитывает текущее состояние как круг и
+# сбрасывает регуляторы в случайные — в зачёт идёт ЛУЧШИЙ круг, а не последний.
+# Раньше здесь были три чекпоинта, которые сами мигали «3…2…GO!» и молча давали
+# +5%: игрок в них не участвовал, решения не принимал, механики по сути не было.
+# На УР.4 круг стоит времени, так что «ещё один» — уже настоящая ставка.
 class RacerMech extends NpcMech:
-	const MARKS := [0.33, 0.66, 0.9]      # доли времени варки
-	const PASS := 0.55                     # порог зачёта чекпоинта
+	const L4_TIME_COST := 0.14      # УР.4: доля ОСТАВШЕГОСЯ времени за новый круг
 	var g_ref
-	var idx: int = 0
-	var done: int = 0
-	var label: Label = null
+	var laps: Array = []            # сданные круги (0..1)
+	var best: float = 0.0
+	var board: Label = null
+	var btn: Button = null
 
 	func craft_start(g) -> void:
 		g_ref = g
-		idx = 0
-		done = 0
-		label = Label.new()
-		label.add_theme_font_size_override("font_size", UI.FS_HERO)
-		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		label.modulate = Color("35e0ff")
-		label.set_anchors_preset(Control.PRESET_FULL_RECT)   # на всю сцену, текст по центру
-		label.visible = false
-		g.jar_stage.add_child(label)
+		laps.clear()
+		best = 0.0
+		board = Label.new()
+		board.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		board.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		board.add_theme_font_size_override("font_size", UI.FS_M)
+		board.add_theme_color_override("font_color", UI.GOLD)
+		board.set_anchors_preset(Control.PRESET_TOP_WIDE)
+		board.offset_top = 6.0
+		board.offset_bottom = 70.0
+		g.jar_stage.add_child(board)
+		btn = NpcMech.make_arrow_btn(g, _lap, 0.62)
+		btn.text = "КРУГ"
+		btn.add_theme_font_size_override("font_size", UI.FS_L)
+		_refresh()
 
-	func process(g, _delta: float) -> void:
-		var elapsed: float = g.phase_total - g.phase_left
-		while idx < MARKS.size() and elapsed >= MARKS[idx] * g.phase_total:
-			if g._current_overall() >= PASS:
-				done += 1
-			var is_last: bool = idx == MARKS.size() - 1
-			_flash("GO!" if is_last else str(3 - idx))
-			_shake(g)
-			Sfx.play("countdown")
-			idx += 1
+	# Сдать круг: записать результат и уйти на новый с чистого листа.
+	func _lap() -> void:
+		var g = g_ref
+		var v: float = g._current_overall()
+		laps.append(v)
+		best = maxf(best, v)
+		# новый круг — регуляторы заново в случайные (как на старте варки)
+		var vals: Dictionary = g._random_values()
+		for key in g.ORDER:
+			var nv: float = float(vals[key]) if key in g.active else float(g.target[key])
+			g.sliders[key].set_value_no_signal(nv)
+		var cur: Dictionary = g._current_values()
+		g._apply_to_jar(cur)
+		g._update_value_labels(cur)
+		if g.level >= 4:
+			g.phase_left = maxf(1.5, g.phase_left * (1.0 - L4_TIME_COST))
+		Sfx.play("cardPick")
+		_shake(g)
+		_refresh()
 
-	func _flash(text: String) -> void:
-		if label == null:
+	func _refresh() -> void:
+		if board == null or not is_instance_valid(board):
 			return
-		label.text = text
-		label.visible = true
-		label.scale = Vector2(0.5, 0.5)
-		label.pivot_offset = label.size * 0.5
-		var t := label.create_tween()
-		t.tween_property(label, "scale", Vector2(1.3, 1.3), 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		t.tween_interval(0.35)
-		t.tween_property(label, "modulate:a", 0.0, 0.3)
-		t.tween_callback(_flash_done)
-
-	func _flash_done() -> void:
-		if label == null:
+		if laps.is_empty():
+			board.text = "Круг 1 — сдай его или перебери заново"
 			return
-		label.visible = false
-		label.modulate.a = 1.0
+		var parts: Array = []
+		for v in laps:
+			parts.append("%d%%" % int(round(float(v) * 100.0)))
+		board.text = "Круги: %s   ·   лучший %d%%" % [" · ".join(parts), int(round(best * 100.0))]
 
 	func _shake(g) -> void:
 		var jar: Control = g.jar
@@ -539,18 +660,25 @@ class RacerMech extends NpcMech:
 		t.tween_property(jar, "rotation", deg_to_rad(-4.0), 0.05)
 		t.tween_property(jar, "rotation", 0.0, 0.05)
 
-	func score_bonus(_g) -> float:
-		return 1.0 + 0.05 * float(done)
+	# В зачёт идёт лучшее из сданных кругов и того, что на столе сейчас.
+	func override_overall(g) -> float:
+		return maxf(best, g._current_overall())
 
 	func stop(_g) -> void:
-		if label != null and is_instance_valid(label):
-			label.queue_free()
-		label = null
+		if board != null and is_instance_valid(board):
+			board.queue_free()
+		board = null
+		if btn != null and is_instance_valid(btn):
+			btn.queue_free()
+		btn = null
 
-	func result_note(_g) -> String:
-		if done <= 0:
-			return "🏁 Гонщица Кай: чекпоинты не взяты"
-		return "🏁 Гонщица Кай: +%d%% рейтинга за %d чекпоинта" % [done * 5, done]
+	func result_note(g) -> String:
+		if laps.is_empty():
+			return "🏁 Гонщица Кай: один круг, без пересдач"
+		var fin: float = g._current_overall()
+		if fin >= best:
+			return "🏁 Гонщица Кай: последний круг и оказался лучшим"
+		return "🏁 Гонщица Кай: в зачёт пошёл круг на %d%%" % int(round(best * 100.0))
 
 # ============================================================
 # Аптекарь Мо: полоска «состояние пациента» тает со временем варки (зелёная→
@@ -963,14 +1091,25 @@ class DroneMech extends NpcMech:
 		return "🛠 Дрон: не лопнешь пузырь — собьёт регулятор"
 
 # ============================================================
-# Парфюмер: спектр и накал сведены в один 2D-пэд (X=накал, Y=спектр) вместо двух
-# ползунков. Накал у него активен на ВСЕХ уровнях (флаг hasSat в оригинале) —
-# добавляем "sat" в active в setup. Порт LEVEL4_FX.perfumer.
-# ============================================================
+# Парфюмер: «палитра нот». Спектр и накал по-прежнему сведены вместе, но
+# выбираются двумя касаниями по крупным пробникам, а не пальцем по маленькому
+# 2D-пэду: прежний квадрат 248 px требовал попадания в пиксель и на телефоне был
+# неиграбелен. Сетка 4×4 по всему полю спектр×накал -> тап приближает зону ->
+# вторая сетка 4×4 внутри неё даёт точное значение (снапнутое на шаг ползунка).
+# Накал у Парфюмера активен на ВСЕХ уровнях (флаг hasSat в оригинале).
 class PerfumerMech extends NpcMech:
+	const MAX_SIDE := 6              # больше колонок на телефоне уже мелко
+	const CELL_MIN := 96.0           # минимальный пробник — крупная тач-цель
+	const CELL_MAX := 148.0
+	const SWATCH := 176.0            # кнопка-образец в ряду регуляторов
 	var g_ref
-	var pad: ColorPad = null
-	var col: VBoxContainer = null    # колонка-обёртка пэда (встаёт в ряд регуляторов)
+	var col: VBoxContainer = null    # колонка-обёртка образца (встаёт в ряд регуляторов)
+	var swatch: Button = null
+	var overlay: Control = null
+	var grid: GridContainer = null
+	var title: Label = null
+	var back_btn: Button = null
+	var zoom: Array = []             # [hue_lo, hue_hi, sat_lo, sat_hi] выбранной зоны
 
 	func setup(g) -> void:
 		# накал — часть заказа Парфюмера на любом уровне
@@ -979,43 +1118,229 @@ class PerfumerMech extends NpcMech:
 
 	func craft_start(g) -> void:
 		g_ref = g
-		# прячем колонки спектра и накала — их заменяет квадратный пэд в том же ряду
 		g.slider_cols["color"].visible = false
 		g.slider_cols["sat"].visible = false
-		var cs = g.sliders["color"]
-		var ss = g.sliders["sat"]
-		var row: HBoxContainer = g.slider_cols["color"].get_parent()   # ряд регуляторов
+		var row: HBoxContainer = g.slider_cols["color"].get_parent()
 		col = VBoxContainer.new()
 		col.alignment = BoxContainer.ALIGNMENT_CENTER
+		col.add_theme_constant_override("separation", UI.SP_S)
 		var lbl := Label.new()
-		lbl.text = "Спектр × Накал"
+		lbl.text = "Аромат"
 		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.add_theme_font_size_override("font_size", UI.FS_S)
 		col.add_child(lbl)
-		pad = ColorPad.new()
-		pad.custom_minimum_size = Vector2(248, 248)   # компактный квадрат
-		pad.config(cs.min_value, cs.max_value, cs.step, ss.min_value, ss.max_value, ss.step, cs.value, ss.value)
-		pad.changed.connect(_on_pad)
-		col.add_child(pad)
+		swatch = Button.new()
+		swatch.custom_minimum_size = Vector2(SWATCH, SWATCH)
+		swatch.focus_mode = Control.FOCUS_NONE
+		swatch.pressed.connect(_open)
+		col.add_child(swatch)
+		var hint := Label.new()
+		hint.text = "нажми"
+		hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		hint.add_theme_font_size_override("font_size", UI.FS_XS)
+		hint.add_theme_color_override("font_color", UI.TXT_DIM)
+		col.add_child(hint)
 		row.add_child(col)
-		row.move_child(col, 0)                        # слева, где были цвет/накал
+		row.move_child(col, 0)
+		_paint_swatch()
 
-	func _on_pad(hue: float, sat: float) -> void:
+	# --- значения и цвет ---
+	func _hue_range() -> Vector2:
+		var s = g_ref.sliders["color"]
+		return Vector2(s.min_value, s.max_value)
+
+	func _sat_range() -> Vector2:
+		var s = g_ref.sliders["sat"]
+		return Vector2(s.min_value, s.max_value)
+
+	# Цвет пробника: та же формула, что красит зелье (пол насыщенности 30%).
+	func _col_of(hue: float, sat: float) -> Color:
+		var sr: Vector2 = _sat_range()
+		var f: float = (sat - sr.x) / maxf(0.0001, sr.y - sr.x)
+		return Color.from_hsv(fposmod(hue, 360.0) / 360.0, 0.30 + f * 0.70, 0.95)
+
+	func _paint_swatch() -> void:
+		if swatch == null or not is_instance_valid(swatch):
+			return
+		var c: Color = _col_of(g_ref.sliders["color"].value, g_ref.sliders["sat"].value)
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = c
+		sb.set_corner_radius_all(UI.R_M)
+		sb.set_border_width_all(3)
+		sb.border_color = UI.GOLD
+		for st in ["normal", "hover", "pressed", "focus"]:
+			swatch.add_theme_stylebox_override(st, sb)
+
+	# --- палитра ---
+	func _open() -> void:
+		Sfx.play("uiClick")
+		if overlay == null:
+			_build_overlay()
+		overlay.visible = true
+		zoom = []
+		_fill()
+
+	func _close() -> void:
+		if overlay != null and is_instance_valid(overlay):
+			overlay.visible = false
+
+	func _build_overlay() -> void:
+		overlay = Control.new()
+		overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+		var dim := ColorRect.new()
+		dim.color = UI.SCRIM
+		dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+		dim.mouse_filter = Control.MOUSE_FILTER_STOP
+		overlay.add_child(dim)
+		var card := PanelContainer.new()
+		card.anchor_left = 0.5; card.anchor_right = 0.5
+		card.anchor_top = 0.5; card.anchor_bottom = 0.5
+		card.offset_left = -336.0; card.offset_right = 336.0
+		card.offset_top = -400.0; card.offset_bottom = 400.0
+		card.add_theme_stylebox_override("panel", UI.surface(UI.Surface.PANEL, UI.GOLD))
+		overlay.add_child(card)
+		var v := VBoxContainer.new()
+		v.add_theme_constant_override("separation", UI.SP_M)
+		card.add_child(v)
+		title = Label.new()
+		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		title.add_theme_font_size_override("font_size", UI.FS_L)
+		title.add_theme_color_override("font_color", UI.GOLD)
+		v.add_child(title)
+		grid = GridContainer.new()
+		grid.columns = 4                      # реальное число задаёт _fill()
+		grid.add_theme_constant_override("h_separation", UI.SP_S)
+		grid.add_theme_constant_override("v_separation", UI.SP_S)
+		grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		v.add_child(grid)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", UI.SP_S)
+		v.add_child(row)
+		back_btn = Button.new()
+		back_btn.text = "Назад"
+		back_btn.custom_minimum_size = Vector2(0, 60)
+		back_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		back_btn.focus_mode = Control.FOCUS_NONE
+		back_btn.pressed.connect(_step_back)
+		row.add_child(back_btn)
+		var cl := Button.new()
+		cl.text = "Закрыть"
+		cl.custom_minimum_size = Vector2(0, 60)
+		cl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cl.focus_mode = Control.FOCUS_NONE
+		cl.pressed.connect(_close)
+		row.add_child(cl)
+		g_ref.add_child(overlay)
+
+	func _step_back() -> void:
+		if zoom.is_empty():
+			_close()
+		else:
+			zoom = []
+			Sfx.play("uiClick")
+			_fill()
+
+	# Все значения ползунка по его сетке — палитра обязана уметь выдать любое.
+	func _values(s) -> Array:
+		var st: float = s.step if s.step > 0.0 else 1.0
+		var n: int = int(round((s.max_value - s.min_value) / st))
+		var out: Array = []
+		for i in n + 1:
+			out.append(s.min_value + st * float(i))
+		return out
+
+	# На сколько групп резать список, чтобы два шага покрыли его целиком.
+	func _groups(n: int) -> int:
+		var g: int = int(ceil(sqrt(float(n))))
+		return clampi(g, 1, MAX_SIDE)
+
+	func _chunk(arr: Array, groups: int) -> Array:
+		var size: int = int(ceil(float(arr.size()) / float(groups)))
+		var out: Array = []
+		var i: int = 0
+		while i < arr.size():
+			out.append(arr.slice(i, mini(i + size, arr.size())))
+			i += size
+		return out
+
+	# Заполнить сетку: без зоны — группы по всему полю, с зоной — значения внутри неё.
+	func _fill() -> void:
+		for c in grid.get_children():
+			c.queue_free()
+		var hues: Array = _values(g_ref.sliders["color"])
+		var sats: Array = _values(g_ref.sliders["sat"])
+		var deep: bool = not zoom.is_empty()
+		var hcols: Array = []
+		var srows: Array = []
+		if deep:
+			# зона — это списки конкретных значений, показываем их как есть
+			for v in zoom[0]:
+				hcols.append([v])
+			for v in zoom[1]:
+				srows.append([v])
+		else:
+			hcols = _chunk(hues, _groups(hues.size()))
+			srows = _chunk(sats, _groups(sats.size()))
+		title.text = "Оттенок и накал" if not deep else "Ближе: выбери ноту"
+		back_btn.visible = deep
+		grid.columns = hcols.size()
+		var side: float = clampf(620.0 / float(maxi(hcols.size(), srows.size())), CELL_MIN, CELL_MAX)
+		# накал растёт снизу вверх — верхний ряд самый яркий
+		for r in range(srows.size() - 1, -1, -1):
+			for c in hcols.size():
+				grid.add_child(_cell(hcols[c], srows[r], side, deep))
+
+	func _mid(arr: Array) -> float:
+		return float(arr[arr.size() / 2])
+
+	func _cell(hgroup: Array, sgroup: Array, side: float, deep: bool) -> Button:
+		var h: float = _mid(hgroup)
+		var s: float = _mid(sgroup)
+		var b := Button.new()
+		b.custom_minimum_size = Vector2(side, side)
+		b.focus_mode = Control.FOCUS_NONE
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = _col_of(h, s)
+		sb.set_corner_radius_all(UI.R_M)
+		sb.set_border_width_all(2)
+		sb.border_color = UI.BORDER_C
+		for st in ["normal", "hover", "pressed", "focus"]:
+			b.add_theme_stylebox_override(st, sb)
+		if deep:
+			b.pressed.connect(_pick.bind(h, s))
+		else:
+			b.pressed.connect(_zoom_in.bind(hgroup, sgroup))
+		return b
+
+	func _zoom_in(hgroup: Array, sgroup: Array) -> void:
+		zoom = [hgroup, sgroup]
+		Sfx.play("uiClick")
+		_fill()
+
+	func _pick(hue: float, sat: float) -> void:
 		g_ref.sliders["color"].set_value_no_signal(hue)
 		g_ref.sliders["sat"].set_value_no_signal(sat)
 		g_ref._on_slider_changed(hue, "color")   # обновит банку (читает оба) + тик
+		g_ref._update_value_labels(g_ref._current_values())
+		_paint_swatch()
+		_close()
 
 	func stop(g) -> void:
+		if overlay != null and is_instance_valid(overlay):
+			overlay.queue_free()
+		overlay = null
+		grid = null
 		if col != null and is_instance_valid(col):
 			col.queue_free()
 		col = null
-		pad = null
+		swatch = null
 		if g.slider_cols.has("color"):
 			g.slider_cols["color"].visible = true
 		if g.slider_cols.has("sat"):
 			g.slider_cols["sat"].visible = true
 
 	func result_note(_g) -> String:
-		return "🌸 Парфюмер: спектр × накал одним пэдом"
+		return "🌸 Парфюмер: нота выбрана по палитре"
 
 # ============================================================
 # Гурман с Веги: «ГОТОВО» → «ДЕГУСТИРОВАТЬ». Первая суб-годнота НЕ завершает
