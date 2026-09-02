@@ -38,10 +38,13 @@ const SPEED_BONUS_MULT := {1: 0.0, 2: 0.35, 3: 0.65, 4: 0.5}
 # score_mult / speed_cap_bonus — пассивки (score умножает награду, speedCap
 # поднимает потолок бонуса за скорость).
 func score_delta(overall: float, grade_str: String, tier: int, reward: int, reg_level: int, time_frac: float,
-		score_mult: float = 1.0, speed_cap_bonus: float = 0.0) -> Dictionary:
+		score_mult: float = 1.0, speed_cap_bonus: float = 0.0, speed_floor: float = 0.0) -> Dictionary:
 	var eff: float = float(reward) * float(REG_DIFF_REWARD_MULT.get(reg_level, 1.0)) * score_mult
 	var third: float = 1.0 / 3.0
 	var time_factor: float = 1.0 if time_frac <= third else maxf(0.0, 1.0 - (time_frac - third) / (1.0 - third))
+	# «Ускоритель варки» держит бонус за скорость не ниже своей доли, сколько бы
+	# времени ни ушло на заказ
+	time_factor = maxf(time_factor, clampf(speed_floor, 0.0, 1.0))
 	var delta: int = 0
 	var speed_pct: int = 0
 	if grade_str == "good" or grade_str == "perfect":

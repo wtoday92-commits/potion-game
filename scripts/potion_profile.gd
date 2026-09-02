@@ -527,7 +527,7 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 		time_frac: float = 1.0, reg_level: int = 1,
 		focus: String = "", rating_mult: float = 1.0, no_points: bool = false,
 		neg_mult: float = 1.0, tip_mult: float = 1.0, flat_bonus: int = 0,
-		pfx: Dictionary = {}) -> Dictionary:
+		pfx: Dictionary = {}, ifx: Dictionary = {}) -> Dictionary:
 	ensure_npc(npc_id)
 	# pfx — эффекты пассивок, зафиксированные на этот заказ (см. passive_fx)
 	var pf_score: float = 1.0 + float(pfx.get("score", 0.0))
@@ -548,7 +548,9 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 	st["total_orders"] += 1
 	st["stickers_lifetime"][grade] += 1
 	# дельта рейтинга (может быть отрицательной: пойло/брак отнимают)
-	var sd: Dictionary = GameData.score_delta(overall, grade, tier, reward, reg_level, time_frac, pf_score, pf_speed)
+	# ifx — эффекты предметов магазина на этот заказ (см. main._apply_item)
+	var sd: Dictionary = GameData.score_delta(overall, grade, tier, reward, reg_level, time_frac,
+		pf_score, pf_speed, float(ifx.get("speedlock", 0.0)))
 	var points: int = int(sd["delta"])
 	# множитель рейтинга: механика гостя + «Погром»/«Утка» на плюс; «Утка» усиливает и штраф
 	if points > 0 and rating_mult != 1.0:
@@ -609,6 +611,14 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 	var rep_gain: float = float(REP_GAIN.get(grade, 0.0))
 	if rep_gain > 0.0:
 		rep_gain *= pf_rep                     # пассивка rep — только на ПРИРОСТ
+	# «Космическая паприка»: за годноту+ гость даёт больше репутации, за брак —
+	# сильнее обижается. Плоская добавка поверх обычного прироста.
+	var rep_flat: float = float(ifx.get("rep", 0.0))
+	if rep_flat > 0.0:
+		if is_good:
+			rep_gain += rep_flat
+		elif is_bad:
+			rep_gain -= rep_flat
 	rep["value"] = maxf(0.0, rep_before + rep_gain)
 	var lvl_after := GameData.rep_level(float(rep["value"]))
 	rep["level"] = lvl_after

@@ -4324,12 +4324,15 @@ func _open_settings() -> void:
 	vb.add_child(_settings_slider("🔊 Звуки", false))
 	# DEV-инструменты: раньше кнопка висела в углу игрового экрана и занимала
 	# место, которое нужно под «В меню».
-	var dev := _diff_button("DEV — тестовые инструменты", UI.WARN)
-	dev.pressed.connect(func():
-		PotionProfile.save()
-		ov.queue_free(); settings_panel = null
-		_dev_open())
-	vb.add_child(dev)
+	# DEV-инструменты (сброс профиля, буст опыта) — только в отладочной сборке:
+	# в релизе эта кнопка стояла в обычных настройках, на виду у игрока
+	if OS.is_debug_build():
+		var dev := _diff_button("DEV — тестовые инструменты", UI.WARN)
+		dev.pressed.connect(func():
+			PotionProfile.save()
+			ov.queue_free(); settings_panel = null
+			_dev_open())
+		vb.add_child(dev)
 	var close := _diff_button("Закрыть", Color(0.7, 0.72, 0.8))
 	close.pressed.connect(func():
 		PotionProfile.save()
@@ -6263,7 +6266,7 @@ func _do_finish() -> void:
 	var outcome: Dictionary = PotionProfile.record_result(
 		npc["id"], tier, overall, grade, reward, "",
 		time_frac, level, order_focus, pos_mult, no_points, neg_mult, tip_mult, flat_bonus,
-		order_pfx)
+		order_pfx, item_fx)
 	passives_locked = true         # с первого выполненного заказа состав пассивок заморожен
 	# Полоса поощрений: 100% — именной стакан гостя, идеал — крупный золотой,
 	# годно — обычный, пойло — заглушка, брак — осколки. В дейлике полосы нет.
