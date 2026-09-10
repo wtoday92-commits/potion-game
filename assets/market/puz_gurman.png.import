@@ -15,9 +15,9 @@ dest_files=["res://.godot/imported/puz_gurman.png-74e510a6c179c422c7b8e4f6036d83
 
 [params]
 
-compress/mode=0
+compress/mode=1
 compress/high_quality=false
-compress/lossy_quality=0.7
+compress/lossy_quality=0.85
 compress/uastc_level=0
 compress/rdo_quality_loss=0.0
 compress/hdr_compression=1

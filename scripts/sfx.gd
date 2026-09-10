@@ -25,10 +25,10 @@ const SFX_KEYS := [
 # события без своего файла → ближайший по смыслу существующий
 const _FALLBACK := {"good": "perfect", "badClear": "badPop"}
 
-const MENU_TRACK := "res://assets/track_6.mp3"
+const MENU_TRACK := "res://assets/track_6.ogg"
 const GAME_TRACKS := [
-	"res://assets/track_1.mp3", "res://assets/track_2.mp3", "res://assets/track_3.mp3",
-	"res://assets/track_4.mp3", "res://assets/track_5.mp3", "res://assets/track_7.mp3",
+	"res://assets/track_1.ogg", "res://assets/track_2.ogg", "res://assets/track_3.ogg",
+	"res://assets/track_4.ogg", "res://assets/track_5.ogg", "res://assets/track_7.ogg",
 ]
 const FADE := 2.5      # кросс-фейд меню↔игра / старт трека, с
 const TAIL := 3.0      # за сколько секунд до конца заводить следующий трек
@@ -172,7 +172,8 @@ func _play_on(p: AudioStreamPlayer, path: String, loop: bool) -> void:
 	if not ResourceLoader.exists(path):
 		return
 	var stream: AudioStream = load(path)
-	if stream is AudioStreamMP3:
+	# музыка — Ogg Vorbis, эффекты — MP3; зациклить надо и то и другое
+	if stream is AudioStreamMP3 or stream is AudioStreamOggVorbis:
 		stream.loop = loop
 	var prev := _mus_cur
 	p.stream = stream
