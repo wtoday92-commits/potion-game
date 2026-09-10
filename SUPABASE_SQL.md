@@ -1,55 +1,54 @@
 # Что докрутить на стороне Supabase
 
-Клиент (`scripts/potion_auth.gd`) теперь читает свою строку в топе перед записью
-и обновляет её только при новом рекорде. Но полностью дубли закрываются на
+Клиент (`scripts/potion_auth.gd`) читает свою строку в топе перед записью и
+обновляет её только при новом рекорде. Но полностью дубли закрываются на
 сервере: без ограничения в БД одновременный запуск с двух устройств всё ещё
 может вставить две строки.
 
-Запускать в SQL Editor проекта по порядку.
+## Как выполнить
 
-## 1. Свести уже накопившиеся дубли к лучшему счёту
+1. Открыть https://supabase.com/dashboard и выбрать проект `ilkimncsophobhzhqidj`.
+2. Слева **SQL Editor** → **New query**.
+3. Вставить блок ниже целиком и нажать **Run**.
+
+Блок можно запускать сколько угодно раз: он не падает на том, что уже сделано.
 
 ```sql
+-- 1. Свести уже накопившиеся дубли к лучшему счёту игрока на доске
 delete from public.leaderboard a
 using public.leaderboard b
 where a.user_id = b.user_id
   and a.board   = b.board
   and (a.score < b.score or (a.score = b.score and a.ctid > b.ctid));
-```
 
-## 2. Одна строка на игрока и доску — навсегда
-
-```sql
+-- 2. Одна строка на игрока и доску — навсегда
 create unique index if not exists leaderboard_user_board_uniq
   on public.leaderboard (user_id, board);
-```
 
-## 3. Политики RLS на свою строку
-
-Обновление нужно, чтобы клиент переписывал рекорд, а не удалял и вставлял
-заново (удаление без политики отвечает 204 и молча не удаляет ничего — из-за
-этого игрок и попадал в топ повторно).
-
-```sql
+-- 3. Политики на свою строку. Обновление нужно, чтобы клиент переписывал
+--    рекорд, а не удалял и вставлял заново: удаление без политики отвечает
+--    204 и молча не удаляет ничего — из-за этого игрок и попадал в топ повторно.
+drop policy if exists "leaderboard update own" on public.leaderboard;
 create policy "leaderboard update own"
   on public.leaderboard for update
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+drop policy if exists "leaderboard delete own" on public.leaderboard;
 create policy "leaderboard delete own"
   on public.leaderboard for delete
   using (auth.uid() = user_id);
+
+-- 4. Колонка user_id должна читаться: клиент просит её, чтобы точно подсветить
+--    свою строку и развести одинаковые ники. Если грант закрыт, запрос падает
+--    и клиент откатывается на старый набор полей — подсветка тогда по нику.
+grant select (name, score, created_at, user_id)
+  on public.leaderboard to anon, authenticated;
 ```
 
-## 4. Колонка user_id должна читаться
+## Как проверить, что помогло
 
-Клиент просит `select=name,score,created_at,user_id`, чтобы точно подсветить
-свою строку и развести одинаковые ники. Если грант на колонку закрыт, запрос
-падает и клиент откатывается на старый набор полей — подсветка тогда работает
-по нику. Проверить:
-
-```sql
-grant select (name, score, created_at, user_id) on public.leaderboard to anon, authenticated;
-```
+Доиграть цикл до конца дважды подряд с одного аккаунта: второй раз строка в
+топе должна остаться одна, а счёт смениться только если он выше.
 
 ## Ники-двойники
 
