@@ -6056,6 +6056,20 @@ func _set_phase_label(txt: String) -> void:
 		_phase_lbl_key = txt
 		phase_label.text = txt
 
+# Бонус-раунд Логика-9: показываем оверлей и ждём его сигнал. Возвращает долю
+# сбитых сгустков (0..1). Заказ на это время подвисает — так же было в оригинале.
+func _logic9_bonus(blob_count: int) -> float:
+	var game := Logic9Game.new()
+	add_child(game)
+	game.setup(blob_count)
+	var frac: float = await game.finished
+	game.queue_free()
+	if frac >= 0.999:
+		_toast("💥 Все сгустки сбиты: +50%% к рейтингу", UI.GOLD)
+	elif frac > 0.0:
+		_toast("💥 Сбито %d%%: +%d%% к рейтингу" % [int(round(frac * 100.0)), int(round(frac * 50.0))], UI.CYAN)
+	return frac
+
 # Насколько верно выставлен один ползунок (0..1) — та же формула, что в _do_finish.
 # Нужно механикам (Хранитель Архива, Модница) для правила «выставлен верно».
 func _key_score(key: String) -> float:
@@ -6194,6 +6208,10 @@ func _do_finish() -> void:
 	# грейд по порогам тира + запись результата в профиль
 	var tier: int = int(npc.get("tier", 1))
 	var grade: String = GameData.grade(overall, tier)
+	# Логик-9 на УР.4: заказ сдан на годноту или выше — играем бонус-раунд
+	# «сбей сгустки». Доля сбитых даёт до +50% к рейтингу заказа.
+	if String(npc.get("id", "")) == "logic9" and level >= 4 and (grade == "perfect" or grade == "good"):
+		rating_mult *= 1.0 + await _logic9_bonus(int(target.get("count", 3))) * 0.5
 	var reward: int = int(GameData.npc_config(npc)["reward"])
 	# Фаза 3: множители от модификаторов заказа (фокус +25% награды; Утка усиливает
 	# плюс и штраф; Погром — ×2 рейтинг и чаевые)
