@@ -541,8 +541,7 @@ class LogicMech extends NpcMech:
 
 	func craft_start(g) -> void:
 		g_ref = g
-		keys = (g.active as Array).duplicate()
-		pass   # время добавляет GameData.MECH_CRAFT_TAX
+		keys = (g.active as Array).duplicate()   # время добавляет GameData.MECH_CRAFT_TAX
 		for k in keys:
 			_make_stepper(k)
 
@@ -933,7 +932,7 @@ class MarketerMech extends NpcMech:
 # ============================================================
 # Диджей Пульсар: механики-игры нет — на его заказ идёт бит (синтезируется, без
 # ассета) и весь интерфейс пульсирует в такт. Скоринг не трогает.
-# Порт LEVEL4_FX.dj_pulsar (гравитация ползунков УР.4 — TODO).
+# Порт LEVEL4_FX.dj_pulsar; гравитация ползунков УР.4 — _gravity().
 # ============================================================
 class DjMech extends NpcMech:
 	const BEAT := 0.5                  # период бита, с
@@ -1687,7 +1686,7 @@ class SwarmMech extends NpcMech:
 # ============================================================
 # Инспектор Гильдии: фазы показа НЕТ — цель описана в листе «Допуски» (значения
 # как «№X из N» по делениям ползунка). Кнопка открывает текст; время варки ×2.
-# Порт LEVEL4_FX.guild_inspector (загадка-допрос УР.4 — TODO).
+# Порт LEVEL4_FX.guild_inspector; допрос УР.4 — lie_key (один пункт дела лжёт).
 # ============================================================
 class InspectorMech extends NpcMech:
 	var g_ref
@@ -2352,7 +2351,7 @@ class SupernovaMech extends NpcMech:
 
 # ============================================================
 # Пьяница Пит: «уровень жидкости» (fill) — отдельный регулятор, активен С УР.1.
-# Порт cfg.id==='pete' (fill в activeKeys). Градус (degree, УР.4) — TODO.
+# Порт cfg.id==='pete' (fill в activeKeys) вместе с градусом (degree, УР.4).
 # ============================================================
 class PeteMech extends NpcMech:
 	var g_ref
@@ -2440,7 +2439,7 @@ class WaiterMech extends NpcMech:
 # ============================================================
 # Двуликая жрица (gradient + dual count): банка делится на 2 половины, у каждой
 # свой счётчик сгустков (право = «Сгустки», лево = «Сгустки Б», макс. 7).
-# Порт special:'gradient' + LEVEL4_FX.twofaced. Градиент (2-й цвет) — TODO.
+# Порт special:'gradient' + LEVEL4_FX.twofaced: два спектра на всех уровнях.
 # ============================================================
 class TwofacedMech extends NpcMech:
 	# gradient: ДВА СПЕКТРА (градиент банки) — базовая механика на ВСЕХ уровнях.

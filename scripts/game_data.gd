@@ -862,11 +862,6 @@ func find_relation(a: String, b: String) -> Dictionary:
 			return r
 	return {}
 
-func relation_key(a: String, b: String) -> String:
-	var arr := [a, b]
-	arr.sort()
-	return "%s|%s" % [arr[0], arr[1]]
-
 # ---------- Пассивки персонажей (Фаза J + реворк Фазы 11) ----------
 # По 5 пассивок на NPC; пассивка с индексом i открывается уровнем репутации i+1
 # (пороги — REP_LEVELS). Игрок держит активными до PASSIVE_SLOTS штук; состав

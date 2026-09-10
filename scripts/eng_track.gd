@@ -104,9 +104,6 @@ func _freeze() -> void:
 	queue_redraw()
 	fixed.emit(v, _hit_red)
 
-func is_done() -> bool:
-	return _stopped
-
 # ---------- отрисовка ----------
 
 func _x(f: float) -> float:

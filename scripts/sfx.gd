@@ -71,6 +71,10 @@ func _ready() -> void:
 func _store(key: String, val: float) -> void:
 	if PotionProfile.data.has("settings"):
 		PotionProfile.data["settings"][key] = val
+		# Файл пишет вызывающий (панель настроек по закрытию), но пометить
+		# профиль грязным надо здесь: иначе выход мимо кнопки «Закрыть» терял
+		# громкость — сброс на выходе смотрит именно на этот флаг.
+		PotionProfile._dirty = true
 
 func _ensure_bus(bus_name: String) -> void:
 	if AudioServer.get_bus_index(bus_name) != -1:

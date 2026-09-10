@@ -84,9 +84,6 @@ func _clamp_to_parent() -> void:
 	position.x = clampf(position.x, 0.0, maxf(0.0, par.size.x - size.x))
 	position.y = clampf(position.y, 0.0, maxf(0.0, par.size.y - size.y))
 
-func set_symbol(_sym: String) -> void:
-	pass
-
 func set_kind(k: int) -> void:
 	shape = k
 	queue_redraw()
@@ -95,11 +92,6 @@ func set_kind(k: int) -> void:
 func set_blob_visual(scale: float, col: Color) -> void:
 	blob_scale = clampf(scale, 0.45, 1.35)
 	blob_col = col
-	queue_redraw()
-
-func set_signature(sh: int, ti: int) -> void:
-	shape = sh
-	tint = ti
 	queue_redraw()
 
 # Навигатор: деталь-картинка. id — индекс в наборе (служит сигнатурой).

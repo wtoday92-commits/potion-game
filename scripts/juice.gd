@@ -36,15 +36,6 @@ func pop(node: Control, from_scale: float = 1.6, dur: float = 0.42) -> void:
 	t.tween_property(node, "scale", Vector2.ONE, dur).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	t.tween_property(node, "rotation", 0.0, dur).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
-# Бесконечный мягкий пульс (акцент на элементе).
-func pulse(node: Control, amp: float = 1.06, dur: float = 0.7) -> void:
-	if node == null:
-		return
-	node.pivot_offset = node.size * 0.5
-	var t := node.create_tween().set_loops()
-	t.tween_property(node, "scale", Vector2(amp, amp), dur).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	t.tween_property(node, "scale", Vector2.ONE, dur).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-
 # Плавный «набег» числа в подписи (рейтинг/чаевые/опыт).
 func count_up(label: Label, from_val: int, to_val: int, fmt: String = "%d", dur: float = 0.5) -> void:
 	if label == null:

@@ -4,15 +4,8 @@ extends Control
 ## (ЗАПОМНИ -> ВОССОЗДАЙ с таймерами -> РЕЙТИНГ).
 
 const PotionJarScene := preload("res://scenes/potion_jar.tscn")
-const WoodShader := preload("res://shaders/wood.gdshader")
 const PortraitBgShader := preload("res://shaders/portrait_bg.gdshader")
 const PortraitEdge := preload("res://scripts/portrait_edge.gd")
-
-func _make_wood_material(planks_val: float) -> ShaderMaterial:
-	var m := ShaderMaterial.new()
-	m.shader = WoodShader
-	m.set_shader_parameter("planks", planks_val)
-	return m
 
 # Параметры зелья. count.min = 1 (нулевых сгустков не бывает).
 const PARAMS := {
@@ -1236,13 +1229,6 @@ func _on_music_vol(v: float) -> void:
 func _on_sfx_vol(v: float) -> void:
 	Sfx.set_sfx_volume(v / 100.0)
 
-func _on_vol_drag_end(_value_changed: bool) -> void:
-	PotionProfile.save()             # сохраняем настройку по концу перетаскивания
-
-func _on_sfx_drag_end(_value_changed: bool) -> void:
-	PotionProfile.save()
-	Sfx.play("tick")                 # превью громкости эффектов
-
 # Чип HUD: «эмодзи + значение», значение обновляется в _refresh_hud().
 # Один счётчик статус-строки: иконка + число, без собственной подложки —
 # подложка теперь общая на всю строку.
@@ -1337,35 +1323,6 @@ func _tile_locked(b: Button, locked: bool, note: String) -> void:
 	if l != null and is_instance_valid(l):
 		l.add_theme_color_override("font_color", Color(0.6, 0.6, 0.66) if locked else UI.TXT)
 	b.modulate = Color(0.75, 0.75, 0.8, 1.0) if locked else Color.WHITE
-
-# Единая кнопка меню (primary — золотая заливка, secondary — обычная тема).
-func _menu_button(text: String, primary: bool = false, h: float = 66.0, icon_name: String = "") -> Button:
-	var b := Button.new()
-	b.text = text
-	b.custom_minimum_size = Vector2(440, h)
-	b.add_theme_font_size_override("font_size", UI.FS_XL if primary else 26)
-	b.add_theme_constant_override("h_separation", UI.SP_L)
-	b.focus_mode = Control.FOCUS_NONE
-	if icon_name != "":
-		var t := _ui(icon_name)
-		if t != null:
-			# иконка отдельным слоем фикс. размера (Button.icon рисует PNG 1:1 → гиганты)
-			var ir := TextureRect.new()
-			ir.texture = t
-			ir.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-			ir.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-			ir.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			ir.set_anchors_preset(Control.PRESET_LEFT_WIDE)
-			ir.offset_left = 16.0
-			ir.offset_right = 16.0 + (h - 18.0)
-			ir.offset_top = 9.0
-			ir.offset_bottom = -9.0
-			b.add_child(ir)
-	if primary:
-		for st in ["normal", "hover", "pressed"]:
-			b.add_theme_stylebox_override(st, _tab_sb(true))
-		b.add_theme_color_override("font_color", UI.GOLD)
-	return b
 
 # ---------- экран коллекции ----------
 # Статичный каркас (заголовок, скролл, «назад») строится один раз; наполнение
@@ -1714,6 +1671,8 @@ func _ach_card(a: Dictionary) -> Control:
 	var n_tiers: int = int(a["tiers"]) if manual else thresholds.size()
 	var val: int = 0 if manual else _ach_value(a["id"])
 	var filled := 0
+	if manual:
+		filled = mini(PotionProfile.ach_manual(String(a["id"])), n_tiers)
 	for th in thresholds:
 		if val >= int(th): filled += 1
 	var unlocked: bool = filled > 0
@@ -2273,62 +2232,6 @@ func _portrait_card(npc_e: Dictionary, sz: float) -> Control:
 	card.add_child(pic)
 	return card
 
-func _big_avatar(npc_e: Dictionary, sz: float) -> Control:
-	var tier: int = int(npc_e.get("tier", 1))
-	var tcol: Color = GameData.TIER_COLORS.get(tier, Color.WHITE)
-	var box := Control.new()
-	box.custom_minimum_size = Vector2(sz, sz)
-	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var glow := Panel.new()
-	glow.set_anchors_preset(Control.PRESET_FULL_RECT)
-	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var gsb := StyleBoxFlat.new()
-	gsb.bg_color = Color(tcol.r, tcol.g, tcol.b, 0.16)
-	gsb.set_corner_radius_all(int(sz))
-	gsb.shadow_color = Color(tcol.r, tcol.g, tcol.b, 0.55)
-	gsb.shadow_size = 26
-	glow.add_theme_stylebox_override("panel", gsb)
-	box.add_child(glow)
-	var disc := Panel.new()
-	disc.set_anchors_preset(Control.PRESET_FULL_RECT)
-	disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var dsb := StyleBoxFlat.new()
-	dsb.bg_color = Color(0.09, 0.09, 0.12, 1.0)
-	dsb.set_corner_radius_all(int(sz))
-	disc.add_theme_stylebox_override("panel", dsb)
-	box.add_child(disc)
-	var tex := load(GameData.portrait_path(npc_e)) as Texture2D
-	if tex:
-		var pic := TextureRect.new()
-		pic.set_anchors_preset(Control.PRESET_FULL_RECT)
-		var ins: float = sz * 0.15                 # квадрат портрета вписан в круг
-		pic.offset_left = ins; pic.offset_top = ins; pic.offset_right = -ins; pic.offset_bottom = -ins
-		pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-		pic.texture = tex
-		pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		box.add_child(pic)
-	else:
-		var e := Label.new()
-		e.set_anchors_preset(Control.PRESET_FULL_RECT)
-		e.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		e.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		e.add_theme_font_size_override("font_size", int(sz * 0.5))
-		e.text = npc_e.get("emoji", "❓")
-		e.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		box.add_child(e)
-	var ring := Panel.new()                        # тонкая цветная окантовка (не металл)
-	ring.set_anchors_preset(Control.PRESET_FULL_RECT)
-	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var rsb := StyleBoxFlat.new()
-	rsb.bg_color = Color(0, 0, 0, 0)
-	rsb.set_corner_radius_all(int(sz))
-	rsb.set_border_width_all(4)
-	rsb.border_color = Color(tcol.r, tcol.g, tcol.b, 0.85)
-	ring.add_theme_stylebox_override("panel", rsb)
-	box.add_child(ring)
-	return box
-
 # Текущая градация NPC-ачивки (0..len(t)) по порогам.
 func _npc_ach_tier(ns: Dictionary, ach: Dictionary) -> int:
 	var v: int = _npc_ach_value(ns, ach)
@@ -2618,15 +2521,6 @@ func _submit_auth(is_reg: bool, login_edit: LineEdit, pw_edit: LineEdit, nick_ed
 	else:
 		msg.add_theme_color_override("font_color", UI.BAD)
 		msg.text = str(res.get("message", "Ошибка"))
-
-func _acc_line(text: String, col: Color, font: int = 16) -> void:
-	var l := Label.new()
-	l.text = text
-	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.add_theme_font_size_override("font_size", font)
-	l.add_theme_color_override("font_color", col)
-	account_list.add_child(l)
 
 func _acc_input(placeholder: String, secret: bool) -> LineEdit:
 	var e := LineEdit.new()
@@ -2951,6 +2845,7 @@ func _render_leaderboard(rows: Array, highlight: int) -> void:
 			me = highlight < 0 or int(e.get("score", 0)) == highlight
 		if me:
 			marked = true
+			_lb_fame(rank)
 		var medal: Color = LB_MEDAL.get(rank, Color.TRANSPARENT)
 		var accent: Color = UI.OK if me else (medal if rank <= 3 else UI.BORDER_C)
 		var rowp := PanelContainer.new()
@@ -2994,6 +2889,14 @@ func _render_leaderboard(rows: Array, highlight: int) -> void:
 # Пояснение под списком: гость в глобальный топ не попадает (писать в него может
 # только аккаунт), а вошедший может просто не пролезть в топ-50 — раньше и то и
 # другое выглядело как «игра потеряла мой результат».
+# «Слава галактики»: ступень 1 — попал в топ-50, ступень 2 — в тройку. Ачивка
+# была помечена как ручная, но выдавать её было некому.
+func _lb_fame(rank: int) -> void:
+	if daily_mode or _daily_end or not PotionAuth.is_logged_in():
+		return                       # у дейлика своя доска, славы она не даёт
+	if PotionProfile.ach_manual_set("leaderboard", 2 if rank <= 3 else 1):
+		_toast("🏆 Слава галактики: место %d" % rank, UI.GOLD)
+
 func _lb_footer(found_me: bool) -> void:
 	var best: int = int((PotionProfile.data.get("stats", {}) as Dictionary).get("best_cycle_score", 0))
 	var txt := ""
@@ -5444,23 +5347,6 @@ func _mod_row(tex: Texture2D, emoji: String, text: String, desc: String, col: Co
 
 const FOCUS_IMG := {"bubbles": "bubble", "color": "color", "size": "size"}
 
-# Стайлбокс карточки: тёмный фон, тир-кайма, толстый левый акцент (яркость каймы
-# растёт на hover/press через параметр k).
-func _card_sb(tcol: Color, k: float) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.11, 0.10, 0.15, 1.0)
-	sb.set_corner_radius_all(18)
-	sb.border_width_left = 7
-	sb.border_width_top = 2
-	sb.border_width_right = 2
-	sb.border_width_bottom = 2
-	sb.border_color = Color(tcol.r, tcol.g, tcol.b, k)
-	sb.shadow_color = Color(tcol.r, tcol.g, tcol.b, 0.28 * k)
-	sb.shadow_size = 10
-	return sb
-
-# Круглая аватарка: тир-свечение → тёмный диск → портрет → металлическое кольцо
-# (frame_round.png маскирует портрет в круг). Возвращает Control size×size.
 func _card_avatar(npc_e: Dictionary, sz: float) -> Control:
 	var tier: int = int(npc_e.get("tier", 1))
 	var tcol: Color = GameData.TIER_COLORS.get(tier, Color.WHITE)

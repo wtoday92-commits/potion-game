@@ -65,15 +65,12 @@ func _empty_profile() -> Dictionary:
 		"settings": {"music_vol": 0.6, "sfx_vol": 0.9},   # громкость (0..1)
 		# заведено под будущие фазы (логики пока нет):
 		"achievements": {"general": {}, "npc": {}},
-		"lore_phrases": {"unlocked_by_npc": {}},
 		"passives": {"unlocked_by_npc": {}, "active": []},
 		# Фаза 7: умения игрока. charges — текущие заряды (0..3);
 		# perfect_counter — идеалов накоплено в счёт бонусного заряда (сброс на 3).
 		"skills": {"charges": 0, "perfect_counter": 0},
 		# Связи NPC: grudge/offended/left — состояние ЗА ЦИКЛ (сброс в новом цикле).
-		# discovered_relations — открытые пары "a|b", НАВСЕГДА.
 		"npc_relations_state": {},
-		"discovered_relations": [],
 		# Постоянный клиент: гость, которого игрок «ведёт». Он обязательно
 		# заглядывает раз в FAVOURITE_EVERY дней, иначе докачать репутацию до
 		# верхних уровней нельзя — гостя надо ещё встретить.
@@ -123,28 +120,11 @@ func reset_relations_cycle() -> void:
 	data["npc_relations_state"] = {}
 	_dirty = true
 
-func discover_relation(key: String) -> bool:
-	var arr: Array = data.get("discovered_relations", [])
-	if key in arr:
-		return false
-	arr.append(key)
-	data["discovered_relations"] = arr
-	_dirty = true
-	save()
-	return true
-
 # ---------- Фаза 7: заряды умений ----------
 const SKILL_CHARGE_CAP := 3
 
 func get_charges() -> int:
 	return int(data.get("skills", {}).get("charges", 0))
-
-func add_charge(n: int = 1) -> void:
-	var s: Dictionary = data.get("skills", {})
-	s["charges"] = clampi(int(s.get("charges", 0)) + n, 0, skill_charge_cap())
-	data["skills"] = s
-	_dirty = true
-	save()
 
 func spend_charge() -> bool:
 	var s: Dictionary = data.get("skills", {})
@@ -512,6 +492,7 @@ func adjust_rep(npc_id: String, delta: float) -> void:
 		delta *= patent_rep_mult()   # патент «Доброе имя» — только на прирост
 	rep["value"] = maxf(0.0, float(rep["value"]) + delta)
 	rep["level"] = GameData.rep_level(float(rep["value"]))
+	_dirty = true          # «Погром» правит репутацию мимо record_result — иначе потеря
 
 # Точечный счётчик в статистике гостя — для ачивок вида kind="stat"
 # (печати Хранителя, доверие Ир и т.п.), у которых нет своего поля в _empty_npc_stats.
@@ -525,6 +506,25 @@ func bump_npc_stat(npc_id: String, key: String, n: int = 1) -> void:
 func npc_stats(npc_id: String) -> Dictionary:
 	ensure_npc(npc_id)
 	return data["npc_stats"][npc_id]
+
+# ---------- Ручные ачивки ----------
+# У «Молнии на пределе» и «Славы галактики» нет метрики в профиле: условие
+# ловится в коде. Без хранилища обе висели вечно закрытыми, но считались в
+# «ОТКРЫТО X/N» — три ступени, до которых нельзя было добраться.
+func ach_manual(id: String) -> int:
+	return int(((data.get("achievements", {}) as Dictionary).get("general", {}) as Dictionary).get(id, 0))
+
+# Поднять ступень (только вверх). true — ступень действительно выросла.
+func ach_manual_set(id: String, tier: int) -> bool:
+	var ach: Dictionary = data.get("achievements", {})
+	var gen: Dictionary = ach.get("general", {})
+	if int(gen.get(id, 0)) >= tier:
+		return false
+	gen[id] = tier
+	ach["general"] = gen
+	data["achievements"] = ach
+	save()
+	return true
 
 # ---------- запись результата раунда ----------
 # grade: "perfect"|"good"|"swill"|"bad". time_frac — доля потраченного времени
@@ -551,6 +551,9 @@ func record_result(npc_id: String, tier: int, overall: float, grade: String,
 	var is_bad := grade == "bad"
 	var hard := reg_level >= 3
 	var level4 := reg_level == 4
+	# «Молния на пределе»: идеал пятого тира на макс. сложности в первую треть таймера
+	if is_perfect and tier >= 5 and level4 and time_frac <= 1.0 / 3.0:
+		ach_manual_set("speedrun", 1)
 
 	# --- общая статистика ---
 	var st: Dictionary = data["stats"]
@@ -698,9 +701,6 @@ func tips_balance() -> int:
 
 func item_count(id: String, grade: int) -> int:
 	return int((data.get("inventory", {}) as Dictionary).get("%s_%d" % [id, grade], 0))
-
-func inventory_all() -> Dictionary:
-	return data.get("inventory", {})
 
 # Купить (списать чаевые, +1 в инвентарь). false = не хватило баланса.
 func buy_item(id: String, grade: int, price: int) -> bool:

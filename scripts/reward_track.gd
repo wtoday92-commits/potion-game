@@ -58,15 +58,6 @@ func _notification(what: int) -> void:
 
 # ---------- построение ----------
 
-func set_days(n: int) -> void:
-	days = maxi(1, n)
-	if marks.size() != days:
-		marks.resize(days)
-		for i in days:
-			if typeof(marks[i]) != TYPE_DICTIONARY:
-				marks[i] = {"kind": KIND_EMPTY, "npc": ""}
-	_rebuild()
-
 # Полный сброс на новый цикл.
 func reset(n: int) -> void:
 	marks = []
