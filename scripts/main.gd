@@ -85,6 +85,7 @@ var skill_pips: Array = []            # ColorRect-индикаторы заря�
 var skill_overlay: Control = null     # окно выбора гостя (who/ban)
 # Ежедневный заказ: одна и та же тройка у всех по дате; прогресс не трогаем
 var daily_mode: bool = false
+var daily_board: String = ""       # доска топа дейлика: «daily-ГГГГ-ММ-ДД» (UTC)
 var daily_diff: String = ""
 var daily_seq: Array = []
 var _daily_backup: Dictionary = {}
@@ -2808,16 +2809,33 @@ func _build_day() -> void:
 var lb_panel: Control = null
 var lb_list: VBoxContainer = null
 
+# Идентификатор доски. У дейлика набор гостей свой на каждую дату — значит и
+# топ должен быть на дату, иначе «топ дня» копил результаты за все дни подряд.
+func _lb_board_id() -> String:
+	# _daily_end держим тоже: на экране итога дейлика daily_mode уже сброшен, а
+	# кнопка топа должна показывать доску дня, куда только что ушёл счёт
+	if not (daily_mode or _daily_end):
+		return "arcade"
+	if daily_board != "":
+		return daily_board
+	var d: Dictionary = Time.get_datetime_dict_from_system(true)   # UTC, как и сид дня
+	return "daily-%04d-%02d-%02d" % [int(d["year"]), int(d["month"]), int(d["day"])]
+
 # Загрузка: онлайн-топ (Supabase) читаем ВСЕГДА, когда настроен бэкенд (чтение
 # публичное — даже гостю); иначе локальный список.
 func _lb_load() -> Array:
-	var mode: String = "daily" if daily_mode else "arcade"
+	var mode: String = _lb_board_id()
 	if PotionAuth.configured():
 		var rows: Array = await PotionAuth.leaderboard_load(mode)
 		if not rows.is_empty():
 			var out: Array = []
 			for r in rows:
-				out.append({"name": str(r.get("name", "?")), "score": int(r.get("score", 0)), "date": _lb_date(str(r.get("created_at", "")))})
+				out.append({
+					"name": str(r.get("name", "?")),
+					"score": int(r.get("score", 0)),
+					"date": _lb_date(str(r.get("created_at", ""))),
+					"uid": str(r.get("user_id", "")),
+				})
 			return out
 	return [] if daily_mode else PotionProfile.lb_local_all()   # дейлик — только онлайн-топ дня
 
@@ -2829,10 +2847,12 @@ func _lb_date(created: String) -> String:
 	return ""
 
 # Сохранить счёт: онлайн (если в аккаунте) + всегда локально (fallback/гость).
+# Онлайн перезаписывает свою строку и только если счёт выше — см. PotionAuth.
 func _lb_save(nick: String, score: int, mode: String = "arcade") -> void:
+	_lb_highlight = score          # подсветим свою строку при следующем открытии топа
 	if PotionAuth.is_logged_in():
 		await PotionAuth.leaderboard_save(mode, nick, score)
-	if mode == "arcade":
+	if not mode.begins_with("daily"):
 		PotionProfile.lb_local_add(nick, score)
 
 var _lb_highlight: int = -1        # какой счёт подсветить при следующем открытии
@@ -2907,11 +2927,30 @@ func _render_leaderboard(rows: Array, highlight: int) -> void:
 		l.add_theme_font_size_override("font_size", UI.FS_M)
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		lb_list.add_child(l)
+		_lb_footer(true)
 		return
+	var my_uid: String = PotionAuth.user_id()      # пусто у гостя
+	var my_nick: String = PotionAuth.get_nickname()
+	var marked := false
+	# Ник не уникален: два аккаунта могут назваться одинаково. Одинаковые имена
+	# в списке разводим коротким хвостом id, иначе непонятно, кто есть кто.
+	var name_count: Dictionary = {}
+	for e in rows:
+		var nm: String = str(e.get("name", "?"))
+		name_count[nm] = int(name_count.get(nm, 0)) + 1
 	var rank := 0
 	for e in rows:
 		rank += 1
-		var me: bool = highlight >= 0 and int(e.get("score", -999)) == highlight
+		# Своя строка — по user_id. Ников-двойников в глобальном топе сколько
+		# угодно, а прежняя подсветка «по совпадению счёта» цепляла чужие.
+		var row_uid: String = str(e.get("uid", ""))
+		var me := false
+		if my_uid != "" and row_uid != "":
+			me = row_uid == my_uid
+		elif not marked and str(e.get("name", "")) == my_nick:
+			me = highlight < 0 or int(e.get("score", 0)) == highlight
+		if me:
+			marked = true
 		var medal: Color = LB_MEDAL.get(rank, Color.TRANSPARENT)
 		var accent: Color = UI.OK if me else (medal if rank <= 3 else UI.BORDER_C)
 		var rowp := PanelContainer.new()
@@ -2928,7 +2967,10 @@ func _render_leaderboard(rows: Array, highlight: int) -> void:
 		rk.add_theme_color_override("font_color", medal if rank <= 3 else UI.TXT_DIM)
 		r.add_child(rk)
 		var n := Label.new()
-		n.text = str(e.get("name", "?"))
+		var disp: String = str(e.get("name", "?"))
+		if int(name_count.get(disp, 0)) > 1 and row_uid != "":
+			disp += "#" + row_uid.replace("-", "").substr(0, 4)
+		n.text = disp + ("  · ты" if me else "")
 		n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		n.add_theme_font_size_override("font_size", UI.FS_M)
 		n.add_theme_color_override("font_color", UI.OK if me else UI.TXT)
@@ -2947,6 +2989,33 @@ func _render_leaderboard(rows: Array, highlight: int) -> void:
 		s.add_theme_color_override("font_color", UI.GOLD)
 		r.add_child(s)
 		lb_list.add_child(rowp)
+	_lb_footer(marked)
+
+# Пояснение под списком: гость в глобальный топ не попадает (писать в него может
+# только аккаунт), а вошедший может просто не пролезть в топ-50 — раньше и то и
+# другое выглядело как «игра потеряла мой результат».
+func _lb_footer(found_me: bool) -> void:
+	var best: int = int((PotionProfile.data.get("stats", {}) as Dictionary).get("best_cycle_score", 0))
+	var txt := ""
+	if not PotionAuth.is_logged_in():
+		txt = "Ты играешь гостем — результаты в глобальный топ не идут.
+Войди в аккаунт, чтобы попасть в список."
+		if best > 0 and not daily_mode:
+			txt += "
+Лучший цикл на этом устройстве: %d" % best
+	elif not found_me:
+		txt = "Твоего результата в топ-50 пока нет."
+		if best > 0 and not daily_mode:
+			txt += " Лучший цикл: %d" % best
+	if txt == "":
+		return
+	var hint := Label.new()
+	hint.text = txt
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_font_size_override("font_size", UI.FS_S)
+	hint.add_theme_color_override("font_color", UI.TXT_DIM)
+	lb_list.add_child(hint)
 
 # ---------- Магазин (Фаза 6) ----------
 var shop_panel: Control = null
@@ -4442,6 +4511,10 @@ func _enter_daily(diff: String) -> void:
 	PotionProfile.meta_off = true    # патенты выключены — в дейлике условия равные
 	daily_mode = true
 	daily_diff = diff
+	# фиксируем дату захода: прогон через полночь UTC не должен уехать в топ
+	# следующего дня, где сид гостей уже другой
+	var _dd: Dictionary = Time.get_datetime_dict_from_system(true)
+	daily_board = "daily-%04d-%02d-%02d" % [int(_dd["year"]), int(_dd["month"]), int(_dd["day"])]
 	daily_seq = _build_daily_seq()
 	Sfx.enter_game()
 	stage = 0
@@ -4498,7 +4571,7 @@ func _show_daily_end() -> void:
 	Sfx.play("weekEnd")
 	cycle_active = false
 	var sc: int = cycle_score
-	_lb_save(PotionAuth.get_nickname(), sc, "daily")   # отдельный топ дейлика
+	_lb_save(PotionAuth.get_nickname(), sc, _lb_board_id())   # топ дейлика — на дату
 	_restore_daily_backup()                            # прогресс не пострадал
 	daily_mode = false
 	daily_diff = ""

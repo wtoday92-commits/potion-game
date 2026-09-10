@@ -668,20 +668,26 @@ func end_cycle(cycle_score: int) -> Dictionary:
 
 # ---------- Локальный лидерборд (fallback, когда не в аккаунте) ----------
 func lb_local_all() -> Array:
-	return data.get("leaderboard", [])
+	return (data.get("leaderboard", []) as Array).duplicate(true)   # копия: список правим только тут
 
 # Добавить/обновить запись (одна строка на ник — храним ВЫСШИЙ счёт).
+# Дата — та, когда рекорд был поставлен: слабый прогон не должен «омолаживать»
+# чужой рекорд, иначе в списке стоял старый счёт с сегодняшним числом.
 func lb_local_add(nick: String, score: int) -> void:
 	var lst: Array = (data.get("leaderboard", []) as Array).duplicate()
+	var d: Dictionary = Time.get_date_dict_from_system()
+	var today: String = "%02d.%02d.%d" % [d["day"], d["month"], d["year"]]
 	var best: int = score
+	var when: String = today
 	var kept: Array = []
 	for e in lst:
 		if String(e.get("name", "")) == nick:
-			best = maxi(best, int(e.get("score", 0)))
+			if int(e.get("score", 0)) >= best:
+				best = int(e.get("score", 0))
+				when = String(e.get("date", today))
 		else:
 			kept.append(e)
-	var d: Dictionary = Time.get_date_dict_from_system()
-	kept.append({"name": nick, "score": best, "date": "%02d.%02d.%d" % [d["day"], d["month"], d["year"]]})
+	kept.append({"name": nick, "score": best, "date": when})
 	kept.sort_custom(func(a, b): return int(a.get("score", 0)) > int(b.get("score", 0)))
 	data["leaderboard"] = kept.slice(0, mini(50, kept.size()))
 	save()
