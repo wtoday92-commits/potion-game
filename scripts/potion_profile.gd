@@ -409,10 +409,32 @@ func load_profile() -> void:
 			f.close()
 			var parsed: Variant = JSON.parse_string(txt)
 			if parsed is Dictionary:
-				base = _deep_merge(base, parsed)
+				base = _deep_merge(base, _whole_to_int(parsed))
 	base["last_seen_at"] = _now()
 	base["version"] = SCHEMA_VERSION
 	data = base
+
+# JSON не различает целые и дробные: после первой же перезагрузки опыт в файле
+# выглядит как 200000.0, а счётчик циклов как 0.0. Читатели везде приводят к int,
+# но держать соглашение на дисциплине не хочется — чиним один раз на загрузке.
+# Поля, которые дробные по смыслу, оставляем как есть.
+const FLOAT_KEYS := ["weighted", "weighted_progress", "count", "value", "music_vol", "sfx_vol"]
+
+func _whole_to_int(v: Variant) -> Variant:
+	if v is Dictionary:
+		var out: Dictionary = {}
+		for k in (v as Dictionary):
+			var sub: Variant = (v as Dictionary)[k]
+			out[k] = sub if String(k) in FLOAT_KEYS else _whole_to_int(sub)
+		return out
+	if v is Array:
+		var arr: Array = []
+		for e in (v as Array):
+			arr.append(_whole_to_int(e))
+		return arr
+	if v is float and is_equal_approx(v, floor(v)) and absf(v) < 9007199254740992.0:
+		return int(v)
+	return v
 
 func save() -> void:
 	# помечаем «грязным» и пишем сразу — профиль небольшой, дебаунс не нужен

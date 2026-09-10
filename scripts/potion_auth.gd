@@ -125,7 +125,11 @@ func _login_to_email(login: String) -> String:
 				out += "-" + String.num_int64(b, 16)
 	if out == "":
 		out = "user"
-	return "u" + out.substr(0, 60) + EMAIL_DOMAIN
+	# Обрезка до 60 знаков сама по себе склеивала бы два очень длинных логина в
+	# один аккаунт — дописываем хвост от хеша полного логина.
+	if out.length() > 60:
+		out = out.substr(0, 52) + String.num_uint64(hash(out), 16).substr(0, 8)
+	return "u" + out + EMAIL_DOMAIN
 
 func _apply_session(sess: Dictionary, nickname: String = "") -> void:
 	data["mode"] = "user"

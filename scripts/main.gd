@@ -821,7 +821,7 @@ func _dev_reset() -> void:
 	if PotionAuth.is_logged_in():
 		PotionAuth.push_profile()                # затираем и облачную копию
 	# сбрасываем состояние сессии
-	daily_mode = false; daily_diff = ""; _daily_backup = {}; _daily_end = false
+	daily_mode = false; daily_diff = ""; daily_board = ""; _daily_backup = {}; _daily_end = false
 	PotionProfile.meta_off = false
 	banned_npcs = {}; guaranteed_npc = ""
 	cycle_active = false; cycle_score = 0; _tb_rating_shown = 0
@@ -2710,10 +2710,7 @@ func _lb_board_id() -> String:
 	# кнопка топа должна показывать доску дня, куда только что ушёл счёт
 	if not (daily_mode or _daily_end):
 		return "arcade"
-	if daily_board != "":
-		return daily_board
-	var d: Dictionary = Time.get_datetime_dict_from_system(true)   # UTC, как и сид дня
-	return "daily-%04d-%02d-%02d" % [int(d["year"]), int(d["month"]), int(d["day"])]
+	return daily_board if daily_board != "" else "arcade"
 
 # Загрузка: онлайн-топ (Supabase) читаем ВСЕГДА, когда настроен бэкенд (чтение
 # публичное — даже гостю); иначе локальный список.
@@ -4417,7 +4414,9 @@ func _enter_daily(diff: String) -> void:
 	# фиксируем дату захода: прогон через полночь UTC не должен уехать в топ
 	# следующего дня, где сид гостей уже другой
 	var _dd: Dictionary = Time.get_datetime_dict_from_system(true)
-	daily_board = "daily-%04d-%02d-%02d" % [int(_dd["year"]), int(_dd["month"]), int(_dd["day"])]
+	# Сложность в ключе доски: на тяжёлом потолок очков принципиально выше, и в
+	# общем списке верх навсегда доставался бы только ему.
+	daily_board = "daily-%04d-%02d-%02d-%s" % [int(_dd["year"]), int(_dd["month"]), int(_dd["day"]), diff]
 	daily_seq = _build_daily_seq()
 	Sfx.enter_game()
 	stage = 0
@@ -5558,7 +5557,7 @@ func _show_cycle_end() -> void:
 func _show_start() -> void:
 	if daily_mode:                   # вышли из дейлика — откатываем прогресс-профиль
 		_restore_daily_backup()
-		daily_mode = false; daily_diff = ""; _daily_end = false
+		daily_mode = false; daily_diff = ""; daily_board = ""; _daily_end = false
 	Sfx.enter_menu()                 # главное меню — трек меню
 	phase = "start"
 	result_panel.visible = false
@@ -6006,21 +6005,32 @@ func _show_mod_chip() -> void:
 	mod_chip_box.visible = true
 
 # ---------- таймеры фаз ----------
+# Что показывала подпись фазы в прошлом кадре — чтобы не собирать строку заново
+# шестьдесят раз в секунду ради одной и той же секунды.
+var _phase_lbl_key: String = ""
+var _items_btn_key: String = ""
+
 func _process(delta: float) -> void:
 	if items_btn != null:          # «сумка» видна в игре/выборе, если магазин открыт
-		items_btn.visible = not daily_mode and GameData.prog_mech_unlocked("shop", _xp()) and (phase == "day" or phase == "select" or phase == "memorize" or phase == "recreate")
+		var ib_key: String = "%s|%d|%d" % [phase, int(daily_mode), _xp()]
+		if ib_key != _items_btn_key:
+			_items_btn_key = ib_key
+			items_btn.visible = not daily_mode and GameData.prog_mech_unlocked("shop", _xp()) and (phase == "day" or phase == "select" or phase == "memorize" or phase == "recreate")
 	# инвентарь открыт (применяем предметы) — ставим таймер/механику на паузу
 	if items_panel != null and items_panel.visible:
 		return
 	var no_timer: bool = mech != null and mech.no_timer(self)   # Тот-Кто-Ждёт: без таймеров
 	if phase == "memorize":
 		if no_timer:
-			phase_label.text = "ЗАПОМНИ — не спеши, жми ▸"
+			_set_phase_label("ЗАПОМНИ — не спеши, жми ▸")
 		else:
 			phase_left -= delta
 			# лампы ЗАПОЛНЯЮТСЯ по мере запоминания
 			bulb_bar.set_fraction(1.0 - clampf(phase_left / phase_total, 0.0, 1.0))
-			phase_label.text = "ЗАПОМНИ — %dс" % int(ceil(maxf(phase_left, 0.0)))
+			var _sec: int = int(ceil(maxf(phase_left, 0.0)))
+			if _phase_lbl_key != "memorize%d" % _sec:
+				_phase_lbl_key = "memorize%d" % _sec
+				phase_label.text = "ЗАПОМНИ — %dс" % _sec
 			if phase_left <= 0.0:
 				_start_recreate()
 	elif phase == "recreate":
@@ -6028,15 +6038,23 @@ func _process(delta: float) -> void:
 			mech.process(self, delta)      # покадровый хук механики (таймеры/анимация)
 		_apply_drunk(drunk_amount)         # «пьяная» качка камеры + двоение (градус Пита)
 		if no_timer:
-			phase_label.text = "ВОССОЗДАЙ — жми «Готово»"
+			_set_phase_label("ВОССОЗДАЙ — жми «Готово»")
 		else:
 			phase_left -= delta * timer_rate       # градус Пита замедляет ход
 			# лампы ГАСНУТ по мере игры
 			bulb_bar.set_fraction(clampf(phase_left / phase_total, 0.0, 1.0))
-			phase_label.text = "ВОССОЗДАЙ — %dс" % int(ceil(maxf(phase_left, 0.0)))
+			var _sec: int = int(ceil(maxf(phase_left, 0.0)))
+			if _phase_lbl_key != "recreate%d" % _sec:
+				_phase_lbl_key = "recreate%d" % _sec
+				phase_label.text = "ВОССОЗДАЙ — %dс" % _sec
 			if phase_left <= 0.0:
 				_auto_finish = true          # таймер истёк сам — для стикера bad7
 				_finish()
+
+func _set_phase_label(txt: String) -> void:
+	if _phase_lbl_key != txt:
+		_phase_lbl_key = txt
+		phase_label.text = txt
 
 # Насколько верно выставлен один ползунок (0..1) — та же формула, что в _do_finish.
 # Нужно механикам (Хранитель Архива, Модница) для правила «выставлен верно».
@@ -6203,6 +6221,11 @@ func _do_finish() -> void:
 	if item_fx.has("flat") and good_res:
 		flat_bonus = int(item_fx["flat"])
 	var time_frac: float = clampf(1.0 - phase_left / maxf(0.001, phase_total), 0.0, 1.0)
+	# У бестаймерных гостей (Тот-Кто-Ждёт) phase_left не убывает, и доля времени
+	# выходила нулевой — то есть максимальный бонус за скорость при неограниченном
+	# времени на заказ. Раз таймера нет, то и премии за скорость быть не должно.
+	if mech and mech.no_timer(self):
+		time_frac = 1.0
 	# серии ДО записи результата (record_result их инкрементирует) — для особых стикеров
 	var sk0: Dictionary = PotionProfile.data["streaks"]
 	var perfect_run: int = (int(sk0.get("perfect_current", 0)) + 1) if grade == "perfect" else 0
